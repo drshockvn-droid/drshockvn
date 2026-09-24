@@ -4,6 +4,1137 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>CÔNG TY TNHH DR.SHOCK VN - Hệ Thống Quản Lý Dịch Vụ</title>
+  
+  <!-- Cấu hình Web App Chuyên Nghiệp trên iPhone, iPad & Android -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Dr.ShockVN">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#0b0f19">
+
+  <!-- Logo làm biểu tượng ứng dụng khi lưu ra màn hình chính điện thoại -->
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link rel="apple-touch-icon" href="logo.png">
+  <link rel="apple-touch-icon" href="LOGO%20TACH%20NEN%20Dr.SHOCK.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="logo.png">
+  <link rel="icon" type="image/png" href="LOGO%20TACH%20NEN%20Dr.SHOCK.png">
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #0b0f19;
+      color: #f3f4f6;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #111827; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+    
+    @media print {
+      body * { visibility: hidden; }
+      #invoice-modal, #invoice-modal * { visibility: visible; }
+      #invoice-modal {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        background: #ffffff !important;
+        color: #000000 !important;
+        margin: 0;
+        padding: 0;
+      }
+      .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col custom-scrollbar">
+
+  <!-- ================= THÔNG BÁO TOAST HỆ THỐNG ================= -->
+  <div id="toast-container" class="fixed top-5 right-5 z-[9999] flex flex-col gap-2 max-w-sm pointer-events-none"></div>
+
+  <!-- ================= MÀN HÌNH ĐĂNG NHẬP ================= -->
+  <div id="login-screen" class="fixed inset-0 z-50 bg-[#0b0f19] flex items-center justify-center p-4">
+    <div class="w-full max-w-md bg-gray-900 border border-gray-800 rounded-2xl p-6 sm:p-8 shadow-2xl">
+      <div class="text-center mb-6">
+        <h1 class="text-2xl sm:text-3xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-red-500 via-orange-400 to-yellow-400 uppercase">
+          CÔNG TY TNHH DR.SHOCK VN
+        </h1>
+        <p class="text-xs sm:text-sm text-gray-400 mt-1">Chuyên Nâng Cấp Phuộc & Bảo Dưỡng Gầm Ô Tô</p>
+        <p class="text-xs font-semibold text-amber-400 mt-1">
+          <i class="fa-solid fa-phone mr-1"></i>Hotline: 0356.795.954 - 079.8089.886
+        </p>
+      </div>
+
+      <div class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Chọn Tài Khoản Làm Việc</label>
+          <div id="login-user-list" class="grid grid-cols-1 gap-2.5">
+            <!-- Render đúng 3 tài khoản tự động -->
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1">Mã PIN Đăng Nhập</label>
+          <div class="relative">
+            <input type="password" id="login-pin-input" maxlength="6" placeholder="Nhập mã PIN..." onkeydown="if(event.key==='Enter') handleLoginSubmit()"
+              class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-center text-xl tracking-widest text-white focus:outline-none focus:border-red-500">
+          </div>
+          <div id="login-error-msg" class="text-xs font-semibold text-red-400 mt-2 text-center hidden flex items-center justify-center gap-1">
+            <i class="fa-solid fa-circle-exclamation"></i> <span id="login-error-text">Mã PIN không chính xác!</span>
+          </div>
+        </div>
+
+        <button onclick="handleLoginSubmit()" 
+          class="w-full py-3.5 bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 active:scale-[0.98] text-white font-bold rounded-xl shadow-lg transition duration-200">
+          <i class="fa-solid fa-right-to-bracket mr-2"></i>Đăng Nhập Làm Việc
+        </button>
+
+        <div class="pt-3 border-t border-gray-800/80 text-center space-y-2">
+          <div class="text-[11px] text-gray-500">
+            Mã PIN mặc định: <span class="text-gray-300 font-semibold">Chủ Xưởng (9999)</span> • <span class="text-gray-300 font-semibold">KTV (1111)</span> • <span class="text-gray-300 font-semibold">Kho (2222)</span>
+          </div>
+          <button onclick="restoreDefaultStaffPins()" type="button" class="text-[11px] text-orange-400 hover:text-orange-300 underline font-medium">
+            <i class="fa-solid fa-rotate mr-1"></i>Khôi phục lại mã PIN gốc nếu không vào được
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= GIAO DIỆN CHÍNH ================= -->
+  <div id="main-app" class="hidden flex-1 flex flex-col">
+    <!-- Header -->
+    <header class="bg-gray-900 border-b border-gray-800 sticky top-0 z-30 px-4 py-3">
+      <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center space-x-3">
+          <div>
+            <h1 class="text-lg sm:text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-red-500 via-orange-400 to-yellow-400 uppercase tracking-tight">
+              CÔNG TY TNHH DR.SHOCK VN
+            </h1>
+            <p class="text-xs text-amber-400 font-medium hidden sm:block">
+              <i class="fa-solid fa-phone mr-1"></i>Hotline: 0356.795.954 - 079.8089.886
+            </p>
+          </div>
+        </div>
+
+        <!-- User info & Logout -->
+        <div class="flex items-center space-x-3">
+          <div class="text-right">
+            <div id="current-user-name" class="text-sm font-bold text-white">Chủ Xưởng</div>
+            <div id="current-user-role" class="text-xs text-orange-400">Chủ Xưởng (Admin)</div>
+          </div>
+          <button onclick="handleLogout()" title="Đăng xuất" class="p-2 bg-gray-800 hover:bg-red-900/50 text-gray-300 hover:text-red-400 rounded-lg border border-gray-700 transition">
+            <i class="fa-solid fa-arrow-right-from-bracket"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <div class="max-w-7xl mx-auto mt-3 flex items-center space-x-2 overflow-x-auto pb-1 custom-scrollbar text-xs sm:text-sm font-semibold">
+        <button onclick="switchTab('tab-quote')" id="nav-tab-quote" class="tab-btn px-4 py-2 rounded-lg whitespace-nowrap bg-red-600 text-white shadow">
+          <i class="fa-solid fa-calculator mr-1.5"></i>1. Tiếp Nhận & Lập Bill
+        </button>
+        <button onclick="switchTab('tab-invoices')" id="nav-tab-invoices" class="tab-btn px-4 py-2 rounded-lg whitespace-nowrap bg-gray-800 text-gray-300 hover:bg-gray-700">
+          <i class="fa-solid fa-receipt mr-1.5"></i>2. Hóa Đơn Dịch Vụ
+        </button>
+        <button onclick="switchTab('tab-inventory')" id="nav-tab-inventory" class="tab-btn px-4 py-2 rounded-lg whitespace-nowrap bg-gray-800 text-gray-300 hover:bg-gray-700">
+          <i class="fa-solid fa-boxes-stacked mr-1.5"></i>3. Quản Lý Kho
+        </button>
+        <button onclick="switchTab('tab-customers')" id="nav-tab-customers" class="tab-btn admin-only px-4 py-2 rounded-lg whitespace-nowrap bg-gray-800 text-gray-300 hover:bg-gray-700">
+          <i class="fa-solid fa-users mr-1.5"></i>4. Khách Hàng
+        </button>
+        <button onclick="switchTab('tab-reports')" id="nav-tab-reports" class="tab-btn admin-only px-4 py-2 rounded-lg whitespace-nowrap bg-gray-800 text-gray-300 hover:bg-gray-700">
+          <i class="fa-solid fa-chart-line mr-1.5"></i>5. Báo Cáo Doanh Thu
+        </button>
+        <button onclick="switchTab('tab-staff')" id="nav-tab-staff" class="tab-btn admin-only px-4 py-2 rounded-lg whitespace-nowrap bg-gray-800 text-gray-300 hover:bg-gray-700">
+          <i class="fa-solid fa-id-card-clip mr-1.5"></i>6. Phân Quyền
+        </button>
+        <button onclick="switchTab('tab-profile')" id="nav-tab-profile" class="tab-btn admin-only px-4 py-2 rounded-lg whitespace-nowrap bg-gray-800 text-gray-300 hover:bg-gray-700">
+          <i class="fa-solid fa-gear mr-1.5"></i>7. Thông Tin Garage
+        </button>
+      </div>
+    </header>
+
+    <!-- Nội dung chính các Tabs -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4">
+      
+      <!-- TAB 1: TIẾP NHẬN & LẬP BÁO GIÁ -->
+      <section id="tab-quote" class="tab-content block space-y-4">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          
+          <!-- Cột Trái: Thông Tin Xe & Khách -->
+          <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+            <h2 class="text-sm font-bold text-orange-400 uppercase tracking-wider flex items-center">
+              <i class="fa-solid fa-car mr-2"></i>Thông Tin Xe Khách Hàng
+            </h2>
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">Biển Số Xe *</label>
+              <input type="text" id="quote-plate" placeholder="VD: 51K-888.88" 
+                class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm font-bold text-amber-400 uppercase focus:outline-none focus:border-red-500">
+            </div>
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">Tên Chủ Xe</label>
+              <input type="text" id="quote-name" placeholder="VD: Anh Minh" 
+                class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500">
+            </div>
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">Số Điện Thoại</label>
+              <input type="text" id="quote-phone" placeholder="VD: 0909123456" 
+                class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500">
+            </div>
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">Dòng Xe / Đời Xe</label>
+              <input type="text" id="quote-carmodel" placeholder="VD: Ford Ranger Raptor 2022" 
+                class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500">
+            </div>
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">Kỹ Thuật Viên Tiếp Nhận</label>
+              <select id="quote-advisor" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500">
+                <!-- Danh sách nhân sự -->
+              </select>
+            </div>
+          </div>
+
+          <!-- Cột Giữa & Phải: Chọn Phụ Tùng & Chi Tiết Báo Giá -->
+          <div class="lg:col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-4 flex flex-col justify-between">
+            <div class="space-y-3">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <h2 class="text-sm font-bold text-orange-400 uppercase tracking-wider flex items-center">
+                  <i class="fa-solid fa-wrench mr-2"></i>Nội Dung Dịch Vụ & Phụ Tùng
+                </h2>
+                <!-- 3 Nút Tiền Công Nhanh -->
+                <div class="flex flex-wrap gap-1.5">
+                  <button onclick="addQuickLabor('Công Lắp Phuộc & Gầm', 500000)" class="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-amber-300 text-xs font-semibold rounded border border-amber-500/30">
+                    + Công Lắp (500k)
+                  </button>
+                  <button onclick="addQuickLabor('Công Gia Công / Ép Cao Su', 400000)" class="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-sky-300 text-xs font-semibold rounded border border-sky-500/30">
+                    + Công Gia Công (400k)
+                  </button>
+                  <button onclick="addQuickLabor('Cân Chỉnh Góc Đặt Bánh Xe 3D', 450000)" class="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-emerald-300 text-xs font-semibold rounded border border-emerald-500/30">
+                    + Cân Chỉnh 3D (450k)
+                  </button>
+                </div>
+              </div>
+
+              <!-- Nút danh mục lọc kho -->
+              <div class="flex items-center space-x-1.5 overflow-x-auto pb-1 text-xs">
+                <button onclick="filterInventorySelector('ALL')" class="category-filter-btn px-2.5 py-1 bg-red-600 text-white rounded">Tất cả</button>
+                <button onclick="filterInventorySelector('PHUOC')" class="category-filter-btn px-2.5 py-1 bg-gray-800 text-gray-300 hover:bg-gray-700 rounded">Phuộc</button>
+                <button onclick="filterInventorySelector('NHOT')" class="category-filter-btn px-2.5 py-1 bg-gray-800 text-gray-300 hover:bg-gray-700 rounded">Nhớt</button>
+                <button onclick="filterInventorySelector('BOTHANG')" class="category-filter-btn px-2.5 py-1 bg-gray-800 text-gray-300 hover:bg-gray-700 rounded">Bố Thắng</button>
+                <button onclick="filterInventorySelector('ROTUYN')" class="category-filter-btn px-2.5 py-1 bg-gray-800 text-gray-300 hover:bg-gray-700 rounded">Rotuyn</button>
+                <button onclick="filterInventorySelector('GAM')" class="category-filter-btn px-2.5 py-1 bg-gray-800 text-gray-300 hover:bg-gray-700 rounded">Gầm</button>
+              </div>
+
+              <!-- Ô chọn phụ tùng từ kho -->
+              <div class="flex gap-2">
+                <select id="quick-item-select" class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs sm:text-sm text-white focus:outline-none focus:border-red-500">
+                  <option value="">-- Chọn phụ tùng từ kho Dr.Shock --</option>
+                </select>
+                <button onclick="addItemFromSelector()" class="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs sm:text-sm font-bold rounded-lg shadow">
+                  <i class="fa-solid fa-plus mr-1"></i>Thêm
+                </button>
+              </div>
+
+              <!-- Bảng danh sách phụ tùng trong bill -->
+              <div class="overflow-x-auto border border-gray-800 rounded-lg">
+                <table class="w-full text-left text-xs sm:text-sm">
+                  <thead class="bg-gray-800/80 text-gray-400 uppercase text-[11px]">
+                    <tr>
+                      <th class="py-2.5 px-3">Tên Hạng Mục / Phụ Tùng</th>
+                      <th class="py-2.5 px-2 w-20 text-center">SL</th>
+                      <th class="py-2.5 px-2 w-28 text-right">Đơn Giá (đ)</th>
+                      <th class="py-2.5 px-2 w-28 text-right">Thành Tiền (đ)</th>
+                      <th class="py-2.5 px-2 w-10 text-center">Xóa</th>
+                    </tr>
+                  </thead>
+                  <tbody id="quote-items-tbody" class="divide-y divide-gray-800 text-gray-200">
+                    <!-- Dynamic Rows -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Tổng Tiền & Nút Thanh Toán -->
+            <div class="pt-3 border-t border-gray-800 space-y-3">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="flex items-center space-x-2">
+                  <label class="text-xs text-gray-400">Giảm Giá Trực Tiếp (đ):</label>
+                  <input type="number" id="quote-discount-input" value="0" min="0" oninput="calculateQuoteTotal()" 
+                    class="w-32 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-right text-yellow-400 font-semibold focus:outline-none focus:border-red-500">
+                </div>
+
+                <div class="text-right">
+                  <span class="text-xs text-gray-400 mr-2">Tổng Thanh Toán:</span>
+                  <span id="quote-final-total" class="text-xl sm:text-2xl font-black text-red-500">0 đ</span>
+                </div>
+              </div>
+
+              <div class="flex flex-wrap gap-2">
+                <button onclick="handleSaveInvoice()" class="flex-1 py-3 bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold rounded-xl shadow-lg transition">
+                  <i class="fa-solid fa-receipt mr-1.5"></i>Xuất Hóa Đơn & In Phiếu Dịch Vụ
+                </button>
+                <button onclick="resetQuoteForm()" class="px-4 py-3 bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium rounded-xl border border-gray-700 transition">
+                  <i class="fa-solid fa-rotate-left"></i> Làm Mới
+                </button>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+      </section>
+
+      <!-- TAB 2: QUẢN LÝ HÓA ĐƠN ĐÃ XUẤT -->
+      <section id="tab-invoices" class="tab-content hidden space-y-4">
+        <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <h2 class="text-base font-bold text-white flex items-center">
+              <i class="fa-solid fa-file-invoice mr-2 text-orange-400"></i>Lịch Sử Hóa Đơn Dịch Vụ
+            </h2>
+            <input type="text" id="invoice-search" oninput="renderInvoiceList()" placeholder="Tìm theo biển số, tên khách..." 
+              class="w-full sm:w-64 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white">
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs sm:text-sm">
+              <thead class="bg-gray-800 text-gray-400 uppercase text-[11px]">
+                <tr>
+                  <th class="py-2.5 px-3">Mã HĐ</th>
+                  <th class="py-2.5 px-3">Thời Gian</th>
+                  <th class="py-2.5 px-3">Biển Số Xe</th>
+                  <th class="py-2.5 px-3">Khách Hàng</th>
+                  <th class="py-2.5 px-3">Cố Vấn / KTV</th>
+                  <th class="py-2.5 px-3 text-right">Tổng Tiền (đ)</th>
+                  <th class="py-2.5 px-3 text-center">Thao Tác</th>
+                </tr>
+              </thead>
+              <tbody id="invoice-list-tbody" class="divide-y divide-gray-800 text-gray-200">
+                <!-- Render invoices -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: QUẢN LÝ KHO HÀNG -->
+      <section id="tab-inventory" class="tab-content hidden space-y-4">
+        <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div class="flex items-center space-x-2">
+              <h2 class="text-base font-bold text-white flex items-center">
+                <i class="fa-solid fa-boxes-stacked mr-2 text-orange-400"></i>Kho Phụ Tùng & Vật Tư
+              </h2>
+              <button onclick="openModalAddInventory()" class="px-3 py-1 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-lg shadow">
+                + Thêm Mới
+              </button>
+            </div>
+            <div class="flex items-center space-x-2">
+              <input type="text" id="inventory-search" oninput="renderInventoryTable()" placeholder="Tìm mã, tên phụ tùng..." 
+                class="w-48 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white">
+            </div>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs sm:text-sm">
+              <thead class="bg-gray-800 text-gray-400 uppercase text-[11px]">
+                <tr>
+                  <th class="py-2.5 px-3">Mã Phụ Tùng</th>
+                  <th class="py-2.5 px-3">Tên Chi Tiết</th>
+                  <th class="py-2.5 px-3">Nhóm Hàng</th>
+                  <th class="py-2.5 px-3 text-center">Tồn Kho</th>
+                  <th class="py-2.5 px-3 text-right">Giá Bán Lẻ (đ)</th>
+                  <th class="py-2.5 px-3 text-center">Thao Tác</th>
+                </tr>
+              </thead>
+              <tbody id="inventory-list-tbody" class="divide-y divide-gray-800 text-gray-200">
+                <!-- Render inventory -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: KHÁCH HÀNG (ADMIN ONLY) -->
+      <section id="tab-customers" class="tab-content hidden space-y-4">
+        <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <h2 class="text-base font-bold text-white mb-3 flex items-center">
+            <i class="fa-solid fa-users mr-2 text-orange-400"></i>Danh Sách Khách Hàng Thân Thiết
+          </h2>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs sm:text-sm">
+              <thead class="bg-gray-800 text-gray-400 uppercase text-[11px]">
+                <tr>
+                  <th class="py-2.5 px-3">Biển Số Xe</th>
+                  <th class="py-2.5 px-3">Tên Khách Hàng</th>
+                  <th class="py-2.5 px-3">Số Điện Thoại</th>
+                  <th class="py-2.5 px-3">Số Lần Bảo Dưỡng</th>
+                  <th class="py-2.5 px-3 text-right">Tổng Chi Tiêu (đ)</th>
+                </tr>
+              </thead>
+              <tbody id="customer-list-tbody" class="divide-y divide-gray-800 text-gray-200">
+                <!-- Render customers -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 5: BÁO CÁO DOANH THU (ADMIN ONLY) -->
+      <section id="tab-reports" class="tab-content hidden space-y-4">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+            <p class="text-xs text-gray-400 uppercase font-semibold">Tổng Doanh Thu Toàn Bộ</p>
+            <p id="report-total-revenue" class="text-2xl font-black text-red-500 mt-1">0 đ</p>
+          </div>
+          <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+            <p class="text-xs text-gray-400 uppercase font-semibold">Tổng Hóa Đơn Dịch Vụ</p>
+            <p id="report-total-invoices" class="text-2xl font-black text-orange-400 mt-1">0</p>
+          </div>
+          <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+            <p class="text-xs text-gray-400 uppercase font-semibold">Lượng Khách Đã Phục Vụ</p>
+            <p id="report-total-customers" class="text-2xl font-black text-emerald-400 mt-1">0</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 6: PHÂN QUYỀN NHÂN SỰ (3 TÀI KHOẢN DUY NHẤT) -->
+      <section id="tab-staff" class="tab-content hidden space-y-4">
+        <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <div class="mb-4">
+            <h2 class="text-base font-bold text-white flex items-center">
+              <i class="fa-solid fa-id-card-clip mr-2 text-orange-400"></i>Quản Lý & Phân Quyền 3 Tài Khoản Nội Bộ
+            </h2>
+            <p class="text-xs text-gray-400 mt-0.5">Danh sách cố định gồm 3 vị trí nhân sự chuẩn của garage.</p>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs sm:text-sm">
+              <thead class="bg-gray-800 text-gray-400 uppercase text-[11px]">
+                <tr>
+                  <th class="py-2.5 px-3">Tên Hiển Thị</th>
+                  <th class="py-2.5 px-3">Chức Vụ</th>
+                  <th class="py-2.5 px-3 w-32">Mã PIN</th>
+                  <th class="py-2.5 px-3">Quyền Hạn</th>
+                </tr>
+              </thead>
+              <tbody id="staff-table-tbody" class="divide-y divide-gray-800 text-gray-200">
+                <!-- 3 accounts only -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 7: THÔNG TIN GARAGE -->
+      <section id="tab-profile" class="tab-content hidden space-y-4">
+        <div class="bg-gray-900 border border-gray-800 rounded-xl p-5 max-w-2xl mx-auto space-y-4">
+          <h2 class="text-base font-bold text-white flex items-center border-b border-gray-800 pb-3">
+            <i class="fa-solid fa-gear mr-2 text-orange-400"></i>Hồ Sơ Doanh Nghiệp Garage
+          </h2>
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Tên Công Ty / Doanh Nghiệp *</label>
+            <input type="text" id="prof-company-name" value="CÔNG TY TNHH DR.SHOCK VN" 
+              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white font-bold">
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">Mã Số Thuế *</label>
+              <input type="text" id="prof-mst" value="0318938775" 
+                class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white font-semibold">
+            </div>
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">Hotline Xưởng *</label>
+              <input type="text" id="prof-hotline" value="0356.795.954 - 079.8089.886" 
+                class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-amber-400 font-bold">
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Địa Chỉ Garage *</label>
+            <input type="text" id="prof-address" value="Số 9, Đường số 7, P. Bình Hưng Hòa A, Q. Bình Tân, TP.HCM" 
+              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Cam Kết & Chính Sách Bảo Hành</label>
+            <textarea id="prof-warranty" rows="3" 
+              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs sm:text-sm text-gray-300">Bảo hành phuộc theo chính sách NSX. Phụ tùng gầm bảo hành 6 tháng. Miễn phí kiểm tra siết lại gầm sau 1.000km đầu tiên.</textarea>
+          </div>
+          <button onclick="saveGarageProfile()" class="w-full py-3 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl shadow-lg transition">
+            <i class="fa-solid fa-floppy-disk mr-1.5"></i>Lưu Thay Đổi Thông Tin
+          </button>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ================= MODAL IN HÓA ĐƠN ================= -->
+  <div id="invoice-modal" class="fixed inset-0 z-50 bg-black/80 hidden flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+    <div class="bg-white text-gray-900 rounded-2xl w-full max-w-2xl p-6 sm:p-8 shadow-2xl relative">
+      <button onclick="closeInvoiceModal()" class="no-print absolute top-4 right-4 text-gray-400 hover:text-gray-700 text-xl font-bold">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+
+      <!-- Nội dung in -->
+      <div id="printable-invoice">
+        <div class="border-b-2 border-red-600 pb-4 mb-4">
+          <h1 class="text-xl sm:text-2xl font-black text-red-600 tracking-tight uppercase">CÔNG TY TNHH DR.SHOCK VN</h1>
+          <p class="text-xs text-gray-600 mt-1">Chuyên Nâng Cấp Phuộc & Bảo Dưỡng Gầm Ô Tô</p>
+          <p class="text-xs text-gray-700 font-medium">Địa chỉ: <span id="inv-print-address">Số 9, Đường số 7, P. Bình Hưng Hòa A, Q. Bình Tân, TP.HCM</span></p>
+          <p class="text-xs text-gray-700 font-medium">Hotline: <strong id="inv-print-hotline" class="text-red-600">0356.795.954 - 079.8089.886</strong> | MST: <span id="inv-print-mst">0318938775</span></p>
+        </div>
+
+        <div class="text-center my-3">
+          <h2 class="text-lg font-black uppercase tracking-wider text-gray-800">PHIẾU DỊCH VỤ & BẢO HÀNH</h2>
+          <p class="text-xs text-gray-500">Mã phiếu: <span id="inv-print-id" class="font-bold">INV-001</span> | Ngày: <span id="inv-print-date">24/09/2026</span></p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 text-xs bg-gray-50 p-3 rounded-lg border border-gray-200 mb-4">
+          <div><strong>Biển số:</strong> <span id="inv-print-plate" class="text-sm font-bold text-red-600">51K-888.88</span></div>
+          <div><strong>Khách hàng:</strong> <span id="inv-print-name">Anh Minh</span></div>
+          <div><strong>Dòng xe:</strong> <span id="inv-print-car">Ranger Raptor</span></div>
+          <div><strong>SĐT:</strong> <span id="inv-print-phone">0909123456</span></div>
+        </div>
+
+        <table class="w-full text-left text-xs mb-4 border border-gray-300">
+          <thead class="bg-gray-100 text-gray-700 font-bold border-b border-gray-300">
+            <tr>
+              <th class="p-2 border-r border-gray-300">Hạng Mục / Phụ Tùng</th>
+              <th class="p-2 w-12 text-center border-r border-gray-300">SL</th>
+              <th class="p-2 w-24 text-right border-r border-gray-300">Đơn Giá</th>
+              <th class="p-2 w-28 text-right">Thành Tiền</th>
+            </tr>
+          </thead>
+          <tbody id="inv-print-tbody" class="divide-y divide-gray-200">
+            <!-- Items -->
+          </tbody>
+        </table>
+
+        <div class="text-right space-y-1 text-xs border-t border-gray-300 pt-2 mb-4">
+          <div>Tạm tính: <span id="inv-print-subtotal" class="font-semibold">0 đ</span></div>
+          <div>Giảm giá: <span id="inv-print-discount" class="text-red-500 font-semibold">0 đ</span></div>
+          <div class="text-base font-black text-red-600 pt-1 border-t border-dashed border-gray-300">
+            TỔNG THANH TOÁN: <span id="inv-print-total">0 đ</span>
+          </div>
+        </div>
+
+        <div class="text-[11px] text-gray-600 italic border-t border-gray-200 pt-3">
+          <p id="inv-print-warranty-text">* Cam kết: Bảo hành phuộc theo chính sách NSX. Phụ tùng gầm bảo hành 6 tháng. Miễn phí kiểm tra siết lại gầm sau 1.000km đầu tiên.</p>
+        </div>
+
+        <div class="grid grid-cols-2 text-center text-xs mt-6 pt-4 font-bold text-gray-700">
+          <div>
+            <p>KHÁCH HÀNG</p>
+            <p class="text-[10px] font-normal text-gray-400 mt-1">(Ký & ghi rõ họ tên)</p>
+          </div>
+          <div>
+            <p>ĐẠI DIỆN DR.SHOCK VN</p>
+            <p class="text-[10px] font-normal text-gray-400 mt-1">(Kỹ thuật viên tiếp nhận)</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="no-print mt-6 flex justify-end space-x-2">
+        <button onclick="window.print()" class="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow">
+          <i class="fa-solid fa-print mr-1.5"></i>In Phiếu (AirPrint)
+        </button>
+        <button onclick="closeInvoiceModal()" class="px-4 py-2.5 bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold rounded-xl">
+          Đóng
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCRIPT LOGIC TOÀN BỘ HỆ THỐNG -->
+  <script>
+    // 1. CẤU HÌNH 3 TÀI KHOẢN CHUẨN
+    const DEFAULT_STAFF = [
+      { id: 'admin', name: 'Chủ Xưởng', role: 'admin', roleTitle: 'Chủ Xưởng (Admin)', pin: '9999' },
+      { id: 'tech', name: 'Kỹ Thuật Viên', role: 'tech', roleTitle: 'Kỹ Thuật Viên', pin: '1111' },
+      { id: 'stock', name: 'Nhân Viên Kho', role: 'stock', roleTitle: 'Nhân Viên Kho', pin: '2222' }
+    ];
+
+    // Kho phụ tùng mặc định
+    const DEFAULT_INVENTORY = [
+      { id: 'P01', name: 'Bộ Phuộc Tein Street Advance Z', cat: 'PHUOC', stock: 5, price: 26500000 },
+      { id: 'P02', name: 'Bộ Phuộc Profender Monotube 2.0', cat: 'PHUOC', stock: 4, price: 18500000 },
+      { id: 'N01', name: 'Nhớt Động Cơ Motul 300V 5W40 (Can 4L)', cat: 'NHOT', stock: 15, price: 1650000 },
+      { id: 'B01', name: 'Bộ Bố Thắng Trước Ceramic Dr.Shock', cat: 'BOTHANG', stock: 8, price: 1950000 },
+      { id: 'R01', name: 'Rotuyn Cân Bằng Trước 555 Japan', cat: 'ROTUYN', stock: 12, price: 650000 },
+      { id: 'G01', name: 'Càng A Dưới Nâng Cấp Cao Su Đúc', cat: 'GAM', stock: 6, price: 2800000 }
+    ];
+
+    let currentLoggedInUser = null;
+    let selectedLoginUserId = 'admin';
+    let currentQuoteItems = [];
+
+    // Hệ thống thông báo Toast thay thế alert()
+    function showNotification(msg, type = 'info') {
+      const container = document.getElementById('toast-container');
+      if (!container) return;
+      const toast = document.createElement('div');
+      const colors = {
+        success: 'bg-emerald-600 border-emerald-500 text-white',
+        error: 'bg-red-600 border-red-500 text-white',
+        warning: 'bg-amber-600 border-amber-500 text-white',
+        info: 'bg-gray-800 border-gray-700 text-gray-100'
+      };
+      const icons = {
+        success: 'fa-circle-check',
+        error: 'fa-circle-xmark',
+        warning: 'fa-triangle-exclamation',
+        info: 'fa-circle-info'
+      };
+      toast.className = `pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-xl border shadow-xl text-xs font-semibold transform transition-all duration-300 opacity-0 translate-y-2 ${colors[type] || colors.info}`;
+      toast.innerHTML = `<i class="fa-solid ${icons[type] || icons.info}"></i> <span>${msg}</span>`;
+      container.appendChild(toast);
+      
+      requestAnimationFrame(() => {
+        toast.classList.remove('opacity-0', 'translate-y-2');
+      });
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', '-translate-y-2');
+        setTimeout(() => toast.remove(), 300);
+      }, 3500);
+    }
+
+    // Bộ nhớ lưu an toàn
+    function getStoredData(key, fallback) {
+      try {
+        const val = localStorage.getItem(key);
+        return val ? JSON.parse(val) : fallback;
+      } catch (e) {
+        return fallback;
+      }
+    }
+
+    function setStoredData(key, val) {
+      try {
+        localStorage.setItem(key, JSON.stringify(val));
+      } catch (e) {}
+    }
+
+    // Khởi tạo và kiểm tra dữ liệu nhân sự
+    let staffList = getStoredData('drshock_staff_3acc', DEFAULT_STAFF);
+    if (!Array.isArray(staffList) || staffList.length !== 3 || !staffList.find(s => s.id === 'admin')) {
+      staffList = JSON.parse(JSON.stringify(DEFAULT_STAFF));
+      setStoredData('drshock_staff_3acc', staffList);
+    }
+
+    let inventoryList = getStoredData('drshock_inventory', DEFAULT_INVENTORY);
+    let invoiceList = getStoredData('drshock_invoices', []);
+
+    // Khởi động
+    window.addEventListener('DOMContentLoaded', () => {
+      renderLoginUserList();
+      populateAdvisorSelect();
+      populateInventorySelector('ALL');
+      renderInventoryTable();
+      renderInvoiceList();
+      renderStaffTable();
+      renderCustomerAndReports();
+    });
+
+    // Login handlers
+    function renderLoginUserList() {
+      const container = document.getElementById('login-user-list');
+      if (!container) return;
+      container.innerHTML = staffList.map(u => `
+        <div onclick="selectUserLogin('${u.id}')" 
+          class="user-card cursor-pointer p-3 rounded-xl border flex items-center justify-between transition ${selectedLoginUserId === u.id ? 'bg-red-950/40 border-red-500' : 'bg-gray-800/60 border-gray-700 hover:border-gray-600'}">
+          <div class="flex items-center space-x-3">
+            <div class="w-9 h-9 rounded-full bg-gray-700 flex items-center justify-center font-bold text-sm text-red-400">
+              <i class="fa-solid fa-user"></i>
+            </div>
+            <div>
+              <p class="text-sm font-bold text-white">${u.name}</p>
+              <p class="text-xs text-gray-400">${u.roleTitle}</p>
+            </div>
+          </div>
+          ${selectedLoginUserId === u.id ? '<i class="fa-solid fa-circle-check text-red-500 text-lg"></i>' : ''}
+        </div>
+      `).join('');
+    }
+
+    function selectUserLogin(id) {
+      selectedLoginUserId = id;
+      renderLoginUserList();
+      const errBox = document.getElementById('login-error-msg');
+      if (errBox) errBox.classList.add('hidden');
+      const pinInput = document.getElementById('login-pin-input');
+      if (pinInput) {
+        pinInput.value = '';
+        pinInput.focus();
+      }
+    }
+
+    function handleLoginSubmit() {
+      const errBox = document.getElementById('login-error-msg');
+      const errText = document.getElementById('login-error-text');
+      const pinInput = document.getElementById('login-pin-input');
+      const pin = pinInput.value.trim();
+
+      const user = staffList.find(u => u.id === selectedLoginUserId);
+      if (!user) {
+        if (errBox && errText) {
+          errText.textContent = 'Vui lòng bấm chọn tài khoản!';
+          errBox.classList.remove('hidden');
+        }
+        return;
+      }
+
+      if (!pin) {
+        if (errBox && errText) {
+          errText.textContent = 'Vui lòng nhập mã PIN!';
+          errBox.classList.remove('hidden');
+        }
+        pinInput.focus();
+        return;
+      }
+
+      // So sánh an toàn không phân biệt kiểu dữ liệu
+      if (String(user.pin).trim() !== String(pin).trim()) {
+        if (errBox && errText) {
+          errText.textContent = `Mã PIN không đúng! (Gợi ý mặc định: ${user.id === 'admin' ? '9999' : user.id === 'tech' ? '1111' : '2222'})`;
+          errBox.classList.remove('hidden');
+        }
+        pinInput.value = '';
+        pinInput.focus();
+        return;
+      }
+
+      // Đăng nhập thành công
+      if (errBox) errBox.classList.add('hidden');
+      currentLoggedInUser = user;
+      document.getElementById('login-screen').classList.add('hidden');
+      document.getElementById('main-app').classList.remove('hidden');
+
+      document.getElementById('current-user-name').textContent = user.name;
+      document.getElementById('current-user-role').textContent = user.roleTitle;
+
+      // Phân quyền: KTV và Kho không thấy mục 4, 5, 6, 7
+      const adminTabs = document.querySelectorAll('.admin-only');
+      if (user.role === 'admin') {
+        adminTabs.forEach(el => el.classList.remove('hidden'));
+      } else {
+        adminTabs.forEach(el => el.classList.add('hidden'));
+      }
+      
+      showNotification(`Xin chào ${user.name}! Đăng nhập thành công.`, 'success');
+      switchTab('tab-quote');
+    }
+
+    function restoreDefaultStaffPins() {
+      staffList = JSON.parse(JSON.stringify(DEFAULT_STAFF));
+      setStoredData('drshock_staff_3acc', staffList);
+      renderLoginUserList();
+      renderStaffTable();
+      const errBox = document.getElementById('login-error-msg');
+      if (errBox) errBox.classList.add('hidden');
+      const pinInput = document.getElementById('login-pin-input');
+      if (pinInput) pinInput.value = '';
+      showNotification('Đã khôi phục mã PIN gốc (Admin: 9999, KTV: 1111, Kho: 2222)', 'success');
+    }
+
+    function handleLogout() {
+      currentLoggedInUser = null;
+      const pinInput = document.getElementById('login-pin-input');
+      if (pinInput) pinInput.value = '';
+      const errBox = document.getElementById('login-error-msg');
+      if (errBox) errBox.classList.add('hidden');
+      document.getElementById('main-app').classList.add('hidden');
+      document.getElementById('login-screen').classList.remove('hidden');
+    }
+
+    // Chuyển Tab
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.add('hidden'));
+      document.querySelectorAll('.tab-btn').forEach(b => {
+        b.classList.remove('bg-red-600', 'text-white');
+        b.classList.add('bg-gray-800', 'text-gray-300');
+      });
+
+      const activeTab = document.getElementById(tabId);
+      if (activeTab) activeTab.classList.remove('hidden');
+
+      const activeBtn = document.getElementById('nav-' + tabId);
+      if (activeBtn) {
+        activeBtn.classList.add('bg-red-600', 'text-white');
+        activeBtn.classList.remove('bg-gray-800', 'text-gray-300');
+      }
+    }
+
+    // Logic Báo Giá & Tính Tiền
+    function populateAdvisorSelect() {
+      const sel = document.getElementById('quote-advisor');
+      if (!sel) return;
+      sel.innerHTML = staffList.map(s => `<option value="${s.name}">${s.name} (${s.roleTitle})</option>`).join('');
+    }
+
+    function populateInventorySelector(cat) {
+      const sel = document.getElementById('quick-item-select');
+      if (!sel) return;
+      const filtered = (cat === 'ALL') ? inventoryList : inventoryList.filter(i => i.cat === cat);
+      sel.innerHTML = `<option value="">-- Chọn phụ tùng từ kho Dr.Shock (${filtered.length}) --</option>` + 
+        filtered.map(i => `<option value="${i.id}">${i.name} - [Tồn: ${i.stock}] - ${formatMoney(i.price)} đ</option>`).join('');
+    }
+
+    function filterInventorySelector(cat) {
+      document.querySelectorAll('.category-filter-btn').forEach(b => {
+        b.classList.remove('bg-red-600', 'text-white');
+        b.classList.add('bg-gray-800', 'text-gray-300');
+      });
+      if (event && event.target) {
+        event.target.classList.add('bg-red-600', 'text-white');
+        event.target.classList.remove('bg-gray-800', 'text-gray-300');
+      }
+      populateInventorySelector(cat);
+    }
+
+    function addQuickLabor(name, price) {
+      currentQuoteItems.push({ id: 'LBR_' + Date.now(), name: name, qty: 1, price: price });
+      renderQuoteItems();
+      showNotification(`Đã thêm nhanh: ${name}`, 'info');
+    }
+
+    function addItemFromSelector() {
+      const sel = document.getElementById('quick-item-select');
+      const id = sel.value;
+      if (!id) {
+        showNotification('Vui lòng chọn một phụ tùng từ danh sách kho!', 'warning');
+        return;
+      }
+      const prod = inventoryList.find(i => i.id === id);
+      if (!prod) return;
+
+      const existing = currentQuoteItems.find(i => i.id === prod.id);
+      if (existing) {
+        existing.qty += 1;
+      } else {
+        currentQuoteItems.push({ id: prod.id, name: prod.name, qty: 1, price: prod.price });
+      }
+      renderQuoteItems();
+      showNotification(`Đã thêm: ${prod.name}`, 'success');
+    }
+
+    function renderQuoteItems() {
+      const tbody = document.getElementById('quote-items-tbody');
+      if (!tbody) return;
+      if (currentQuoteItems.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" class="py-6 text-center text-gray-500 italic">Chưa có hạng mục nào được chọn.</td></tr>`;
+        calculateQuoteTotal();
+        return;
+      }
+
+      tbody.innerHTML = currentQuoteItems.map((item, idx) => `
+        <tr class="hover:bg-gray-800/40">
+          <td class="py-2 px-3">
+            <input type="text" value="${item.name}" oninput="updateItemName(${idx}, this.value)" 
+              class="w-full bg-transparent text-white font-medium focus:outline-none focus:border-b border-red-500">
+          </td>
+          <td class="py-2 px-2 text-center">
+            <input type="number" min="1" value="${item.qty}" oninput="updateItemQty(${idx}, this.value)" 
+              class="w-16 bg-gray-800 border border-gray-700 rounded px-1.5 py-1 text-center text-white focus:outline-none focus:border-red-500">
+          </td>
+          <td class="py-2 px-2 text-right">
+            <input type="number" min="0" value="${item.price}" oninput="updateItemPrice(${idx}, this.value)" 
+              class="w-24 bg-gray-800 border border-gray-700 rounded px-1.5 py-1 text-right text-white font-mono focus:outline-none focus:border-red-500">
+          </td>
+          <td class="py-2 px-2 text-right font-mono font-bold text-amber-400" id="item-total-${idx}">
+            ${formatMoney(item.qty * item.price)} đ
+          </td>
+          <td class="py-2 px-2 text-center">
+            <button onclick="removeQuoteItem(${idx})" class="text-gray-500 hover:text-red-400">
+              <i class="fa-solid fa-trash-can"></i>
+            </button>
+          </td>
+        </tr>
+      `).join('');
+
+      calculateQuoteTotal();
+    }
+
+    function updateItemName(idx, val) {
+      if (currentQuoteItems[idx]) currentQuoteItems[idx].name = val;
+    }
+
+    function updateItemQty(idx, val) {
+      const q = Math.max(1, parseInt(val) || 1);
+      if (currentQuoteItems[idx]) {
+        currentQuoteItems[idx].qty = q;
+        const totalElem = document.getElementById(`item-total-${idx}`);
+        if (totalElem) totalElem.textContent = formatMoney(q * currentQuoteItems[idx].price) + ' đ';
+        calculateQuoteTotal();
+      }
+    }
+
+    function updateItemPrice(idx, val) {
+      const p = Math.max(0, parseInt(val) || 0);
+      if (currentQuoteItems[idx]) {
+        currentQuoteItems[idx].price = p;
+        const totalElem = document.getElementById(`item-total-${idx}`);
+        if (totalElem) totalElem.textContent = formatMoney(currentQuoteItems[idx].qty * p) + ' đ';
+        calculateQuoteTotal();
+      }
+    }
+
+    function removeQuoteItem(idx) {
+      currentQuoteItems.splice(idx, 1);
+      renderQuoteItems();
+    }
+
+    function calculateQuoteTotal() {
+      const subtotal = currentQuoteItems.reduce((sum, i) => sum + (i.qty * i.price), 0);
+      const discountInput = document.getElementById('quote-discount-input');
+      const discount = Math.max(0, parseInt(discountInput ? discountInput.value : 0) || 0);
+      const finalTotal = Math.max(0, subtotal - discount);
+      const totalElem = document.getElementById('quote-final-total');
+      if (totalElem) totalElem.textContent = formatMoney(finalTotal) + ' đ';
+      return { subtotal, discount, finalTotal };
+    }
+
+    function resetQuoteForm() {
+      document.getElementById('quote-plate').value = '';
+      document.getElementById('quote-name').value = '';
+      document.getElementById('quote-phone').value = '';
+      document.getElementById('quote-carmodel').value = '';
+      document.getElementById('quote-discount-input').value = '0';
+      currentQuoteItems = [];
+      renderQuoteItems();
+      showNotification('Đã làm mới thông tin báo giá.', 'info');
+    }
+
+    function handleSaveInvoice() {
+      const plate = document.getElementById('quote-plate').value.trim();
+      if (!plate) {
+        showNotification('Vui lòng nhập Biển Số Xe!', 'warning');
+        document.getElementById('quote-plate').focus();
+        return;
+      }
+      if (currentQuoteItems.length === 0) {
+        showNotification('Vui lòng thêm ít nhất 1 dịch vụ hoặc phụ tùng!', 'warning');
+        return;
+      }
+
+      const { subtotal, discount, finalTotal } = calculateQuoteTotal();
+      const newInv = {
+        id: 'INV-' + (invoiceList.length + 101),
+        date: new Date().toLocaleDateString('vi-VN') + ' ' + new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'}),
+        plate: plate.toUpperCase(),
+        name: document.getElementById('quote-name').value.trim() || 'Khách vãng lai',
+        phone: document.getElementById('quote-phone').value.trim() || '---',
+        car: document.getElementById('quote-carmodel').value.trim() || '---',
+        advisor: document.getElementById('quote-advisor').value,
+        items: [...currentQuoteItems],
+        subtotal: subtotal,
+        discount: discount,
+        total: finalTotal
+      };
+
+      invoiceList.unshift(newInv);
+      setStoredData('drshock_invoices', invoiceList);
+      renderInvoiceList();
+      renderCustomerAndReports();
+      showPrintModal(newInv);
+      showNotification(`Đã xuất hóa đơn ${newInv.id} thành công!`, 'success');
+    }
+
+    // Modal In Hóa Đơn
+    function showPrintModal(inv) {
+      document.getElementById('inv-print-id').textContent = inv.id;
+      document.getElementById('inv-print-date').textContent = inv.date;
+      document.getElementById('inv-print-plate').textContent = inv.plate;
+      document.getElementById('inv-print-name').textContent = inv.name;
+      document.getElementById('inv-print-car').textContent = inv.car;
+      document.getElementById('inv-print-phone').textContent = inv.phone;
+      document.getElementById('inv-print-subtotal').textContent = formatMoney(inv.subtotal) + ' đ';
+      document.getElementById('inv-print-discount').textContent = formatMoney(inv.discount) + ' đ';
+      document.getElementById('inv-print-total').textContent = formatMoney(inv.total) + ' đ';
+
+      const tbody = document.getElementById('inv-print-tbody');
+      tbody.innerHTML = inv.items.map(i => `
+        <tr>
+          <td class="p-2 border-r border-gray-200">${i.name}</td>
+          <td class="p-2 text-center border-r border-gray-200">${i.qty}</td>
+          <td class="p-2 text-right border-r border-gray-200">${formatMoney(i.price)} đ</td>
+          <td class="p-2 text-right font-semibold">${formatMoney(i.qty * i.price)} đ</td>
+        </tr>
+      `).join('');
+
+      document.getElementById('invoice-modal').classList.remove('hidden');
+    }
+
+    function closeInvoiceModal() {
+      document.getElementById('invoice-modal').classList.add('hidden');
+    }
+
+    // Render danh sách hóa đơn
+    function renderInvoiceList() {
+      const q = (document.getElementById('invoice-search') ? document.getElementById('invoice-search').value.toLowerCase() : '');
+      const filtered = invoiceList.filter(i => i.plate.toLowerCase().includes(q) || i.name.toLowerCase().includes(q));
+      const tbody = document.getElementById('invoice-list-tbody');
+      if (!tbody) return;
+      if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="py-6 text-center text-gray-500 italic">Chưa có hóa đơn nào.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(inv => `
+        <tr class="hover:bg-gray-800/40">
+          <td class="py-2.5 px-3 font-mono font-bold text-orange-400">${inv.id}</td>
+          <td class="py-2.5 px-3 text-gray-400">${inv.date}</td>
+          <td class="py-2.5 px-3 font-bold text-white">${inv.plate}</td>
+          <td class="py-2.5 px-3">${inv.name}</td>
+          <td class="py-2.5 px-3 text-gray-400">${inv.advisor}</td>
+          <td class="py-2.5 px-3 text-right font-black text-red-500">${formatMoney(inv.total)} đ</td>
+          <td class="py-2.5 px-3 text-center">
+            <button onclick="viewInvoiceDetail('${inv.id}')" class="px-2 py-1 bg-gray-800 hover:bg-gray-700 text-amber-400 rounded text-xs">
+              <i class="fa-solid fa-print mr-1"></i>Xem & In
+            </button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function viewInvoiceDetail(id) {
+      const inv = invoiceList.find(i => i.id === id);
+      if (inv) showPrintModal(inv);
+    }
+
+    // Render Kho
+    function renderInventoryTable() {
+      const q = (document.getElementById('inventory-search') ? document.getElementById('inventory-search').value.toLowerCase() : '');
+      const filtered = inventoryList.filter(i => i.name.toLowerCase().includes(q) || i.id.toLowerCase().includes(q));
+      const tbody = document.getElementById('inventory-list-tbody');
+      if (!tbody) return;
+      tbody.innerHTML = filtered.map(p => `
+        <tr class="hover:bg-gray-800/40">
+          <td class="py-2.5 px-3 font-mono font-bold text-gray-400">${p.id}</td>
+          <td class="py-2.5 px-3 font-bold text-white">${p.name}</td>
+          <td class="py-2.5 px-3 text-xs text-orange-400">${p.cat}</td>
+          <td class="py-2.5 px-3 text-center font-bold ${p.stock <= 2 ? 'text-red-500' : 'text-emerald-400'}">${p.stock}</td>
+          <td class="py-2.5 px-3 text-right font-mono">${formatMoney(p.price)} đ</td>
+          <td class="py-2.5 px-3 text-center">
+            <button onclick="quickUpdateStock('${p.id}', 1)" class="px-2 py-0.5 bg-gray-800 hover:bg-gray-700 text-xs text-emerald-400 rounded mr-1 font-bold">+</button>
+            <button onclick="quickUpdateStock('${p.id}', -1)" class="px-2 py-0.5 bg-gray-800 hover:bg-gray-700 text-xs text-red-400 rounded font-bold">-</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function quickUpdateStock(id, delta) {
+      const p = inventoryList.find(i => i.id === id);
+      if (p) {
+        p.stock = Math.max(0, p.stock + delta);
+        setStoredData('drshock_inventory', inventoryList);
+        renderInventoryTable();
+        populateInventorySelector('ALL');
+      }
+    }
+
+    function openModalAddInventory() {
+      const name = window.prompt ? window.prompt('Nhập tên phụ tùng mới:') : '';
+      if (!name) return;
+      const price = parseInt(window.prompt ? window.prompt('Nhập giá bán lẻ (VNĐ):', '1000000') : 1000000) || 0;
+      const stock = parseInt(window.prompt ? window.prompt('Nhập số lượng tồn kho ban đầu:', '5') : 5) || 1;
+      const id = 'P' + (inventoryList.length + 10);
+      inventoryList.unshift({ id, name, cat: 'PHUOC', stock, price });
+      setStoredData('drshock_inventory', inventoryList);
+      renderInventoryTable();
+      populateInventorySelector('ALL');
+      showNotification(`Đã thêm mới phụ tùng ${name} vào kho!`, 'success');
+    }
+
+    // Render Bảng Nhân Sự (Tab 6 - 3 Tài Khoản Duy Nhất)
+    function renderStaffTable() {
+      const tbody = document.getElementById('staff-table-tbody');
+      if (!tbody) return;
+      tbody.innerHTML = staffList.map((s, idx) => `
+        <tr class="hover:bg-gray-800/40">
+          <td class="py-2.5 px-3 font-bold text-white">${s.name}</td>
+          <td class="py-2.5 px-3 text-orange-400">${s.roleTitle}</td>
+          <td class="py-2.5 px-3">
+            <input type="text" value="${s.pin}" maxlength="6" onchange="updateStaffPin(${idx}, this.value)" 
+              class="w-20 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-center font-mono text-white text-xs">
+          </td>
+          <td class="py-2.5 px-3 text-xs text-gray-400">
+            ${s.role === 'admin' ? '<span class="text-red-400 font-bold">Toàn quyền hệ thống (1,2,3,4,5,6,7)</span>' : '<span class="text-gray-300">Chỉ thao tác nghiệp vụ (1,2,3)</span>'}
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function updateStaffPin(idx, newPin) {
+      if (!newPin.trim()) return;
+      staffList[idx].pin = newPin.trim();
+      setStoredData('drshock_staff_3acc', staffList);
+      showNotification('Đã cập nhật mã PIN mới thành công!', 'success');
+    }
+
+    // Render Khách hàng & Báo cáo
+    function renderCustomerAndReports() {
+      const totalRev = invoiceList.reduce((sum, i) => sum + i.total, 0);
+      const revElem = document.getElementById('report-total-revenue');
+      const invElem = document.getElementById('report-total-invoices');
+      if (revElem) revElem.textContent = formatMoney(totalRev) + ' đ';
+      if (invElem) invElem.textContent = invoiceList.length;
+
+      // Group customers
+      const custMap = {};
+      invoiceList.forEach(i => {
+        if (!custMap[i.plate]) {
+          custMap[i.plate] = { plate: i.plate, name: i.name, phone: i.phone, visits: 0, total: 0 };
+        }
+        custMap[i.plate].visits += 1;
+        custMap[i.plate].total += i.total;
+      });
+
+      const custList = Object.values(custMap);
+      const custTotalElem = document.getElementById('report-total-customers');
+      if (custTotalElem) custTotalElem.textContent = custList.length;
+
+      const tbody = document.getElementById('customer-list-tbody');
+      if (!tbody) return;
+      tbody.innerHTML = custList.map(c => `
+        <tr class="hover:bg-gray-800/40">
+          <td class="py-2.5 px-3 font-bold text-white">${c.plate}</td>
+          <td class="py-2.5 px-3">${c.name}</td>
+          <td class="py-2.5 px-3 text-gray-400">${c.phone}</td>
+          <td class="py-2.5 px-3 font-semibold text-center">${c.visits}</td>
+          <td class="py-2.5 px-3 text-right font-black text-red-500">${formatMoney(c.total)} đ</td>
+        </tr>
+      `).join('');
+    }
+
+    // Lưu Hồ sơ Garage (Tab 7)
+    function saveGarageProfile() {
+      const comp = document.getElementById('prof-company-name').value;
+      const mst = document.getElementById('prof-mst').value;
+      const phone = document.getElementById('prof-hotline').value;
+      const addr = document.getElementById('prof-address').value;
+      const war = document.getElementById('prof-warranty').value;
+
+      document.getElementById('inv-print-address').textContent = addr;
+      document.getElementById('inv-print-hotline').textContent = phone;
+      document.getElementById('inv-print-mst').textContent = mst;
+      document.getElementById('inv-print-warranty-text').textContent = '* Cam kết: ' + war;
+
+      showNotification('Đã lưu thành công thông tin hồ sơ Garage!', 'success');
+    }
+
+    function formatMoney(num) {
+      return (num || 0).toLocaleString('vi-VN');
+    }
+  </script>
+</body>
+</html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>CÔNG TY TNHH DR.SHOCK VN - Hệ Thống Quản Lý Dịch Vụ</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
