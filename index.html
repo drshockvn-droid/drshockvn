@@ -28,7 +28,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
-  <!-- Google Firebase Realtime Database SDK (Hỗ trợ đồng bộ đa thiết bị tức thì) -->
+  <!-- Google Firebase Realtime Database SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
   
@@ -169,7 +169,7 @@
   <!-- ================= GIAO DIỆN CHÍNH ỨNG DỤNG ================= -->
   <div id="main-app" class="hidden flex-1 flex flex-col w-full max-w-full">
     
-    <!-- Header Thông Minh Tối Ưu Cho Điện Thoại & Tablet -->
+    <!-- Header Thông Minh -->
     <header class="bg-gray-900 border-b border-gray-800 sticky top-0 z-30 px-3 py-2.5 sm:px-4 sm:py-3 shadow-md">
       <div class="max-w-7xl mx-auto flex items-center justify-between gap-2">
         <div class="min-w-0 flex-1">
@@ -204,7 +204,7 @@
         </div>
       </div>
 
-      <!-- Navigation Tabs (Thanh cuộn mượt bằng ngón tay) -->
+      <!-- Navigation Tabs -->
       <div class="max-w-7xl mx-auto mt-2.5 flex items-center space-x-1.5 overflow-x-auto no-scrollbar pb-0.5 text-xs font-semibold">
         <button onclick="switchTab('tab-quote')" id="nav-tab-quote" class="tab-btn px-3 py-1.5 rounded-lg whitespace-nowrap bg-red-600 text-white shadow shrink-0 active:scale-95 transition">
           <i class="fa-solid fa-calculator mr-1"></i>1. Tiếp Nhận & Bill
@@ -267,6 +267,12 @@
                   class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500">
               </div>
               <div>
+                <label class="block text-[11px] text-gray-400 mb-1 font-semibold">Số ODO Xe (Km)</label>
+                <input type="text" inputmode="numeric" id="quote-odo" placeholder="VD: 45.000 km" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" 
+                  onfocus="handleOdoFocus(this)" oninput="handleOdoInput(this)" onblur="handleOdoBlur(this)"
+                  class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm font-bold text-white font-mono focus:outline-none focus:border-red-500">
+              </div>
+              <div>
                 <label class="block text-[11px] text-gray-400 mb-1 font-semibold">Cố Vấn / KTV Tiếp Nhận</label>
                 <select id="quote-advisor" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500">
                 </select>
@@ -317,7 +323,7 @@
                   </button>
                 </div>
 
-                <!-- Khung Danh Sách Đề Xuất Tự Động (Dropdown Auto-suggest) -->
+                <!-- Khung Danh Sách Đề Xuất Tự Động -->
                 <div id="part-suggestions-dropdown" class="hidden absolute left-0 right-0 top-full mt-1.5 z-40 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl overflow-hidden max-h-72 overflow-y-auto custom-scrollbar divide-y divide-gray-800">
                 </div>
               </div>
@@ -342,7 +348,8 @@
               <div class="flex items-center justify-between gap-2">
                 <div class="flex items-center space-x-1.5">
                   <label class="text-[11px] sm:text-xs text-gray-400 font-semibold">Giảm Giá (đ):</label>
-                  <input type="text" inputmode="numeric" id="quote-discount-input" value="0" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" onfocus="this.select()" oninput="handleDiscountInput(this)" onblur="if(!this.value.trim()) this.value='0'; calculateQuoteTotal();" 
+                  <input type="text" inputmode="numeric" id="quote-discount-input" value="0" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" 
+                    onfocus="handleMoneyFocus(this)" oninput="handleDiscountInput(this)" onblur="handleMoneyBlur(this, true)"
                     class="w-28 sm:w-36 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-xs sm:text-sm text-right text-yellow-400 font-bold font-mono focus:outline-none focus:border-red-500">
                 </div>
 
@@ -392,7 +399,7 @@
         </div>
       </section>
 
-      <!-- ================= TAB 3: KHO HÀNG (CARD VIEW DI ĐỘNG & BẢNG IPAD/PC) ================= -->
+      <!-- ================= TAB 3: KHO HÀNG ================= -->
       <section id="tab-inventory" class="tab-content hidden space-y-3">
         <div class="bg-gray-900 border border-gray-800 rounded-2xl p-3 sm:p-4">
           
@@ -417,11 +424,11 @@
             </div>
           </div>
 
-          <!-- GIAO DIỆN DẠNG THẺ CHO ĐIỆN THOẠI (md:hidden) -->
+          <!-- GIAO DIỆN DẠNG THẺ CHO ĐIỆN THOẠI -->
           <div id="inventory-mobile-cards" class="block md:hidden space-y-2.5">
           </div>
 
-          <!-- BẢNG DÀNH CHO MÀN HÌNH LỚN / IPAD (hidden md:block) -->
+          <!-- BẢNG DÀNH CHO MÀN HÌNH LỚN / IPAD -->
           <div class="hidden md:block overflow-x-auto border border-gray-800 rounded-xl">
             <table class="w-full text-left text-xs sm:text-sm">
               <thead class="bg-gray-800/90 text-gray-400 uppercase text-[11px]">
@@ -477,6 +484,29 @@
           </div>
         </div>
 
+        <!-- Khung AI Phân Tích Hoạt Động Garage Thông Minh -->
+        <div class="bg-gradient-to-r from-red-950/40 via-purple-950/30 to-indigo-950/40 border border-purple-500/40 rounded-2xl p-4 shadow-lg space-y-3">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div class="flex items-center gap-2.5">
+              <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-500 text-white flex items-center justify-center text-sm shadow">
+                <i class="fa-solid fa-brain"></i>
+              </div>
+              <div>
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                  <span>Trí Tuệ Nhân Tạo AI Dr.Shock Insights</span>
+                  <span class="text-[10px] px-2 py-0.2 rounded-full font-mono bg-purple-900/80 text-purple-300 border border-purple-500/40">Gemini 2.5</span>
+                </h3>
+                <p class="text-xs text-gray-400">Đánh giá tồn kho, cảnh báo hàng sắp hết, gợi ý nhập hàng và chiến lược tăng doanh thu.</p>
+              </div>
+            </div>
+            <button onclick="generateAIAnalyticsReport()" id="btn-run-ai-analytics" class="px-3.5 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 active:scale-95 text-white text-xs font-bold rounded-xl shadow-lg flex items-center justify-center gap-1.5 transition shrink-0">
+              <i class="fa-solid fa-wand-magic-sparkles"></i><span>Phân Tích Bằng AI</span>
+            </button>
+          </div>
+          <div id="ai-analytics-result-box" class="hidden bg-gray-950/70 border border-purple-500/30 rounded-xl p-3.5 text-xs text-gray-200 space-y-2 whitespace-pre-line leading-relaxed">
+          </div>
+        </div>
+
         <!-- Khung xuất dữ liệu Excel trọn bộ -->
         <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div>
@@ -508,7 +538,7 @@
       <!-- ================= TAB 7: THÔNG TIN GARAGE & CÀI ĐẶT ĐÁM MÂY (ADMIN) ================= -->
       <section id="tab-profile" class="tab-content hidden space-y-4">
         
-        <!-- KHUNG KẾT NỐI ĐÁM MÂY ĐA THIẾT BỊ (FIREBASE CLOUD SYNC) -->
+        <!-- KHUNG KẾT NỐI ĐÁM MÂY ĐA THIẾT BỊ -->
         <div class="bg-gray-900 border border-amber-500/40 rounded-2xl p-4 max-w-xl mx-auto space-y-3 shadow-lg">
           <div class="flex items-center justify-between border-b border-gray-800 pb-2.5">
             <div class="flex items-center gap-2">
@@ -551,9 +581,36 @@
                 <i class="fa-solid fa-cloud-arrow-up text-amber-400"></i><span class="hidden sm:inline">Tải lên mây</span>
               </button>
             </div>
-            <p class="text-[10px] text-gray-400 leading-tight italic">
-              * Sau khi dán URL mây, bạn chỉ cần bấm "Lưu & Kích Hoạt" là toàn bộ điện thoại nhân viên và chủ xưởng sẽ tự động nhận số liệu mới ngay lập tức.
-            </p>
+          </div>
+        </div>
+
+        <!-- KHUNG SAO LƯU & BẢO TOÀN DỮ LIỆU TUYỆT ĐỐI -->
+        <div class="bg-gray-900 border border-emerald-500/40 rounded-2xl p-4 max-w-xl mx-auto space-y-3 shadow-lg">
+          <div class="flex items-center justify-between border-b border-gray-800 pb-2.5">
+            <div class="flex items-center gap-2">
+              <div class="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-sm">
+                <i class="fa-solid fa-shield-halved"></i>
+              </div>
+              <div>
+                <h3 class="text-xs sm:text-sm font-bold text-white uppercase tracking-wider">Bảo Toàn Dữ Liệu Khi Cập Nhật GitHub</h3>
+                <p class="text-[10px] text-gray-400">Xuất file dự phòng an toàn 100% trước hoặc sau khi nâng cấp tính năng</p>
+              </div>
+            </div>
+          </div>
+
+          <p class="text-xs text-gray-300 leading-relaxed">
+            Hệ thống tự động bảo lưu toàn bộ hóa đơn, kho hàng và doanh thu trong bộ nhớ riêng của bạn. Bạn có thể bấm nút dưới đây để tải về tệp sao lưu dự phòng độc lập:
+          </p>
+
+          <div class="grid grid-cols-2 gap-2 pt-1">
+            <button onclick="exportFullDatabaseJSON()" class="py-2.5 bg-emerald-700/80 hover:bg-emerald-600 active:scale-95 text-white font-bold text-xs rounded-xl shadow flex items-center justify-center gap-1.5 transition">
+              <i class="fa-solid fa-download"></i><span>Tải File Sao Lưu (.json)</span>
+            </button>
+            
+            <label class="cursor-pointer py-2.5 bg-gray-800 hover:bg-gray-700 active:scale-95 text-amber-300 font-bold text-xs rounded-xl border border-gray-700 flex items-center justify-center gap-1.5 transition text-center">
+              <i class="fa-solid fa-upload"></i><span>Phục Hồi Dữ Liệu</span>
+              <input type="file" id="db-restore-file" accept=".json" class="hidden" onchange="importFullDatabaseJSON(event)">
+            </label>
           </div>
         </div>
 
@@ -657,12 +714,12 @@
           <h2 class="text-base font-black uppercase tracking-wider text-gray-800">PHIẾU DỊCH VỤ & BẢO HÀNH</h2>
           <p class="text-[11px] text-gray-500">Mã phiếu: <span id="inv-print-id" class="font-bold text-red-600">INV-001</span> | Ngày: <span id="inv-print-date">25/09/2026</span></p>
         </div>
-
-        <div class="grid grid-cols-2 gap-2 text-[11px] bg-gray-50 p-2.5 rounded-lg border border-gray-200 mb-3">
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] bg-gray-50 p-2.5 rounded-lg border border-gray-200 mb-3">
           <div><strong>Biển số:</strong> <span id="inv-print-plate" class="text-xs font-bold text-red-600 uppercase">51K-888.88</span></div>
           <div><strong>Khách hàng:</strong> <span id="inv-print-name">Anh Minh</span></div>
           <div><strong>Dòng xe:</strong> <span id="inv-print-car">Ranger Raptor</span></div>
           <div><strong>SĐT:</strong> <span id="inv-print-phone">0909123456</span></div>
+          <div><strong>Số ODO:</strong> <span id="inv-print-odo" class="font-bold text-gray-800 font-mono">45.000 km</span></div>
         </div>
 
         <table class="w-full text-left text-[11px] mb-3 border border-gray-300">
@@ -702,7 +759,23 @@
         </div>
       </div>
 
+      <!-- Khung AI Soạn Tin Nhắn Khách Hàng -->
+      <div id="ai-cust-msg-container" class="no-print mt-3 pt-3 border-t border-gray-200 hidden space-y-2 text-left">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-purple-700 flex items-center gap-1.5">
+            <i class="fa-solid fa-sparkles text-purple-600"></i>AI Soạn Lời Dặn Khách (Zalo/SMS)
+          </span>
+          <button onclick="copyAICustomerMsg()" class="text-[11px] font-semibold text-purple-600 hover:text-purple-800 flex items-center gap-1">
+            <i class="fa-solid fa-copy"></i>Sao chép
+          </button>
+        </div>
+        <textarea id="ai-cust-msg-text" rows="4" class="w-full bg-gray-50 border border-purple-200 rounded-xl p-2.5 text-xs text-gray-800 focus:outline-none focus:border-purple-500"></textarea>
+      </div>
+
       <div class="no-print mt-4 flex flex-wrap items-center justify-end gap-2">
+        <button onclick="generateAICustomerCareMessage()" id="btn-gen-ai-msg" class="flex-1 sm:flex-none px-3.5 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow flex items-center justify-center gap-1.5 transition">
+          <i class="fa-solid fa-wand-magic-sparkles"></i><span>AI Soạn Lời Dặn Gửi Khách</span>
+        </button>
         <button id="btn-download-inv-img" onclick="downloadInvoiceImage()" class="flex-1 sm:flex-none px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow flex items-center justify-center gap-1.5 transition">
           <i class="fa-solid fa-image"></i><span id="btn-download-inv-text">Tải Ảnh Hóa Đơn (Gửi Khách)</span>
         </button>
@@ -715,6 +788,93 @@
       </div>
     </div>
   </div>
+
+  <!-- ================= MODAL AI TRỢ LÝ KỸ THUẬT & GỢI Ý BILL ================= -->
+  <div id="ai-assistant-modal" class="fixed inset-0 z-[65] bg-black/85 hidden flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+    <div class="bg-gray-900 border border-purple-500/40 text-gray-100 rounded-2xl w-full max-w-xl p-4 sm:p-5 shadow-2xl relative my-auto max-h-[92vh] flex flex-col">
+      <div class="flex items-center justify-between border-b border-gray-800 pb-3 mb-3">
+        <div class="flex items-center gap-2.5">
+          <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-500 text-white flex items-center justify-center text-sm shadow">
+            <i class="fa-solid fa-robot"></i>
+          </div>
+          <div>
+            <h3 class="text-sm sm:text-base font-bold text-white flex items-center gap-1.5">
+              <span>Trợ Lý Kỹ Thuật AI Dr.Shock</span>
+              <span class="text-[10px] px-2 py-0.5 rounded-full font-mono bg-purple-950 text-purple-300 border border-purple-500/40">Gemini 2.5</span>
+            </h3>
+            <p class="text-[11px] text-gray-400">Chẩn đoán hư hỏng gầm phuộc, gợi ý gói dịch vụ và phụ tùng chuẩn xe</p>
+          </div>
+        </div>
+        <button onclick="closeAIAssistantModal()" class="w-8 h-8 rounded-full bg-gray-800 text-gray-400 hover:text-white flex items-center justify-center">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 flex-1 overflow-y-auto custom-scrollbar pr-1">
+        <div>
+          <label class="block text-[11px] text-gray-400 mb-1 font-semibold">Tình trạng xe / Triệu chứng hư hỏng *</label>
+          <div class="relative">
+            <textarea id="ai-symptom-input" rows="3" placeholder="VD: Xe Ford Ranger 2021 qua gờ giảm tốc kêu lục cục bên phụ, tay lái bị rung nhẹ khi chạy 80km/h, đuôi xe bồng bềnh..." 
+              class="w-full bg-gray-800 border border-gray-700 rounded-xl p-3 text-xs sm:text-sm text-white focus:outline-none focus:border-purple-500"></textarea>
+          </div>
+        </div>
+
+        <div>
+          <span class="text-[10px] font-semibold text-gray-400 block mb-1">Mẫu triệu chứng phổ biến:</span>
+          <div class="flex flex-wrap gap-1.5 text-[11px]">
+            <button type="button" onclick="setAISample('Qua gờ giảm tốc kêu lục cục gầm trước, xe nghiêng khi vào cua (Xpander)')" class="px-2 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700 active:scale-95 transition">
+              🔊 Kêu lục cục gầm (Xpander)
+            </button>
+            <button type="button" onclick="setAISample('Xe chạy cao tốc bồng bềnh, đuôi bị lắc, chở tải sau bị sệ đuôi (Ranger/Raptor)')" class="px-2 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700 active:scale-95 transition">
+              🚙 Bồng bềnh cao tốc (Ranger)
+            </button>
+            <button type="button" onclick="setAISample('Đạp phanh bị rung giật vô lăng, có tiếng rít kim loại khi rà phanh')" class="px-2 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700 active:scale-95 transition">
+              🛑 Rung lắc khi phanh
+            </button>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button type="button" onclick="diagnoseWithAI()" id="btn-diagnose-ai" class="flex-1 py-2.5 bg-gradient-to-r from-purple-600 via-indigo-600 to-sky-600 hover:from-purple-500 hover:to-indigo-500 active:scale-[0.98] text-white font-bold text-xs sm:text-sm rounded-xl shadow-lg flex items-center justify-center gap-2 transition">
+            <i class="fa-solid fa-wand-magic-sparkles"></i><span>Chẩn Đoán & Gợi Ý Phụ Tùng Bằng AI</span>
+          </button>
+          <button type="button" onclick="document.getElementById('ai-symptom-input').value=''" class="px-3 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white rounded-xl border border-gray-700 text-xs">
+            <i class="fa-solid fa-rotate-left"></i>
+          </button>
+        </div>
+
+        <div id="ai-response-container" class="hidden bg-gray-950/80 border border-purple-500/30 rounded-xl p-3.5 space-y-3">
+          <div class="flex items-center justify-between border-b border-gray-800 pb-2">
+            <span class="text-xs font-bold text-purple-400 flex items-center gap-1.5">
+              <i class="fa-solid fa-clipboard-check"></i>Kết Quả Phân Tích Kỹ Thuật AI
+            </span>
+            <span id="ai-latency-badge" class="text-[10px] font-mono text-gray-500"></span>
+          </div>
+
+          <div id="ai-analysis-text" class="text-xs text-gray-200 whitespace-pre-line leading-relaxed">
+          </div>
+
+          <div id="ai-suggested-parts-section" class="hidden pt-2 border-t border-gray-800 space-y-2">
+            <span class="text-[11px] font-bold text-amber-400 flex items-center gap-1">
+              <i class="fa-solid fa-box-open"></i>Phụ Tùng Gợi Ý Từ Kho Garage:
+            </span>
+            <div id="ai-suggested-parts-list" class="space-y-1.5">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- NÚT NỔI TRỢ LÝ AI -->
+  <button onclick="openAIAssistantModal()" title="Trợ lý kỹ thuật AI Dr.Shock" 
+    class="fixed bottom-5 right-4 z-40 p-3 sm:px-4 sm:py-3 bg-gradient-to-r from-purple-600 via-indigo-600 to-red-600 text-white rounded-full sm:rounded-2xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center gap-2 border border-purple-400/40 group">
+    <div class="relative flex items-center justify-center">
+      <i class="fa-solid fa-robot text-base sm:text-lg animate-bounce"></i>
+      <span class="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-400 rounded-full border-2 border-gray-900"></span>
+    </div>
+    <span class="hidden sm:inline text-xs font-black tracking-wide uppercase">Trợ Lý AI Dr.Shock</span>
+  </button>
 
   <!-- ================= MODAL SỬA / THÊM PHỤ TÙNG ================= -->
   <div id="inventory-modal" class="fixed inset-0 z-50 bg-black/85 hidden flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
@@ -827,14 +987,16 @@
             <label class="block text-[10px] font-bold uppercase tracking-wider text-emerald-400 mb-1">
               <i class="fa-solid fa-arrow-down mr-0.5"></i>Giá Nhập (Vốn) (đ)
             </label>
-            <input type="text" inputmode="numeric" id="inv-edit-cost" placeholder="0" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" onfocus="this.select()" oninput="handleModalMoneyInput(this)" 
+            <input type="text" inputmode="numeric" id="inv-edit-cost" placeholder="0" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" 
+              onfocus="handleMoneyFocus(this)" oninput="handleModalMoneyInput(this)" onblur="handleMoneyBlur(this, false)"
               class="w-full bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-xs sm:text-sm font-mono text-emerald-400 font-semibold focus:outline-none focus:border-emerald-500">
           </div>
           <div>
             <label class="block text-[10px] font-bold uppercase tracking-wider text-amber-400 mb-1">
               <i class="fa-solid fa-tag mr-0.5"></i>Giá Bán Lẻ (đ) *
             </label>
-            <input type="text" inputmode="numeric" id="inv-edit-price" placeholder="0" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" onfocus="this.select()" oninput="handleModalMoneyInput(this)" 
+            <input type="text" inputmode="numeric" id="inv-edit-price" placeholder="0" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" 
+              onfocus="handleMoneyFocus(this)" oninput="handleModalMoneyInput(this)" onblur="handleMoneyBlur(this, false)"
               class="w-full bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-xs sm:text-sm font-mono text-amber-400 font-bold focus:outline-none focus:border-red-500">
           </div>
         </div>
@@ -883,7 +1045,7 @@
       <input type="hidden" id="edit-inv-id">
 
       <div class="space-y-3.5 text-left text-xs">
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-gray-800/40 p-3 rounded-xl border border-gray-800">
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 bg-gray-800/40 p-3 rounded-xl border border-gray-800">
           <div>
             <label class="block text-[10px] font-bold uppercase text-gray-400 mb-1">Biển Số Xe *</label>
             <input type="text" id="edit-inv-plate" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 font-bold text-amber-400 uppercase">
@@ -899,6 +1061,10 @@
           <div>
             <label class="block text-[10px] font-bold uppercase text-gray-400 mb-1">Dòng Xe</label>
             <input type="text" id="edit-inv-car" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-white">
+          </div>
+          <div>
+            <label class="block text-[10px] font-bold uppercase text-gray-400 mb-1">Số ODO (Km)</label>
+            <input type="text" id="edit-inv-odo" onfocus="handleOdoFocus(this)" oninput="handleOdoInput(this)" onblur="handleOdoBlur(this)" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-white font-mono">
           </div>
         </div>
 
@@ -923,7 +1089,8 @@
         <div class="bg-gray-800/50 p-3 rounded-xl border border-gray-800 flex items-center justify-between gap-3">
           <div class="flex items-center gap-2">
             <label class="text-xs text-gray-300 font-semibold">Giảm Giá (đ):</label>
-            <input type="text" inputmode="numeric" id="edit-inv-discount" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" onfocus="this.select()" oninput="handleEditInvoiceDiscountInput(this)" onblur="if(!this.value.trim()) this.value='0'; calculateEditInvoiceTotal();" 
+            <input type="text" inputmode="numeric" id="edit-inv-discount" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" 
+              onfocus="handleMoneyFocus(this)" oninput="handleEditInvoiceDiscountInput(this)" onblur="handleMoneyBlur(this, true); calculateEditInvoiceTotal();" 
               class="w-32 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1 text-right text-yellow-400 font-bold font-mono">
           </div>
           <div class="text-right">
@@ -1044,6 +1211,7 @@
         name: 'Anh Minh',
         phone: '0909123456',
         car: 'Ranger Raptor',
+        odo: '45.000 km',
         advisor: 'Chủ Xưởng',
         items: [
           { id: 'P01', name: 'Bộ Phuộc Tein Street Advance Z', unit: 'Bộ', qty: 1, price: 26500000 },
@@ -1055,7 +1223,6 @@
       }
     ];
 
-    // Bộ nhớ an toàn
     function getStoredData(key, fallback) {
       try {
         const val = localStorage.getItem(key);
@@ -1088,9 +1255,6 @@
     let invoiceList = getStoredData('drshock_invoices', DEFAULT_INVOICES);
     let stockLogList = getStoredData('drshock_stock_logs', DEFAULT_STOCK_LOGS);
 
-    // ========================================================
-    // ĐỘNG CƠ ĐỒNG BỘ ĐÁM MÂY GOOGLE FIREBASE REALTIME
-    // ========================================================
     let firebaseDatabase = null;
     let isCloudConnected = false;
     let isSyncingFromRemote = false;
@@ -1155,8 +1319,6 @@
 
         updateCloudStatusUI('syncing', 'Đang kết nối mây...');
 
-        // LẮNG NGHE THAY ĐỔI THEO THỜI GIAN THỰC (REAL-TIME LISTENER)
-        // Khi bất kỳ điện thoại nào tạo hóa đơn, sửa kho thì hàm này lập tức kích hoạt trên các máy khác
         firebaseDatabase.ref('drshock_garage_data').on('value', snapshot => {
           const remoteData = snapshot.val();
           if (remoteData) {
@@ -1192,7 +1354,6 @@
             isSyncingFromRemote = false;
             updateCloudStatusUI('connected', '🟢 Đám mây: Đồng bộ tức thì');
           } else {
-            // Nếu đám mây mới tạo chưa có dữ liệu, tự động đẩy dữ liệu đầu tiên lên
             pushLocalDataToCloud(false);
           }
         }, error => {
@@ -1206,9 +1367,8 @@
       }
     }
 
-    // Đẩy dữ liệu lên cơ sở dữ liệu đám mây trung tâm
     function pushLocalDataToCloud(showToast = true) {
-      if (isSyncingFromRemote) return; // Tránh vòng lặp phản hồi
+      if (isSyncingFromRemote) return;
       if (!firebaseDatabase) return;
 
       updateCloudStatusUI('syncing', 'Đang đẩy lên mây...');
@@ -1265,7 +1425,6 @@
       pushLocalDataToCloud(true);
     }
 
-    // Lắng nghe sự kiện đồng bộ đa tab trên cùng 1 máy
     window.addEventListener('storage', function(e) {
       if (e.key === 'drshock_inventory') {
         inventoryList = getStoredData('drshock_inventory', DEFAULT_INVENTORY);
@@ -1285,7 +1444,6 @@
       }
     });
 
-    // Toast Thông báo
     function showNotification(msg, type = 'info') {
       const container = document.getElementById('toast-container');
       if (!container) return;
@@ -1316,7 +1474,6 @@
       }, 3000);
     }
 
-    // Modal Xác Nhận
     function showConfirmModal(title, desc, onConfirm) {
       const modal = document.getElementById('confirm-modal');
       document.getElementById('confirm-modal-title').textContent = title;
@@ -1339,7 +1496,6 @@
       btnCancel.onclick = cleanup;
     }
 
-    // Chọn tài khoản đăng nhập
     function selectUserLogin(id) {
       selectedLoginUserId = id;
       ['admin', 'tech', 'stock'].forEach(userId => {
@@ -1365,7 +1521,6 @@
       }
     }
 
-    // Đăng Nhập Làm Việc
     function handleLoginSubmit() {
       const errBox = document.getElementById('login-error-msg');
       const errText = document.getElementById('login-error-text');
@@ -1408,7 +1563,6 @@
       document.getElementById('current-user-name').textContent = user.name;
       document.getElementById('current-user-role').textContent = user.roleTitle;
 
-      // Phân quyền Tab Admin
       const adminTabs = document.querySelectorAll('.admin-only');
       if (user.role === 'admin') {
         adminTabs.forEach(el => el.classList.remove('hidden'));
@@ -1416,7 +1570,6 @@
         adminTabs.forEach(el => el.classList.add('hidden'));
       }
 
-      // Phân quyền Nhập hàng & Quản lý kho
       const isStockManager = (user.role === 'admin' || user.role === 'stock');
       const stockControls = document.querySelectorAll('.stock-manage-only');
       stockControls.forEach(el => {
@@ -1426,7 +1579,6 @@
       
       showNotification(`Xin chào ${user.name}! Đang kiểm tra dữ liệu đám mây...`, 'info');
 
-      // TỰ ĐỘNG ĐỒNG BỘ DỮ LIỆU ĐÁM MÂY NGAY LẬP TỨC KHI ĐĂNG NHẬP
       syncFromCloudOnLogin();
 
       renderInvoiceList();
@@ -1434,7 +1586,6 @@
       switchTab('tab-quote');
     }
 
-    // Hàm kéo dữ liệu mới nhất từ đám mây về ngay khi người dùng vừa đăng nhập
     function syncFromCloudOnLogin() {
       if (!firebaseDatabase) {
         initFirebaseCloudSync();
@@ -1465,7 +1616,6 @@
                 setStoredData('drshock_staff_fixed_3', staffList);
               }
 
-              // Làm mới toàn bộ giao diện với dữ liệu đám mây vừa lấy
               renderInventoryTable();
               populateInventorySelector('ALL');
               renderInvoiceList();
@@ -1478,7 +1628,6 @@
               updateCloudStatusUI('connected', '🟢 Đám mây: Đồng bộ tức thì');
               showNotification('Đã đồng bộ toàn bộ dữ liệu mới nhất từ đám mây!', 'success');
             } else {
-              // Nếu đám mây chưa có dữ liệu, tự động đẩy dữ liệu của máy này lên
               pushLocalDataToCloud(false);
             }
           })
@@ -1489,7 +1638,6 @@
       }
     }
 
-    // Đăng Xuất
     function handleLogout() {
       currentLoggedInUser = null;
       const pinInput = document.getElementById('login-pin-input');
@@ -1499,7 +1647,6 @@
       selectUserLogin('admin');
     }
 
-    // Chuyển Tab
     function switchTab(tabId) {
       document.querySelectorAll('.tab-content').forEach(t => t.classList.add('hidden'));
       document.querySelectorAll('.tab-btn').forEach(b => {
@@ -1545,87 +1692,89 @@
       return digits ? parseInt(digits, 10) : 0;
     }
 
-    // Định dạng tiền tệ chống lặp số và giữ vị trí con trỏ
-    function formatInputCurrency(input, allowZeroDefault = false) {
-      const rawBefore = input.value;
-      if (!rawBefore.trim()) {
-        if (allowZeroDefault) {
-          if (input.value !== '0') input.value = '0';
-          return 0;
-        }
+    function handleMoneyFocus(input) {
+      const num = parseCurrencyNumber(input.value);
+      input.value = num > 0 ? num.toString() : '';
+      setTimeout(() => input.select(), 10);
+    }
+
+    function handleMoneyBlur(input, allowZero = false) {
+      const num = parseCurrencyNumber(input.value);
+      if (num === 0) {
+        input.value = allowZero ? '0' : '';
+      } else {
+        input.value = formatMoney(num);
+      }
+    }
+
+    function formatLiveCurrency(input) {
+      const originalVal = input.value;
+      if (!originalVal) return 0;
+
+      const rawDigits = originalVal.replace(/\D/g, '');
+      if (!rawDigits) {
         input.value = '';
         return 0;
       }
 
-      const rawDigits = rawBefore.replace(/\D/g, '');
-      if (!rawDigits) {
-        input.value = allowZeroDefault ? '0' : '';
-        return 0;
-      }
-
       const num = parseInt(rawDigits.slice(0, 15), 10);
-      const formatted = num.toLocaleString('vi-VN');
+      const formatted = formatMoney(num);
 
       if (input.value === formatted) {
         return num;
       }
 
-      const cursorPos = input.selectionStart || 0;
-      const digitsBeforeCursor = rawBefore.slice(0, cursorPos).replace(/\D/g, '').length;
+      const selStart = input.selectionStart || 0;
+      const digitsBeforeCursor = originalVal.slice(0, selStart).replace(/\D/g, '').length;
 
       input.value = formatted;
 
-      let newCursorPos = 0;
-      let countedDigits = 0;
+      let newPos = formatted.length;
+      let digitCount = 0;
       for (let i = 0; i < formatted.length; i++) {
         if (/\d/.test(formatted[i])) {
-          countedDigits++;
+          digitCount++;
+          if (digitCount === digitsBeforeCursor) {
+            newPos = i + 1;
+            break;
+          }
         }
-        if (countedDigits >= digitsBeforeCursor) {
-          newCursorPos = i + 1;
-          break;
-        }
-      }
-      if (countedDigits < digitsBeforeCursor) {
-        newCursorPos = formatted.length;
       }
 
       try {
-        input.setSelectionRange(newCursorPos, newCursorPos);
+        input.setSelectionRange(newPos, newPos);
       } catch (e) {}
 
       return num;
     }
 
     function handleDiscountInput(input) {
-      formatInputCurrency(input, false);
+      formatLiveCurrency(input);
       calculateQuoteTotal();
     }
 
     function handleModalMoneyInput(input) {
-      formatInputCurrency(input, false);
+      formatLiveCurrency(input);
     }
 
-    function logStockEvent(type, itemId, itemName, unit, beforeQty, afterQty, note) {
-      const diff = afterQty - beforeQty;
-      const userName = (currentLoggedInUser && currentLoggedInUser.name) ? currentLoggedInUser.name : 'Chủ Xưởng';
-      const newLog = {
-        id: 'LOG-' + Date.now().toString().slice(-6),
-        time: new Date().toLocaleDateString('vi-VN') + ' ' + new Date().toLocaleTimeString('vi-VN'),
-        type: type,
-        itemId: itemId || '---',
-        itemName: itemName || 'Phụ tùng',
-        unit: unit || 'Cái',
-        beforeQty: beforeQty,
-        afterQty: afterQty,
-        diff: diff,
-        user: userName,
-        note: note || ''
-      };
-      stockLogList.unshift(newLog);
-      setStoredData('drshock_stock_logs', stockLogList);
-      renderStockLogs();
-      pushLocalDataToCloud(false);
+    function handleOdoFocus(input) {
+      const raw = input.value.replace(/\D/g, '');
+      input.value = raw ? parseInt(raw, 10).toLocaleString('vi-VN') : '';
+      setTimeout(() => input.select(), 10);
+    }
+
+    function handleOdoInput(input) {
+      formatLiveCurrency(input);
+    }
+
+    function handleOdoBlur(input) {
+      const raw = input.value.replace(/\D/g, '');
+      if (raw) {
+        const num = parseInt(raw, 10);
+        input.value = formatMoney(num) + ' km';
+      } else {
+        input.value = '';
+      }
     }
 
     function handlePartSearch(keyword) {
@@ -1821,7 +1970,8 @@
             </div>
 
             <div class="flex items-center space-x-1.5 text-right">
-              <input type="text" inputmode="numeric" value="${formatMoney(item.price)}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" onfocus="this.select()" oninput="handleItemPriceInput(${idx}, this)" 
+              <input type="text" inputmode="numeric" value="${formatMoney(item.price)}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" 
+                onfocus="handleMoneyFocus(this)" oninput="handleItemPriceInput(${idx}, this)" onblur="handleMoneyBlur(this, false)"
                 class="w-24 bg-gray-900 border border-gray-700 rounded px-1.5 py-0.5 text-right font-mono text-xs text-white focus:border-red-500">
               <span id="quote-item-total-${idx}" class="font-mono font-bold text-amber-400 text-xs">${formatMoney(item.qty * item.price)} đ</span>
             </div>
@@ -1856,7 +2006,7 @@
     }
 
     function handleItemPriceInput(idx, input) {
-      const num = formatInputCurrency(input, false);
+      const num = formatLiveCurrency(input);
       if (currentQuoteItems[idx]) {
         currentQuoteItems[idx].price = num;
         const totalSpan = document.getElementById(`quote-item-total-${idx}`);
@@ -1887,6 +2037,7 @@
       document.getElementById('quote-name').value = '';
       document.getElementById('quote-phone').value = '';
       document.getElementById('quote-carmodel').value = '';
+      if (document.getElementById('quote-odo')) document.getElementById('quote-odo').value = '';
       document.getElementById('quote-discount-input').value = '0';
       currentQuoteItems = [];
       renderQuoteItems();
@@ -1913,6 +2064,7 @@
         name: document.getElementById('quote-name').value.trim() || 'Khách vãng lai',
         phone: document.getElementById('quote-phone').value.trim() || '---',
         car: document.getElementById('quote-carmodel').value.trim() || '---',
+        odo: (document.getElementById('quote-odo') ? document.getElementById('quote-odo').value.trim() : '') || '---',
         advisor: document.getElementById('quote-advisor').value,
         items: JSON.parse(JSON.stringify(currentQuoteItems)),
         subtotal: subtotal,
@@ -1920,7 +2072,6 @@
         total: finalTotal
       };
 
-      // Tự động trừ kho & ghi nhật ký xuất kho
       currentQuoteItems.forEach(item => {
         const prod = inventoryList.find(p => p.id === item.id || p.name.trim().toLowerCase() === item.name.trim().toLowerCase());
         if (prod) {
@@ -1942,7 +2093,6 @@
       showPrintModal(newInv);
       showNotification(`Đã xuất hóa đơn ${newInv.id}!`, 'success');
 
-      // Đẩy cập nhật tức thì lên đám mây đa thiết bị
       pushLocalDataToCloud(false);
     }
 
@@ -1954,6 +2104,9 @@
       document.getElementById('inv-print-name').textContent = inv.name;
       document.getElementById('inv-print-car').textContent = inv.car;
       document.getElementById('inv-print-phone').textContent = inv.phone;
+      if (document.getElementById('inv-print-odo')) {
+        document.getElementById('inv-print-odo').textContent = inv.odo || '---';
+      }
       document.getElementById('inv-print-subtotal').textContent = formatMoney(inv.subtotal) + ' đ';
       document.getElementById('inv-print-discount').textContent = formatMoney(inv.discount) + ' đ';
       document.getElementById('inv-print-total').textContent = formatMoney(inv.total) + ' đ';
@@ -2047,6 +2200,9 @@
       document.getElementById('edit-inv-name').value = inv.name || '';
       document.getElementById('edit-inv-phone').value = inv.phone || '';
       document.getElementById('edit-inv-car').value = inv.car || '';
+      if (document.getElementById('edit-inv-odo')) {
+        document.getElementById('edit-inv-odo').value = inv.odo || '';
+      }
       document.getElementById('edit-inv-discount').value = formatMoney(inv.discount || 0);
 
       currentEditingInvoiceItems = JSON.parse(JSON.stringify(inv.items || []));
@@ -2095,7 +2251,8 @@
                 class="w-12 bg-gray-900 border border-gray-700 rounded text-center text-[10px] py-0.5 text-amber-300 font-bold uppercase">
             </div>
             <div class="flex items-center space-x-1.5">
-              <input type="text" inputmode="numeric" value="${formatMoney(item.price)}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" onfocus="this.select()" oninput="handleEditInvoicePriceInput(${idx}, this)" 
+              <input type="text" inputmode="numeric" value="${formatMoney(item.price)}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" 
+                onfocus="handleMoneyFocus(this)" oninput="handleEditInvoicePriceInput(${idx}, this)" onblur="handleMoneyBlur(this, false)"
                 class="w-24 bg-gray-900 border border-gray-700 rounded px-1 py-0.5 text-right font-mono text-xs text-white">
               <span id="edit-item-total-${idx}" class="font-mono font-bold text-amber-400 text-xs">${formatMoney(item.qty * item.price)} đ</span>
             </div>
@@ -2153,7 +2310,7 @@
     }
 
     function handleEditInvoicePriceInput(idx, input) {
-      const num = formatInputCurrency(input, false);
+      const num = formatLiveCurrency(input);
       if (currentEditingInvoiceItems[idx]) {
         currentEditingInvoiceItems[idx].price = num;
         const totalSpan = document.getElementById(`edit-item-total-${idx}`);
@@ -2165,7 +2322,7 @@
     }
 
     function handleEditInvoiceDiscountInput(input) {
-      formatInputCurrency(input, false);
+      formatLiveCurrency(input);
       calculateEditInvoiceTotal();
     }
 
@@ -2197,7 +2354,6 @@
 
       const { subtotal, discount, total } = calculateEditInvoiceTotal();
 
-      // ĐIỀU CHỈNH TỒN KHO & GHI NHẬT KÝ THEO CHÊNH LỆCH
       const oldItemsMap = {};
       (inv.items || []).forEach(it => {
         oldItemsMap[it.id] = (oldItemsMap[it.id] || 0) + (parseInt(it.qty) || 0);
@@ -2233,6 +2389,7 @@
       inv.name = document.getElementById('edit-inv-name').value.trim() || 'Khách vãng lai';
       inv.phone = document.getElementById('edit-inv-phone').value.trim() || '---';
       inv.car = document.getElementById('edit-inv-car').value.trim() || '---';
+      inv.odo = (document.getElementById('edit-inv-odo') ? document.getElementById('edit-inv-odo').value.trim() : '') || '---';
       inv.items = JSON.parse(JSON.stringify(currentEditingInvoiceItems));
       inv.subtotal = subtotal;
       inv.discount = discount;
@@ -2699,81 +2856,6 @@
       if (modal) modal.classList.add('hidden');
     }
 
-    async function downloadInvoiceImage() {
-      const invElem = document.getElementById('printable-invoice');
-      const btn = document.getElementById('btn-download-inv-img');
-      const btnText = document.getElementById('btn-download-inv-text');
-      if (!invElem) return;
-
-      if (typeof html2canvas === 'undefined') {
-        showNotification('Thư viện tạo ảnh chưa sẵn sàng, vui lòng thử lại sau 2 giây!', 'warning');
-        return;
-      }
-
-      const origText = btnText ? btnText.textContent : 'Tải Ảnh Hóa Đơn';
-      if (btn) btn.disabled = true;
-      if (btnText) btnText.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i>Đang xuất ảnh HD...`;
-
-      try {
-        showNotification('Đang tạo ảnh hóa đơn sắc nét...', 'info');
-
-        const canvas = await html2canvas(invElem, {
-          scale: 2,
-          useCORS: true,
-          backgroundColor: '#ffffff',
-          logging: false
-        });
-
-        const invoiceId = (currentViewingInvoice && currentViewingInvoice.id) ? currentViewingInvoice.id : 'HOA-DON';
-        const plateStr = (currentViewingInvoice && currentViewingInvoice.plate) ? currentViewingInvoice.plate.replace(/[^a-zA-Z0-9]/g, '') : 'XE';
-        const fileName = `HoaDon_DrShock_${plateStr}_${invoiceId}.png`;
-
-        if (navigator.share && navigator.canShare) {
-          canvas.toBlob(async (blob) => {
-            if (!blob) {
-              triggerDirectDownload(canvas, fileName);
-              return;
-            }
-            const file = new File([blob], fileName, { type: 'image/png' });
-            if (navigator.canShare({ files: [file] })) {
-              try {
-                await navigator.share({
-                  title: `Hóa Đơn Dr.Shock VN - ${invoiceId}`,
-                  text: `Phiếu dịch vụ & bảo hành xe ${plateStr} - CÔNG TY TNHH DR.SHOCK VN`,
-                  files: [file]
-                });
-                showNotification('Đã mở menu chia sẻ hóa đơn!', 'success');
-              } catch (err) {
-                if (err.name !== 'AbortError') {
-                  triggerDirectDownload(canvas, fileName);
-                }
-              }
-            } else {
-              triggerDirectDownload(canvas, fileName);
-            }
-          }, 'image/png');
-        } else {
-          triggerDirectDownload(canvas, fileName);
-        }
-      } catch (err) {
-        showNotification('Lỗi khi tạo ảnh hóa đơn, vui lòng thử lại!', 'error');
-      } finally {
-        if (btn) btn.disabled = false;
-        if (btnText) btnText.textContent = origText;
-      }
-    }
-
-    function triggerDirectDownload(canvas, fileName) {
-      const imgData = canvas.toDataURL('image/png');
-      const link = document.createElement('a');
-      link.href = imgData;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      showNotification('Đã tải ảnh hóa đơn thành công! Bạn có thể gửi ngay cho khách.', 'success');
-    }
-
     function renderCustomerAndReports() {
       const totalRev = invoiceList.reduce((sum, i) => sum + i.total, 0);
       const revElem = document.getElementById('report-total-revenue');
@@ -2859,6 +2941,27 @@
       document.getElementById('inv-print-warranty-text').textContent = '* Cam kết: ' + war;
 
       showNotification('Đã lưu hồ sơ Garage!', 'success');
+    }
+
+    function logStockEvent(type, itemId, itemName, unit, beforeQty, afterQty, note) {
+      const diff = afterQty - beforeQty;
+      const userName = (currentLoggedInUser && currentLoggedInUser.name) ? currentLoggedInUser.name : 'Chủ Xưởng';
+      const newLog = {
+        id: 'LOG-' + Date.now().toString().slice(-6),
+        time: new Date().toLocaleDateString('vi-VN') + ' ' + new Date().toLocaleTimeString('vi-VN'),
+        type: type,
+        itemId: itemId || '---',
+        itemName: itemName || 'Phụ tùng',
+        unit: unit || 'Cái',
+        beforeQty: beforeQty,
+        afterQty: afterQty,
+        diff: diff,
+        user: userName,
+        note: note || ''
+      };
+      stockLogList.unshift(newLog);
+      setStoredData('drshock_stock_logs', stockLogList);
+      renderStockLogs();
     }
 
     function filterStockLogs(type) {
@@ -2968,6 +3071,81 @@
       );
     }
 
+    async function downloadInvoiceImage() {
+      const invElem = document.getElementById('printable-invoice');
+      const btn = document.getElementById('btn-download-inv-img');
+      const btnText = document.getElementById('btn-download-inv-text');
+      if (!invElem) return;
+
+      if (typeof html2canvas === 'undefined') {
+        showNotification('Thư viện tạo ảnh chưa sẵn sàng, vui lòng thử lại sau 2 giây!', 'warning');
+        return;
+      }
+
+      const origText = btnText ? btnText.textContent : 'Tải Ảnh Hóa Đơn';
+      if (btn) btn.disabled = true;
+      if (btnText) btnText.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i>Đang xuất ảnh HD...`;
+
+      try {
+        showNotification('Đang tạo ảnh hóa đơn sắc nét...', 'info');
+
+        const canvas = await html2canvas(invElem, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: '#ffffff',
+          logging: false
+        });
+
+        const invoiceId = (currentViewingInvoice && currentViewingInvoice.id) ? currentViewingInvoice.id : 'HOA-DON';
+        const plateStr = (currentViewingInvoice && currentViewingInvoice.plate) ? currentViewingInvoice.plate.replace(/[^a-zA-Z0-9]/g, '') : 'XE';
+        const fileName = `HoaDon_DrShock_${plateStr}_${invoiceId}.png`;
+
+        if (navigator.share && navigator.canShare) {
+          canvas.toBlob(async (blob) => {
+            if (!blob) {
+              triggerDirectDownload(canvas, fileName);
+              return;
+            }
+            const file = new File([blob], fileName, { type: 'image/png' });
+            if (navigator.canShare({ files: [file] })) {
+              try {
+                await navigator.share({
+                  title: `Hóa Đơn Dr.Shock VN - ${invoiceId}`,
+                  text: `Phiếu dịch vụ & bảo hành xe ${plateStr} - CÔNG TY TNHH DR.SHOCK VN`,
+                  files: [file]
+                });
+                showNotification('Đã mở menu chia sẻ hóa đơn!', 'success');
+              } catch (err) {
+                if (err.name !== 'AbortError') {
+                  triggerDirectDownload(canvas, fileName);
+                }
+              }
+            } else {
+              triggerDirectDownload(canvas, fileName);
+            }
+          }, 'image/png');
+        } else {
+          triggerDirectDownload(canvas, fileName);
+        }
+      } catch (err) {
+        showNotification('Lỗi khi tạo ảnh hóa đơn, vui lòng thử lại!', 'error');
+      } finally {
+        if (btn) btn.disabled = false;
+        if (btnText) btnText.textContent = origText;
+      }
+    }
+
+    function triggerDirectDownload(canvas, fileName) {
+      const imgData = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      link.href = imgData;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      showNotification('Đã tải ảnh hóa đơn thành công! Bạn có thể gửi ngay cho khách.', 'success');
+    }
+
     function getFormattedTimestamp() {
       const now = new Date();
       const yyyy = now.getFullYear();
@@ -2989,7 +3167,6 @@
       try {
         const wb = XLSX.utils.book_new();
 
-        // 1. TỔNG QUAN DOANH THU
         const totalRev = invoiceList.reduce((sum, i) => sum + (i.total || 0), 0);
         const totalDiscount = invoiceList.reduce((sum, i) => sum + (i.discount || 0), 0);
         const totalItemsValue = inventoryList.reduce((sum, i) => sum + ((i.stock || 0) * (i.costPrice || 0)), 0);
@@ -3012,19 +3189,18 @@
         const wsOverview = XLSX.utils.aoa_to_sheet(overviewRows);
         XLSX.utils.book_append_sheet(wb, wsOverview, 'Doanh_Thu_Tong_Quan');
 
-        // 2. CHI TIẾT HÓA ĐƠN
         const invoiceRows = [
-          ['Mã Hóa Đơn', 'Thời Gian', 'Biển Số Xe', 'Tên Khách Hàng', 'Số Điện Thoại', 'Dòng Xe', 'Cố Vấn Tiếp Nhận', 'Tên Phụ Tùng / Dịch Vụ', 'Số Lượng', 'Đơn Vị Tính', 'Đơn Giá (đ)', 'Thành Tiền Món (đ)', 'Giảm Giá Bill (đ)', 'Tổng Bill Thanh Toán (đ)']
+          ['Mã Hóa Đơn', 'Thời Gian', 'Biển Số Xe', 'Số ODO', 'Tên Khách Hàng', 'Số Điện Thoại', 'Dòng Xe', 'Cố Vấn Tiếp Nhận', 'Tên Phụ Tùng / Dịch Vụ', 'Số Lượng', 'Đơn Vị Tính', 'Đơn Giá (đ)', 'Thành Tiền Món (đ)', 'Giảm Giá Bill (đ)', 'Tổng Bill Thanh Toán (đ)']
         ];
 
         if (invoiceList.length === 0) {
-          invoiceRows.push(['Chưa có hóa đơn nào', '', '', '', '', '', '', '', '', '', '', '', '', '']);
+          invoiceRows.push(['Chưa có hóa đơn nào', '', '', '', '', '', '', '', '', '', '', '', '', '', '']);
         } else {
           invoiceList.forEach(inv => {
             if (inv.items && inv.items.length > 0) {
               inv.items.forEach((item, itemIdx) => {
                 invoiceRows.push([
-                  inv.id, inv.date, inv.plate, inv.name, inv.phone, inv.car, inv.advisor,
+                  inv.id, inv.date, inv.plate, inv.odo || '---', inv.name, inv.phone, inv.car, inv.advisor,
                   item.name, item.qty, item.unit || 'Cái', item.price, item.qty * item.price,
                   itemIdx === 0 ? inv.discount : '', itemIdx === 0 ? inv.total : ''
                 ]);
@@ -3035,7 +3211,6 @@
         const wsInvoices = XLSX.utils.aoa_to_sheet(invoiceRows);
         XLSX.utils.book_append_sheet(wb, wsInvoices, 'Chi_Tiet_Hoa_Don');
 
-        // 3. KHO PHỤ TÙNG
         const inventoryRows = [
           ['Mã Hàng', 'Tên Chi Tiết Phụ Tùng', 'Nhóm Hàng', 'Đơn Vị Tính (ĐVT)', 'Giá Nhập - Vốn (đ)', 'Giá Bán Lẻ (đ)', 'Số Lượng Tồn Kho', 'Tổng Giá Trị Vốn (đ)', 'Tổng Giá Trị Bán Lẻ (đ)']
         ];
@@ -3051,7 +3226,6 @@
         const wsInventory = XLSX.utils.aoa_to_sheet(inventoryRows);
         XLSX.utils.book_append_sheet(wb, wsInventory, 'Kho_Phu_Tung');
 
-        // 4. NHẬT KÝ KHO
         const stockLogRows = [
           ['Mã Nhật Ký', 'Thời Gian Ghi Nhận', 'Loại Giao Dịch', 'Mã Phụ Tùng', 'Tên Phụ Tùng', 'Đơn Vị Tính', 'Tồn Trước Biến Động', 'Tồn Sau Biến Động', 'Chênh Lệch (+/-)', 'Người Thực Hiện', 'Ghi Chú Chi Tiết']
         ];
@@ -3065,7 +3239,6 @@
         const wsStockLogs = XLSX.utils.aoa_to_sheet(stockLogRows);
         XLSX.utils.book_append_sheet(wb, wsStockLogs, 'Nhat_Ky_Kho');
 
-        // 5. KHÁCH HÀNG
         const custMap = {};
         invoiceList.forEach(i => {
           if (!custMap[i.plate]) {
@@ -3098,14 +3271,14 @@
       try {
         const wb = XLSX.utils.book_new();
         const rows = [
-          ['Mã HĐ', 'Ngày Giờ', 'Biển Số', 'Khách Hàng', 'SĐT', 'Dòng Xe', 'Cố Vấn', 'Hạng Mục', 'SL', 'ĐVT', 'Đơn Giá (đ)', 'Thành Tiền (đ)', 'Giảm Giá Bill (đ)', 'Tổng Bill (đ)']
+          ['Mã HĐ', 'Ngày Giờ', 'Biển Số', 'Số ODO', 'Khách Hàng', 'SĐT', 'Dòng Xe', 'Cố Vấn', 'Hạng Mục', 'SL', 'ĐVT', 'Đơn Giá (đ)', 'Thành Tiền (đ)', 'Giảm Giá Bill (đ)', 'Tổng Bill (đ)']
         ];
 
         invoiceList.forEach(inv => {
           if (inv.items && inv.items.length) {
             inv.items.forEach((it, idx) => {
               rows.push([
-                inv.id, inv.date, inv.plate, inv.name, inv.phone, inv.car, inv.advisor,
+                inv.id, inv.date, inv.plate, inv.odo || '---', inv.name, inv.phone, inv.car, inv.advisor,
                 it.name, it.qty, it.unit || 'Cái', it.price, it.qty * it.price,
                 idx === 0 ? inv.discount : '', idx === 0 ? inv.total : ''
               ]);
@@ -3177,6 +3350,373 @@
       }
     }
 
+    // ==========================================
+    // CƠ CHẾ SAO LƯU & BẢO TOÀN DỮ LIỆU (BACKUP / RESTORE)
+    // ==========================================
+    function exportFullDatabaseJSON() {
+      const fullBackup = {
+        app: "Dr.ShockVN",
+        version: "2.0-cloud",
+        timestamp: new Date().toISOString(),
+        inventory: inventoryList,
+        invoices: invoiceList,
+        stock_logs: stockLogList,
+        staff: staffList,
+        profile: {
+          company: document.getElementById('prof-company-name')?.value || '',
+          mst: document.getElementById('prof-mst')?.value || '',
+          hotline: document.getElementById('prof-hotline')?.value || '',
+          address: document.getElementById('prof-address')?.value || '',
+          warranty: document.getElementById('prof-warranty')?.value || ''
+        }
+      };
+
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(fullBackup, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", `SaoLuu_DrShockVN_${getFormattedTimestamp()}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+
+      showNotification('Đã tải tệp sao lưu dữ liệu toàn bộ xưởng thành công!', 'success');
+    }
+
+    function importFullDatabaseJSON(event) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const imported = JSON.parse(e.target.result);
+          if (!imported.inventory && !imported.invoices) {
+            showNotification('Tệp tin không đúng định dạng dữ liệu Dr.ShockVN!', 'error');
+            return;
+          }
+
+          showConfirmModal(
+            'Xác Nhận Phục Hồi Dữ Liệu',
+            'Toàn bộ dữ liệu kho hàng, hóa đơn và doanh thu sẽ được đồng bộ theo tệp sao lưu này. Bạn có chắc chắn muốn tiếp tục?',
+            () => {
+              if (imported.inventory) {
+                inventoryList = imported.inventory;
+                setStoredData('drshock_inventory', inventoryList);
+              }
+              if (imported.invoices) {
+                invoiceList = imported.invoices;
+                setStoredData('drshock_invoices', invoiceList);
+              }
+              if (imported.stock_logs) {
+                stockLogList = imported.stock_logs;
+                setStoredData('drshock_stock_logs', stockLogList);
+              }
+              if (imported.staff) {
+                staffList = imported.staff;
+                setStoredData('drshock_staff_fixed_3', staffList);
+              }
+
+              initSystem();
+              pushLocalDataToCloud(false);
+              showNotification('Đã phục hồi toàn bộ dữ liệu thành công!', 'success');
+            }
+          );
+        } catch (err) {
+          showNotification('Lỗi khi đọc file sao lưu, vui lòng kiểm tra lại!', 'error');
+        }
+      };
+      reader.readAsText(file);
+      event.target.value = '';
+    }
+
+    const GEMINI_MODEL = "gemini-2.5-flash";
+
+    async function callGeminiGenerateContent(prompt, systemInstruction = "") {
+      const apiKey = ""; 
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+
+      const payload = {
+        contents: [
+          {
+            parts: [{ text: prompt }]
+          }
+        ]
+      };
+
+      if (systemInstruction) {
+        payload.systemInstruction = {
+          parts: [{ text: systemInstruction }]
+        };
+      }
+
+      let attempt = 0;
+      const maxRetries = 3;
+      let delay = 1000;
+
+      while (attempt < maxRetries) {
+        try {
+          const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+
+          if (!response.ok) {
+            if (response.status === 429 || response.status >= 500) {
+              attempt++;
+              await new Promise(r => setTimeout(r, delay));
+              delay *= 2;
+              continue;
+            }
+            throw new Error(`Gemini API error: ${response.status}`);
+          }
+
+          const result = await response.json();
+          const candidate = result.candidates?.[0];
+          const text = candidate?.content?.parts?.[0]?.text;
+          if (text) {
+            return text;
+          }
+          throw new Error("Không nhận được phản hồi từ AI");
+        } catch (err) {
+          attempt++;
+          if (attempt >= maxRetries) throw err;
+          await new Promise(r => setTimeout(r, delay));
+          delay *= 2;
+        }
+      }
+      throw new Error("Không thể kết nối đến máy chủ Gemini");
+    }
+
+    function openAIAssistantModal() {
+      const plate = document.getElementById('quote-plate')?.value.trim();
+      const car = document.getElementById('quote-carmodel')?.value.trim();
+      const input = document.getElementById('ai-symptom-input');
+      if (input && !input.value.trim() && (plate || car)) {
+        input.value = `Xe: ${car || 'Ô tô'} (Biển số: ${plate || 'Chưa rõ'}), cần kiểm tra nâng cấp phuộc và bảo dưỡng gầm: `;
+      }
+      document.getElementById('ai-assistant-modal').classList.remove('hidden');
+    }
+
+    function closeAIAssistantModal() {
+      document.getElementById('ai-assistant-modal').classList.add('hidden');
+    }
+
+    function setAISample(text) {
+      const input = document.getElementById('ai-symptom-input');
+      if (input) {
+        input.value = text;
+        input.focus();
+      }
+    }
+
+    async function diagnoseWithAI() {
+      const input = document.getElementById('ai-symptom-input');
+      const symptom = input ? input.value.trim() : '';
+      if (!symptom) {
+        showNotification('Vui lòng nhập triệu chứng hoặc tình trạng xe!', 'warning');
+        if (input) input.focus();
+        return;
+      }
+
+      const btn = document.getElementById('btn-diagnose-ai');
+      const origText = btn ? btn.innerHTML : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1.5"></i>AI đang phân tích kỹ thuật...`;
+      }
+
+      const resBox = document.getElementById('ai-response-container');
+      const textElem = document.getElementById('ai-analysis-text');
+      const partsSection = document.getElementById('ai-suggested-parts-section');
+      const partsList = document.getElementById('ai-suggested-parts-list');
+      const latencyBadge = document.getElementById('ai-latency-badge');
+
+      if (resBox) resBox.classList.remove('hidden');
+      if (textElem) textElem.innerHTML = `<span class="text-purple-300 animate-pulse"><i class="fa-solid fa-brain mr-1.5"></i>Đang đối chiếu dữ liệu kỹ thuật gầm & danh mục kho phụ tùng...</span>`;
+
+      const invSummary = inventoryList.map(i => `- Mã: ${i.id} | ${i.name} (ĐVT: ${i.unit || 'Cái'}, Giá bán: ${formatMoney(i.price)} đ, Tồn: ${i.stock})`).join('\n');
+
+      const systemPrompt = `Bạn là Trợ Lý Kỹ Thuật Viên Trưởng của CÔNG TY TNHH DR.SHOCK VN - Garage chuyên sâu hàng đầu về Nâng cấp Phuộc (Tein, Profender, PNK, OME...), cân chỉnh gầm 3D, bảo dưỡng rotuyn và cao su gầm ô tô.
+Phong cách phản hồi: Ngắn gọn, súc tích, chuyên môn cao nhưng giải thích rõ ràng cho cố vấn dịch vụ và chủ xe dễ hiểu.
+
+Danh mục phụ tùng hiện có tại kho Garage Dr.Shock:
+${invSummary}
+
+Nhiệm vụ:
+1. Chẩn đoán các nguyên nhân cơ khí có khả năng cao nhất gây ra hiện tượng khách phản ánh.
+2. Đề xuất quy trình kiểm tra thực tế trên cầu nâng (VD: kiểm tra xì dầu phuộc, rơ rotuyn trụ/lực, rách cao su càng A, đĩa phanh vênh).
+3. Gợi ý phương án xử lý & đề xuất các phụ tùng trong kho Dr.Shock phù hợp nhất.
+Ở cuối câu trả lời, hãy đính kèm một dòng theo định dạng chuẩn:
+[RECOMMEND_PARTS: MÃ_HÀNG_1, MÃ_HÀNG_2]
+(Nếu có mã hàng phù hợp trong danh mục kho trên. Ví dụ: [RECOMMEND_PARTS: P01, R01])`;
+
+      const startTime = Date.now();
+      try {
+        const aiResponse = await callGeminiGenerateContent(symptom, systemPrompt);
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        if (latencyBadge) latencyBadge.textContent = `${elapsed}s`;
+
+        const match = aiResponse.match(/\[RECOMMEND_PARTS:\s*([^\]]+)\]/i);
+        let cleanText = aiResponse.replace(/\[RECOMMEND_PARTS:[^\]]+\]/gi, '').trim();
+
+        if (textElem) textElem.textContent = cleanText;
+
+        if (match && match[1]) {
+          const partCodes = match[1].split(',').map(c => c.trim().toUpperCase());
+          const matchedItems = inventoryList.filter(item => partCodes.includes(item.id.toUpperCase()));
+
+          if (matchedItems.length > 0 && partsSection && partsList) {
+            partsList.innerHTML = matchedItems.map(item => `
+              <div class="bg-gray-900 border border-purple-500/30 rounded-xl p-2.5 flex items-center justify-between gap-2">
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <span class="text-xs font-bold text-white">${item.name}</span>
+                    <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-gray-800 text-gray-300 border border-gray-700">${item.id}</span>
+                  </div>
+                  <div class="text-[11px] text-amber-400 font-mono font-bold mt-0.5">
+                    ${formatMoney(item.price)} đ <span class="text-gray-400 font-normal">/ ${item.unit || 'Cái'} (Tồn: ${item.stock})</span>
+                  </div>
+                </div>
+                <button type="button" onclick="selectSuggestedPart('${item.id}'); showNotification('Đã thêm ${item.name} vào Bill!', 'success');" 
+                  class="px-2.5 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 active:scale-95 text-white rounded-lg text-xs font-bold shadow flex items-center gap-1 shrink-0">
+                  <i class="fa-solid fa-plus text-[10px]"></i><span>Đưa vào Bill</span>
+                </button>
+              </div>
+            `).join('');
+            partsSection.classList.remove('hidden');
+          } else if (partsSection) {
+            partsSection.classList.add('hidden');
+          }
+        } else if (partsSection) {
+          partsSection.classList.add('hidden');
+        }
+
+        showNotification('AI đã chẩn đoán xong!', 'success');
+      } catch (err) {
+        if (textElem) textElem.innerHTML = `<span class="text-red-400"><i class="fa-solid fa-circle-exclamation mr-1"></i>Lỗi kết nối AI: ${err.message || 'Không thể tạo chẩn đoán'}. Vui lòng thử lại!</span>`;
+        showNotification('Lỗi khi gọi AI Gemini!', 'error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = origText;
+        }
+      }
+    }
+
+    async function generateAICustomerCareMessage() {
+      if (!currentViewingInvoice) {
+        showNotification('Vui lòng mở hóa đơn cần soạn tin nhắn!', 'warning');
+        return;
+      }
+
+      const btn = document.getElementById('btn-gen-ai-msg');
+      const origText = btn ? btn.innerHTML : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i>AI đang soạn...`;
+      }
+
+      const container = document.getElementById('ai-cust-msg-container');
+      const textarea = document.getElementById('ai-cust-msg-text');
+      if (container) container.classList.remove('hidden');
+      if (textarea) textarea.value = "Đang soạn tin nhắn cảm ơn và dặn dò khách bằng AI Gemini...";
+
+      const inv = currentViewingInvoice;
+      const itemsList = (inv.items || []).map(i => `- ${i.name} (SL: ${i.qty} ${i.unit || 'Cái'})`).join('\n');
+
+      const systemPrompt = `Bạn là Trợ lý Chăm sóc Khách hàng chuyên nghiệp của CÔNG TY TNHH DR.SHOCK VN (Hotline: 0356.795.954 - 079.8089.886).
+Nhiệm vụ: Soạn một tin nhắn ngắn gọn, ấm áp, lịch sự và đầy đủ thông tin để garage gửi cho khách qua Zalo/SMS sau khi giao xe.
+
+Yêu cầu nội dung:
+1. Chào hỏi thân thiện theo tên khách hàng (${inv.name}) và biển số xe (${inv.plate}).
+2. Điểm danh ngắn các hạng mục vừa nâng cấp/bảo dưỡng.
+3. Hướng dẫn lưu ý quan trọng: Nhắc nhở chạy rodage gầm/phuộc 500-1000km đầu tiên, và mời khách ghé lại sau 1.000km để kỹ thuật viên Dr.Shock kiểm tra siết lại gầm & góc đặt bánh MIỄN PHÍ.
+4. Nhắc lại cam kết bảo hành và thông tin liên hệ hỗ trợ 24/7.
+Giọng điệu: Tận tâm, chu đáo, dùng icon sinh động.`;
+
+      const userPrompt = `Hóa đơn: ${inv.id}
+Khách hàng: ${inv.name}
+Biển số: ${inv.plate}
+Dòng xe: ${inv.car}
+Tổng tiền: ${formatMoney(inv.total)} đ
+Các hạng mục đã thực hiện:
+${itemsList}`;
+
+      try {
+        const message = await callGeminiGenerateContent(userPrompt, systemPrompt);
+        if (textarea) textarea.value = message;
+        showNotification('AI đã soạn xong lời dặn khách!', 'success');
+      } catch (err) {
+        if (textarea) textarea.value = `Cảm ơn Anh/Chị ${inv.name} đã tin tưởng bảo dưỡng và nâng cấp xe ${inv.plate} tại DR.SHOCK VN!\nKính mời Anh/Chị ghé lại sau 1.000km đầu tiên để garage kiểm tra siết lại gầm hoàn toàn miễn phí. Hotline hỗ trợ 24/7: 0356.795.954.`;
+        showNotification('Đã dùng mẫu tin nhắn mặc định do lỗi mạng.', 'info');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = origText;
+        }
+      }
+    }
+
+    function copyAICustomerMsg() {
+      const textarea = document.getElementById('ai-cust-msg-text');
+      if (!textarea || !textarea.value) return;
+      textarea.select();
+      document.execCommand('copy');
+      showNotification('Đã sao chép tin nhắn Zalo gửi khách!', 'success');
+    }
+
+    async function generateAIAnalyticsReport() {
+      const btn = document.getElementById('btn-run-ai-analytics');
+      const origText = btn ? btn.innerHTML : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1.5"></i>AI đang phân tích số liệu...`;
+      }
+
+      const resultBox = document.getElementById('ai-analytics-result-box');
+      if (resultBox) {
+        resultBox.classList.remove('hidden');
+        resultBox.innerHTML = `<span class="text-purple-300 animate-pulse"><i class="fa-solid fa-brain mr-1.5"></i>AI đang rà soát toàn bộ hóa đơn, tính toán doanh thu và cảnh báo mức tồn kho...</span>`;
+      }
+
+      const totalRev = invoiceList.reduce((sum, i) => sum + (i.total || 0), 0);
+      const lowStockItems = inventoryList.filter(i => (i.stock || 0) <= 2);
+      const lowStockSummary = lowStockItems.map(i => `- ${i.name} (Tồn chỉ còn: ${i.stock} ${i.unit || 'Cái'})`).join('\n') || "Kho đầy đủ, chưa có mặt hàng nào dưới mức tối thiểu.";
+
+      const recentInvoicesSummary = invoiceList.slice(0, 10).map(i => `- HĐ ${i.id} (${i.plate} - ${i.car}): ${formatMoney(i.total)} đ`).join('\n') || "Chưa có hóa đơn gần đây.";
+
+      const systemPrompt = `Bạn là Giám đốc Cố vấn Chiến lược Garage Ô tô hỗ trợ Chủ Xưởng CÔNG TY TNHH DR.SHOCK VN.
+Hãy đưa ra một báo cáo phân tích kinh doanh ngắn gọn, thực tế và sâu sắc gồm 3 phần:
+1. Đánh giá dòng tiền & tình hình phục vụ khách hàng.
+2. Cảnh báo tồn kho & danh sách mặt hàng cần đặt thêm ngay lập tức để không hụt doanh số.
+3. 2-3 gợi ý hành động cụ thể để gia tăng doanh thu trong tuần tới (ví dụ: gói khuyến mãi kiểm tra góc đặt gầm miễn phí, combo nâng cấp phuộc kèm nhớt động cơ...).
+Dùng ngôn từ kinh doanh xưởng thực tế, súc tích, định dạng gạch đầu dòng rõ ràng.`;
+
+      const userPrompt = `Số liệu thực tế Garage:
+- Tổng Doanh Thu: ${formatMoney(totalRev)} đ
+- Tổng số lượt xe đã phục vụ: ${invoiceList.length}
+- Tổng số mặt hàng quản lý: ${inventoryList.length}
+- Các mặt hàng sắp hết hàng (tồn <= 2):
+${lowStockSummary}
+- 10 giao dịch hóa đơn gần nhất:
+${recentInvoicesSummary}`;
+
+      try {
+        const report = await callGeminiGenerateContent(userPrompt, systemPrompt);
+        if (resultBox) resultBox.textContent = report;
+        showNotification('AI đã hoàn thành phân tích garage!', 'success');
+      } catch (err) {
+        if (resultBox) resultBox.innerHTML = `<span class="text-red-400"><i class="fa-solid fa-circle-exclamation mr-1"></i>Lỗi phân tích AI: ${err.message || 'Không thể kết nối máy chủ Gemini'}.</span>`;
+        showNotification('Lỗi khi phân tích bằng AI!', 'error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = origText;
+        }
+      }
+    }
+
     function initSystem() {
       populateAdvisorSelect();
       populateInventorySelector('ALL');
@@ -3187,7 +3727,6 @@
       renderQuoteItems();
       renderStockLogs();
 
-      // Nạp cấu hình đám mây đã lưu
       const savedDbUrl = getStoredData('drshock_cloud_db_url', '');
       const savedProjId = getStoredData('drshock_cloud_project_id', '');
       const savedApiKey = getStoredData('drshock_cloud_api_key', '');
