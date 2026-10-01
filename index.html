@@ -1316,7 +1316,7 @@
       }, 3000);
     }
 
-    // Modal Xác Nhận Xóa
+    // Modal Xác Nhận
     function showConfirmModal(title, desc, onConfirm) {
       const modal = document.getElementById('confirm-modal');
       document.getElementById('confirm-modal-title').textContent = title;
@@ -1424,10 +1424,69 @@
         else el.classList.add('hidden');
       });
       
-      showNotification(`Xin chào ${user.name}!`, 'success');
+      showNotification(`Xin chào ${user.name}! Đang kiểm tra dữ liệu đám mây...`, 'info');
+
+      // TỰ ĐỘNG ĐỒNG BỘ DỮ LIỆU ĐÁM MÂY NGAY LẬP TỨC KHI ĐĂNG NHẬP
+      syncFromCloudOnLogin();
+
       renderInvoiceList();
       renderInventoryTable();
       switchTab('tab-quote');
+    }
+
+    // Hàm kéo dữ liệu mới nhất từ đám mây về ngay khi người dùng vừa đăng nhập
+    function syncFromCloudOnLogin() {
+      if (!firebaseDatabase) {
+        initFirebaseCloudSync();
+      }
+
+      if (firebaseDatabase) {
+        updateCloudStatusUI('syncing', 'Đang nạp dữ liệu mới nhất...');
+        firebaseDatabase.ref('drshock_garage_data').once('value')
+          .then(snapshot => {
+            const remoteData = snapshot.val();
+            if (remoteData) {
+              isSyncingFromRemote = true;
+
+              if (remoteData.inventory) {
+                inventoryList = remoteData.inventory;
+                setStoredData('drshock_inventory', inventoryList);
+              }
+              if (remoteData.invoices) {
+                invoiceList = remoteData.invoices;
+                setStoredData('drshock_invoices', invoiceList);
+              }
+              if (remoteData.stock_logs) {
+                stockLogList = remoteData.stock_logs;
+                setStoredData('drshock_stock_logs', stockLogList);
+              }
+              if (remoteData.staff && Array.isArray(remoteData.staff)) {
+                staffList = remoteData.staff;
+                setStoredData('drshock_staff_fixed_3', staffList);
+              }
+
+              // Làm mới toàn bộ giao diện với dữ liệu đám mây vừa lấy
+              renderInventoryTable();
+              populateInventorySelector('ALL');
+              renderInvoiceList();
+              renderCustomerAndReports();
+              renderStockLogs();
+              renderStaffCards();
+              populateAdvisorSelect();
+
+              isSyncingFromRemote = false;
+              updateCloudStatusUI('connected', '🟢 Đám mây: Đồng bộ tức thì');
+              showNotification('Đã đồng bộ toàn bộ dữ liệu mới nhất từ đám mây!', 'success');
+            } else {
+              // Nếu đám mây chưa có dữ liệu, tự động đẩy dữ liệu của máy này lên
+              pushLocalDataToCloud(false);
+            }
+          })
+          .catch(err => {
+            console.warn('Lỗi đồng bộ khi đăng nhập:', err);
+            updateCloudStatusUI('offline', 'Mây: Ngoại tuyến (Bộ nhớ máy)');
+          });
+      }
     }
 
     // Đăng Xuất
