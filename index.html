@@ -23,10 +23,14 @@
   <!-- Tailwind CSS & Font Awesome -->
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <!-- Thư viện tạo ảnh hóa đơn sắc nét -->
+  
+  <!-- Thư viện tạo ảnh hóa đơn sắc nét & xuất Excel đa trang -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-  <!-- Thư viện xuất Sheet Excel .xlsx đa trang -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <!-- Google Firebase Realtime Database SDK (Hỗ trợ đồng bộ đa thiết bị tức thì) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
   
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
@@ -50,7 +54,6 @@
       height: -webkit-fill-available;
     }
 
-    /* Ẩn scrollbar thô trên điện thoại */
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
@@ -58,7 +61,6 @@
     .custom-scrollbar::-webkit-scrollbar-track { background: #111827; }
     .custom-scrollbar::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
     
-    /* Tối ưu khi in phiếu AirPrint / Máy in */
     @media print {
       body * { visibility: hidden; }
       #invoice-modal, #invoice-modal * { visibility: visible; }
@@ -171,10 +173,19 @@
     <header class="bg-gray-900 border-b border-gray-800 sticky top-0 z-30 px-3 py-2.5 sm:px-4 sm:py-3 shadow-md">
       <div class="max-w-7xl mx-auto flex items-center justify-between gap-2">
         <div class="min-w-0 flex-1">
-          <h1 class="text-sm sm:text-base md:text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-red-500 via-orange-400 to-yellow-400 uppercase tracking-tight truncate">
-            CÔNG TY TNHH DR.SHOCK VN
-          </h1>
-          <div class="flex items-center gap-2 text-[10px] sm:text-xs">
+          <div class="flex items-center gap-2 flex-wrap">
+            <h1 class="text-sm sm:text-base md:text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-red-500 via-orange-400 to-yellow-400 uppercase tracking-tight truncate">
+              CÔNG TY TNHH DR.SHOCK VN
+            </h1>
+            <!-- Trạng thái kết nối Đám Mây Đa Thiết Bị -->
+            <div id="cloud-sync-status-badge" onclick="triggerManualSync()" title="Nhấp để đồng bộ ngay" 
+              class="cursor-pointer inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border transition bg-amber-950/60 text-amber-400 border-amber-500/40">
+              <span id="cloud-status-dot" class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+              <span id="cloud-status-text">Đám mây: Cục bộ</span>
+              <i class="fa-solid fa-rotate text-[9px]"></i>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 text-[10px] sm:text-xs mt-0.5">
             <span class="text-amber-400 font-semibold truncate"><i class="fa-solid fa-phone mr-1"></i>0356.795.954</span>
             <span class="text-gray-600 hidden sm:inline">•</span>
             <span class="text-gray-400 hidden sm:inline">079.8089.886</span>
@@ -487,15 +498,66 @@
             <h2 class="text-sm sm:text-base font-bold text-white flex items-center">
               <i class="fa-solid fa-id-card-clip mr-2 text-orange-400"></i>Quản Lý Mã PIN 3 Tài Khoản
             </h2>
-            <p class="text-xs text-gray-400 mt-0.5">Nhập mã PIN mới vào ô và bấm ra ngoài để tự động lưu.</p>
+            <p class="text-xs text-gray-400 mt-0.5">Nhập mã PIN mới vào ô và bấm ra ngoài để tự động lưu và đồng bộ lên đám mây.</p>
           </div>
           <div id="staff-cards-container" class="space-y-2.5">
           </div>
         </div>
       </section>
 
-      <!-- ================= TAB 7: THÔNG TIN GARAGE (ADMIN) ================= -->
-      <section id="tab-profile" class="tab-content hidden space-y-3">
+      <!-- ================= TAB 7: THÔNG TIN GARAGE & CÀI ĐẶT ĐÁM MÂY (ADMIN) ================= -->
+      <section id="tab-profile" class="tab-content hidden space-y-4">
+        
+        <!-- KHUNG KẾT NỐI ĐÁM MÂY ĐA THIẾT BỊ (FIREBASE CLOUD SYNC) -->
+        <div class="bg-gray-900 border border-amber-500/40 rounded-2xl p-4 max-w-xl mx-auto space-y-3 shadow-lg">
+          <div class="flex items-center justify-between border-b border-gray-800 pb-2.5">
+            <div class="flex items-center gap-2">
+              <div class="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center text-sm">
+                <i class="fa-solid fa-cloud"></i>
+              </div>
+              <div>
+                <h3 class="text-xs sm:text-sm font-bold text-white uppercase tracking-wider">Đồng Bộ Đám Mây Đa Thiết Bị</h3>
+                <p class="text-[10px] text-gray-400">Kết nối Google Firebase để cả xưởng dùng chung dữ liệu</p>
+              </div>
+            </div>
+            <span id="cloud-settings-status" class="text-[10px] px-2 py-0.5 rounded-full font-bold bg-gray-800 text-gray-400 border border-gray-700">Chưa cấu hình</span>
+          </div>
+
+          <div class="space-y-2 text-xs">
+            <div>
+              <label class="block text-[11px] font-semibold text-gray-300 mb-1">Đường dẫn Firebase Database URL *</label>
+              <input type="text" id="cfg-firebase-url" placeholder="VD: https://drshockvn-default-rtdb.asia-southeast1.firebasedatabase.app/" 
+                class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-xs text-amber-300 font-mono focus:outline-none focus:border-amber-500">
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[11px] font-semibold text-gray-300 mb-1">Project ID</label>
+                <input type="text" id="cfg-firebase-project-id" placeholder="VD: drshockvn" 
+                  class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-amber-500">
+              </div>
+              <div>
+                <label class="block text-[11px] font-semibold text-gray-300 mb-1">API Key</label>
+                <input type="text" id="cfg-firebase-api-key" placeholder="VD: AIzaSyD..." 
+                  class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-amber-500">
+              </div>
+            </div>
+
+            <div class="pt-1 flex items-center gap-2">
+              <button onclick="saveAndConnectCloudConfig()" class="flex-1 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow flex items-center justify-center gap-1.5 transition">
+                <i class="fa-solid fa-link"></i><span>Lưu & Kích Hoạt Đồng Bộ Mây</span>
+              </button>
+              <button onclick="pushLocalDataToCloud()" title="Đẩy toàn bộ dữ liệu hiện tại lên đám mây" class="px-3 py-2.5 bg-gray-800 hover:bg-gray-700 active:scale-95 text-gray-300 text-xs font-semibold rounded-xl border border-gray-700 transition flex items-center gap-1">
+                <i class="fa-solid fa-cloud-arrow-up text-amber-400"></i><span class="hidden sm:inline">Tải lên mây</span>
+              </button>
+            </div>
+            <p class="text-[10px] text-gray-400 leading-tight italic">
+              * Sau khi dán URL mây, bạn chỉ cần bấm "Lưu & Kích Hoạt" là toàn bộ điện thoại nhân viên và chủ xưởng sẽ tự động nhận số liệu mới ngay lập tức.
+            </p>
+          </div>
+        </div>
+
+        <!-- THÔNG TIN DOANH NGHIỆP GARAGE -->
         <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4 max-w-xl mx-auto space-y-3.5">
           <h2 class="text-sm sm:text-base font-bold text-white flex items-center border-b border-gray-800 pb-2.5">
             <i class="fa-solid fa-gear mr-2 text-orange-400"></i>Hồ Sơ Doanh Nghiệp Garage
@@ -907,7 +969,7 @@
     </div>
   </div>
 
-  <!-- ================= MODAL XÁC NHẬN XÓA ================= -->
+  <!-- ================= MODAL XÁC NHẬN ================= -->
   <div id="confirm-modal" class="fixed inset-0 z-[60] bg-black/85 hidden flex items-center justify-center p-4">
     <div class="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-sm p-4 text-center space-y-3 shadow-2xl">
       <div class="w-12 h-12 rounded-full bg-red-950/60 border border-red-500/40 text-red-500 flex items-center justify-center mx-auto text-xl">
@@ -1026,7 +1088,184 @@
     let invoiceList = getStoredData('drshock_invoices', DEFAULT_INVOICES);
     let stockLogList = getStoredData('drshock_stock_logs', DEFAULT_STOCK_LOGS);
 
-    // Lắng nghe sự kiện đồng bộ đa tab trên thiết bị
+    // ========================================================
+    // ĐỘNG CƠ ĐỒNG BỘ ĐÁM MÂY GOOGLE FIREBASE REALTIME
+    // ========================================================
+    let firebaseDatabase = null;
+    let isCloudConnected = false;
+    let isSyncingFromRemote = false;
+
+    const DEFAULT_CLOUD_CONFIG = {
+      databaseURL: getStoredData('drshock_cloud_db_url', ''),
+      projectId: getStoredData('drshock_cloud_project_id', ''),
+      apiKey: getStoredData('drshock_cloud_api_key', '')
+    };
+
+    function updateCloudStatusUI(status, label) {
+      const dot = document.getElementById('cloud-status-dot');
+      const text = document.getElementById('cloud-status-text');
+      const badge = document.getElementById('cloud-sync-status-badge');
+      const cfgStatus = document.getElementById('cloud-settings-status');
+
+      if (!dot || !text || !badge) return;
+
+      if (status === 'connected') {
+        dot.className = "w-2 h-2 rounded-full bg-emerald-400";
+        text.textContent = label || "Đám mây: Trực tuyến (Đã đồng bộ)";
+        badge.className = "cursor-pointer inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border transition bg-emerald-950/70 text-emerald-400 border-emerald-500/50 shadow-sm";
+        if (cfgStatus) {
+          cfgStatus.textContent = "Đang kết nối 24/7";
+          cfgStatus.className = "text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-950 text-emerald-400 border border-emerald-500/40";
+        }
+      } else if (status === 'syncing') {
+        dot.className = "w-2 h-2 rounded-full bg-sky-400 animate-ping";
+        text.textContent = label || "Đang đồng bộ...";
+        badge.className = "cursor-pointer inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border transition bg-sky-950/70 text-sky-400 border-sky-500/50 shadow-sm";
+      } else {
+        dot.className = "w-2 h-2 rounded-full bg-amber-400";
+        text.textContent = label || "Đám mây: Ngoại tuyến (Bộ nhớ máy)";
+        badge.className = "cursor-pointer inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border transition bg-amber-950/70 text-amber-400 border-amber-500/50";
+        if (cfgStatus) {
+          cfgStatus.textContent = "Chưa kết nối";
+          cfgStatus.className = "text-[10px] px-2 py-0.5 rounded-full font-bold bg-gray-800 text-gray-400 border border-gray-700";
+        }
+      }
+    }
+
+    function initFirebaseCloudSync() {
+      const dbUrl = (document.getElementById('cfg-firebase-url') ? document.getElementById('cfg-firebase-url').value.trim() : '') || DEFAULT_CLOUD_CONFIG.databaseURL;
+      const projId = (document.getElementById('cfg-firebase-project-id') ? document.getElementById('cfg-firebase-project-id').value.trim() : '') || DEFAULT_CLOUD_CONFIG.projectId;
+      const apiKey = (document.getElementById('cfg-firebase-api-key') ? document.getElementById('cfg-firebase-api-key').value.trim() : '') || DEFAULT_CLOUD_CONFIG.apiKey;
+
+      if (!dbUrl) {
+        updateCloudStatusUI('offline', 'Đám mây: Chưa cấu hình');
+        return;
+      }
+
+      try {
+        if (!firebase.apps.length) {
+          firebase.initializeApp({
+            databaseURL: dbUrl,
+            projectId: projId || 'drshockvn-app',
+            apiKey: apiKey || 'demo-key'
+          });
+        }
+        firebaseDatabase = firebase.database();
+        isCloudConnected = true;
+
+        updateCloudStatusUI('syncing', 'Đang kết nối mây...');
+
+        // LẮNG NGHE THAY ĐỔI THEO THỜI GIAN THỰC (REAL-TIME LISTENER)
+        // Khi bất kỳ điện thoại nào tạo hóa đơn, sửa kho thì hàm này lập tức kích hoạt trên các máy khác
+        firebaseDatabase.ref('drshock_garage_data').on('value', snapshot => {
+          const remoteData = snapshot.val();
+          if (remoteData) {
+            isSyncingFromRemote = true;
+
+            if (remoteData.inventory) {
+              inventoryList = remoteData.inventory;
+              setStoredData('drshock_inventory', inventoryList);
+              renderInventoryTable();
+              populateInventorySelector('ALL');
+            }
+
+            if (remoteData.invoices) {
+              invoiceList = remoteData.invoices;
+              setStoredData('drshock_invoices', invoiceList);
+              renderInvoiceList();
+              renderCustomerAndReports();
+            }
+
+            if (remoteData.stock_logs) {
+              stockLogList = remoteData.stock_logs;
+              setStoredData('drshock_stock_logs', stockLogList);
+              renderStockLogs();
+            }
+
+            if (remoteData.staff && Array.isArray(remoteData.staff)) {
+              staffList = remoteData.staff;
+              setStoredData('drshock_staff_fixed_3', staffList);
+              renderStaffCards();
+              populateAdvisorSelect();
+            }
+
+            isSyncingFromRemote = false;
+            updateCloudStatusUI('connected', '🟢 Đám mây: Đồng bộ tức thì');
+          } else {
+            // Nếu đám mây mới tạo chưa có dữ liệu, tự động đẩy dữ liệu đầu tiên lên
+            pushLocalDataToCloud(false);
+          }
+        }, error => {
+          console.warn('Lỗi kết nối Firebase:', error);
+          updateCloudStatusUI('offline', 'Mây: Sai cấu hình / Offline');
+        });
+
+      } catch (err) {
+        console.error('Không thể kích hoạt Firebase:', err);
+        updateCloudStatusUI('offline', 'Mây: Lỗi SDK');
+      }
+    }
+
+    // Đẩy dữ liệu lên cơ sở dữ liệu đám mây trung tâm
+    function pushLocalDataToCloud(showToast = true) {
+      if (isSyncingFromRemote) return; // Tránh vòng lặp phản hồi
+      if (!firebaseDatabase) return;
+
+      updateCloudStatusUI('syncing', 'Đang đẩy lên mây...');
+
+      const payload = {
+        inventory: inventoryList,
+        invoices: invoiceList,
+        stock_logs: stockLogList,
+        staff: staffList,
+        updated_at: new Date().toISOString(),
+        updated_by: (currentLoggedInUser ? currentLoggedInUser.name : 'Hệ thống')
+      };
+
+      firebaseDatabase.ref('drshock_garage_data').set(payload)
+        .then(() => {
+          updateCloudStatusUI('connected', '🟢 Đám mây: Đồng bộ tức thì');
+          if (showToast) showNotification('Đã đồng bộ lên đám mây thành công!', 'success');
+        })
+        .catch(err => {
+          updateCloudStatusUI('offline', 'Lỗi đồng bộ mây');
+          if (showToast) showNotification('Lỗi kết nối đám mây, vui lòng kiểm tra quyền truy cập!', 'error');
+        });
+    }
+
+    function saveAndConnectCloudConfig() {
+      const urlInput = document.getElementById('cfg-firebase-url');
+      const projInput = document.getElementById('cfg-firebase-project-id');
+      const keyInput = document.getElementById('cfg-firebase-api-key');
+
+      const url = urlInput ? urlInput.value.trim() : '';
+      const proj = projInput ? projInput.value.trim() : '';
+      const key = keyInput ? keyInput.value.trim() : '';
+
+      if (!url) {
+        showNotification('Vui lòng nhập đường dẫn Database URL từ Firebase!', 'warning');
+        if (urlInput) urlInput.focus();
+        return;
+      }
+
+      setStoredData('drshock_cloud_db_url', url);
+      setStoredData('drshock_cloud_project_id', proj);
+      setStoredData('drshock_cloud_api_key', key);
+
+      initFirebaseCloudSync();
+      pushLocalDataToCloud(true);
+    }
+
+    function triggerManualSync() {
+      if (!firebaseDatabase) {
+        switchTab('tab-profile');
+        showNotification('Chưa kết nối đám mây. Vui lòng nhập Firebase URL ở mục Cài Đặt!', 'info');
+        return;
+      }
+      pushLocalDataToCloud(true);
+    }
+
+    // Lắng nghe sự kiện đồng bộ đa tab trên cùng 1 máy
     window.addEventListener('storage', function(e) {
       if (e.key === 'drshock_inventory') {
         inventoryList = getStoredData('drshock_inventory', DEFAULT_INVENTORY);
@@ -1077,7 +1316,7 @@
       }, 3000);
     }
 
-    // Modal Xác Nhận Xóa Tùy Chỉnh
+    // Modal Xác Nhận Xóa
     function showConfirmModal(title, desc, onConfirm) {
       const modal = document.getElementById('confirm-modal');
       document.getElementById('confirm-modal-title').textContent = title;
@@ -1314,7 +1553,7 @@
       const newLog = {
         id: 'LOG-' + Date.now().toString().slice(-6),
         time: new Date().toLocaleDateString('vi-VN') + ' ' + new Date().toLocaleTimeString('vi-VN'),
-        type: type, // 'NHAP', 'XUAT', 'DIEUCHINH'
+        type: type,
         itemId: itemId || '---',
         itemName: itemName || 'Phụ tùng',
         unit: unit || 'Cái',
@@ -1327,6 +1566,7 @@
       stockLogList.unshift(newLog);
       setStoredData('drshock_stock_logs', stockLogList);
       renderStockLogs();
+      pushLocalDataToCloud(false);
     }
 
     function handlePartSearch(keyword) {
@@ -1642,6 +1882,9 @@
       renderCustomerAndReports();
       showPrintModal(newInv);
       showNotification(`Đã xuất hóa đơn ${newInv.id}!`, 'success');
+
+      // Đẩy cập nhật tức thì lên đám mây đa thiết bị
+      pushLocalDataToCloud(false);
     }
 
     function showPrintModal(inv) {
@@ -1945,6 +2188,8 @@
       populateInventorySelector('ALL');
       closeEditInvoiceModal();
       showNotification(`Đã cập nhật hóa đơn ${inv.id} thành công!`, 'success');
+
+      pushLocalDataToCloud(false);
     }
 
     function deleteInvoice(id) {
@@ -1976,6 +2221,8 @@
           renderCustomerAndReports();
           populateInventorySelector('ALL');
           showNotification(`Đã xóa hóa đơn ${inv.id} và hoàn kho thành công!`, 'info');
+
+          pushLocalDataToCloud(false);
         }
       );
     }
@@ -2287,6 +2534,8 @@
       renderInventoryTable();
       populateInventorySelector('ALL');
       closeInventoryModal();
+
+      pushLocalDataToCloud(false);
     }
 
     function deleteInventoryItem(id) {
@@ -2303,6 +2552,7 @@
           renderInventoryTable();
           populateInventorySelector('ALL');
           showNotification(`Đã xóa phụ tùng "${p.name}"!`, 'info');
+          pushLocalDataToCloud(false);
         }
       );
     }
@@ -2534,6 +2784,7 @@
       staffList[idx].pin = newPin.trim();
       setStoredData('drshock_staff_fixed_3', staffList);
       showNotification('Đã lưu mã PIN mới!', 'success');
+      pushLocalDataToCloud(false);
     }
 
     function saveGarageProfile() {
@@ -2653,6 +2904,7 @@
           setStoredData('drshock_stock_logs', stockLogList);
           renderStockLogs();
           showNotification('Đã xóa sạch lịch sử kho!', 'info');
+          pushLocalDataToCloud(false);
         }
       );
     }
@@ -2875,6 +3127,21 @@
       renderCustomerAndReports();
       renderQuoteItems();
       renderStockLogs();
+
+      // Nạp cấu hình đám mây đã lưu
+      const savedDbUrl = getStoredData('drshock_cloud_db_url', '');
+      const savedProjId = getStoredData('drshock_cloud_project_id', '');
+      const savedApiKey = getStoredData('drshock_cloud_api_key', '');
+
+      const urlInput = document.getElementById('cfg-firebase-url');
+      const projInput = document.getElementById('cfg-firebase-project-id');
+      const keyInput = document.getElementById('cfg-firebase-api-key');
+
+      if (urlInput) urlInput.value = savedDbUrl;
+      if (projInput) projInput.value = savedProjId;
+      if (keyInput) keyInput.value = savedApiKey;
+
+      initFirebaseCloudSync();
     }
 
     initSystem();
