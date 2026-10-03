@@ -897,6 +897,29 @@
             class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-xs sm:text-sm text-white font-medium focus:outline-none focus:border-red-500">
         </div>
 
+        <div class="bg-gray-800/40 p-2.5 rounded-xl border border-gray-800">
+          <label class="block text-[10px] font-bold uppercase tracking-wider text-sky-400 mb-1.5">
+            <i class="fa-solid fa-image mr-1"></i>Hình Ảnh Sản Phẩm
+          </label>
+          <div class="flex items-center gap-3">
+            <div id="inv-image-preview" onclick="document.getElementById('inv-edit-image-file').click()"
+              class="w-20 h-20 shrink-0 rounded-xl bg-gray-800 border border-dashed border-gray-600 overflow-hidden flex items-center justify-center cursor-pointer text-gray-500">
+              <i class="fa-solid fa-camera text-xl"></i>
+            </div>
+            <div class="flex-1 flex flex-col gap-1.5">
+              <input type="file" id="inv-edit-image-file" accept="image/*" class="hidden" onchange="handleInvImageSelected(this)">
+              <button type="button" onclick="document.getElementById('inv-edit-image-file').click()"
+                class="px-3 py-2 bg-sky-600/20 hover:bg-sky-600/30 active:scale-95 text-sky-300 border border-sky-500/40 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition">
+                <i class="fa-solid fa-upload"></i>Chọn ảnh / Chụp ảnh
+              </button>
+              <button type="button" id="inv-image-remove-btn" onclick="removeInvImage()"
+                class="hidden px-3 py-1.5 bg-gray-800 hover:bg-red-950/60 active:scale-95 text-gray-400 hover:text-red-400 border border-gray-700 rounded-xl text-[11px] font-semibold items-center justify-center gap-1.5 transition">
+                <i class="fa-solid fa-trash-can"></i>Xóa ảnh
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-800/40 p-2.5 rounded-xl border border-gray-800">
           <div>
             <label class="block text-[10px] font-bold uppercase tracking-wider text-amber-400 mb-1">
@@ -1230,6 +1253,27 @@
 
     let firebaseDb = null;
 
+    // ===== BẢO VỆ DỮ LIỆU ĐÁM MÂY =====
+    // Chỉ cho phép ghi lên Firebase sau khi đã nhận dữ liệu đám mây lần đầu của từng nhánh,
+    // để dữ liệu mẫu/trống trên máy không bao giờ ghi đè dữ liệu thật.
+    const cloudReady = {};
+    const CLOUD_LOCAL_KEYS = {
+      'garage/inventory': 'drshock_inventory',
+      'garage/invoices': 'drshock_invoices',
+      'garage/stockLogs': 'drshock_stock_logs',
+      'garage/staff': 'drshock_staff_list'
+    };
+
+    // Trước khi dữ liệu đám mây thay thế dữ liệu trên máy: giữ lại 1 bản dự phòng trên máy
+    function keepLocalSafetyCopy(nodePath) {
+      try {
+        const lsKey = CLOUD_LOCAL_KEYS[nodePath];
+        if (!lsKey) return;
+        const raw = localStorage.getItem(lsKey);
+        if (raw) localStorage.setItem(lsKey + '_safety_copy', raw);
+      } catch (e) {}
+    }
+
     // KHỞI TẠO FIREBASE
     function initFirebaseConnection() {
       if (typeof firebase === 'undefined') return;
@@ -1245,6 +1289,26 @@
           });
         }
         firebaseDb = firebase.database();
+        (function guardCloudWrites() {
+          const rawRef = firebaseDb.ref.bind(firebaseDb);
+          firebaseDb.ref = function(path) {
+            const r = rawRef(path);
+            if (typeof path === 'string' && CLOUD_LOCAL_KEYS[path]) {
+              const rawSet = r.set.bind(r);
+              r.set = function(value) {
+                if (!cloudReady[path]) {
+                  console.warn('Đã chặn ghi lên ' + path + ' vì chưa tải xong dữ liệu đám mây.');
+                  if (typeof showNotification === 'function') {
+                    showNotification('Đang tải dữ liệu từ đám mây, chưa lưu lên đám mây. Vui lòng đợi vài giây rồi thử lại!', 'warning');
+                  }
+                  return Promise.resolve();
+                }
+                return rawSet(value);
+              };
+            }
+            return r;
+          };
+        })();
         updateCloudStatus(true, 'Đám mây: Trực tuyến');
         setupFirebaseRealtimeListeners();
       } catch (err) {
@@ -1271,7 +1335,9 @@
 
       firebaseDb.ref('garage/inventory').on('value', snapshot => {
         const val = snapshot.val();
+        cloudReady['garage/inventory'] = true;
         if (val) {
+          keepLocalSafetyCopy('garage/inventory');
           inventoryList = convertToArray(val, inventoryList);
           setStoredData('drshock_inventory', inventoryList);
           renderInventoryTable();
@@ -1281,7 +1347,9 @@
 
       firebaseDb.ref('garage/invoices').on('value', snapshot => {
         const val = snapshot.val();
+        cloudReady['garage/invoices'] = true;
         if (val) {
+          keepLocalSafetyCopy('garage/invoices');
           invoiceList = convertToArray(val, invoiceList);
           setStoredData('drshock_invoices', invoiceList);
           renderInvoiceList();
@@ -1291,7 +1359,9 @@
 
       firebaseDb.ref('garage/stockLogs').on('value', snapshot => {
         const val = snapshot.val();
+        cloudReady['garage/stockLogs'] = true;
         if (val) {
+          keepLocalSafetyCopy('garage/stockLogs');
           stockLogList = convertToArray(val, stockLogList);
           setStoredData('drshock_stock_logs', stockLogList);
           renderStockLogs();
@@ -1300,7 +1370,9 @@
 
       firebaseDb.ref('garage/staff').on('value', snapshot => {
         const val = snapshot.val();
+        cloudReady['garage/staff'] = true;
         if (val) {
+          keepLocalSafetyCopy('garage/staff');
           staffList = convertToArray(val, staffList);
           setStoredData('drshock_staff_list', staffList);
           renderLoginUserList();
@@ -1714,6 +1786,7 @@
         return `
           <div onclick="selectSuggestedPart('${item.id}')" 
             class="p-2.5 sm:p-3 hover:bg-gray-800/90 active:bg-gray-700 cursor-pointer flex items-center justify-between gap-2.5 transition">
+            ${productThumbHtml(item, 'w-11 h-11')}
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-1.5 flex-wrap">
                 <span class="text-xs sm:text-sm font-bold text-white">${item.name}</span>
@@ -2535,6 +2608,7 @@
         if (isStockManager) {
           desktopThead.innerHTML = `
             <tr>
+              <th class="py-2.5 px-3 text-center">Ảnh</th>
               <th class="py-2.5 px-3">Mã Hàng</th>
               <th class="py-2.5 px-3">Tên Chi Tiết Phụ Tùng</th>
               <th class="py-2.5 px-3">Nhóm</th>
@@ -2548,6 +2622,7 @@
         } else {
           desktopThead.innerHTML = `
             <tr>
+              <th class="py-2.5 px-3 text-center">Ảnh</th>
               <th class="py-2.5 px-3">Mã Hàng</th>
               <th class="py-2.5 px-3">Tên Chi Tiết Phụ Tùng</th>
               <th class="py-2.5 px-3">Nhóm</th>
@@ -2562,7 +2637,7 @@
       if (!filtered.length) {
         const emptyMsg = `<div class="p-6 text-center text-xs text-gray-500 italic bg-gray-800/30 rounded-xl">Không tìm thấy phụ tùng phù hợp.</div>`;
         if (mobileContainer) mobileContainer.innerHTML = emptyMsg;
-        if (desktopTbody) desktopTbody.innerHTML = `<tr><td colspan="${isStockManager ? 8 : 6}" class="py-6 text-center text-gray-500 italic">Không tìm thấy phụ tùng phù hợp.</td></tr>`;
+        if (desktopTbody) desktopTbody.innerHTML = `<tr><td colspan="${isStockManager ? 9 : 7}" class="py-6 text-center text-gray-500 italic">Không tìm thấy phụ tùng phù hợp.</td></tr>`;
         return;
       }
 
@@ -2619,6 +2694,7 @@
           return `
             <div class="bg-gray-800/70 border border-gray-700/80 rounded-2xl p-3 space-y-2.5 shadow-sm">
               <div class="flex items-start justify-between gap-2.5">
+                ${productThumbHtml(p, 'w-14 h-14')}
                 <div class="min-w-0 flex-1">
                   <h3 class="text-xs sm:text-sm font-bold text-white leading-snug">${p.name}</h3>
                   <div class="flex items-center gap-1.5 mt-0.5 flex-wrap">
@@ -2647,6 +2723,7 @@
           if (isStockManager) {
             return `
               <tr class="hover:bg-gray-800/40 transition">
+                <td class="py-2 px-3 text-center">${productThumbHtml(p, 'w-10 h-10 inline-flex')}</td>
                 <td class="py-2.5 px-3 font-mono font-bold text-gray-400">${p.id}</td>
                 <td class="py-2.5 px-3 font-bold text-white">${p.name}</td>
                 <td class="py-2.5 px-3 text-xs text-orange-400 font-medium">${p.cat || 'PHUOC'}</td>
@@ -2677,6 +2754,7 @@
           } else {
             return `
               <tr class="hover:bg-gray-800/40 transition">
+                <td class="py-2 px-3 text-center">${productThumbHtml(p, 'w-10 h-10 inline-flex')}</td>
                 <td class="py-2.5 px-3 font-mono font-bold text-gray-400">${p.id}</td>
                 <td class="py-2.5 px-3 font-bold text-white">${p.name}</td>
                 <td class="py-2.5 px-3 text-xs text-orange-400 font-medium">${p.cat || 'PHUOC'}</td>
@@ -2712,6 +2790,104 @@
       }
     }
 
+    // ===== HÌNH ẢNH SẢN PHẨM =====
+    let currentInvImageData = '';
+    let currentInvImageChanged = false;
+
+    // Tương thích dữ liệu cũ: chấp nhận nhiều tên trường ảnh có thể đã từng dùng
+    function getProductImage(p) {
+      if (!p) return '';
+      const v = p.image || p.img || p.imageUrl || p.imgUrl || p.hinhAnh || p.photo || '';
+      return (typeof v === 'string') ? v.replace(/"/g, '%22').replace(/</g, '%3C') : '';
+    }
+
+    function productThumbHtml(p, sizeClass) {
+      const src = getProductImage(p);
+      const size = sizeClass || 'w-14 h-14';
+      if (src) {
+        return `<img src="${src}" alt="" loading="lazy" onclick="event.stopPropagation(); openProductImage('${p.id}')"
+          class="${size} shrink-0 rounded-xl object-cover border border-gray-700 bg-gray-800 cursor-zoom-in">`;
+      }
+      return `<div class="${size} shrink-0 rounded-xl bg-gray-800/70 border border-gray-700/70 flex items-center justify-center text-gray-600">
+        <i class="fa-regular fa-image"></i></div>`;
+    }
+
+    function openProductImage(id) {
+      const p = inventoryList.find(i => i.id === id);
+      const src = getProductImage(p);
+      if (!src) return;
+      let box = document.getElementById('product-image-viewer');
+      if (!box) {
+        box = document.createElement('div');
+        box.id = 'product-image-viewer';
+        box.className = 'fixed inset-0 z-[100] bg-black/90 flex flex-col items-center justify-center p-4';
+        box.onclick = () => box.classList.add('hidden');
+        document.body.appendChild(box);
+      }
+      box.innerHTML = `<img src="${src}" alt="" class="max-w-full max-h-[80vh] rounded-2xl shadow-2xl object-contain">
+        <div class="mt-3 text-sm font-bold text-white text-center">${p.name}</div>
+        <div class="mt-1 text-[11px] text-gray-400">Chạm để đóng</div>`;
+      box.classList.remove('hidden');
+    }
+
+    function setInvImagePreview(src) {
+      const prev = document.getElementById('inv-image-preview');
+      const rmBtn = document.getElementById('inv-image-remove-btn');
+      if (!prev) return;
+      if (src) {
+        prev.innerHTML = `<img src="${src}" alt="" class="w-full h-full object-cover">`;
+        if (rmBtn) { rmBtn.classList.remove('hidden'); rmBtn.classList.add('flex'); }
+      } else {
+        prev.innerHTML = `<i class="fa-solid fa-camera text-xl"></i>`;
+        if (rmBtn) { rmBtn.classList.add('hidden'); rmBtn.classList.remove('flex'); }
+      }
+    }
+
+    function handleInvImageSelected(input) {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      if (!file.type || file.type.indexOf('image/') !== 0) {
+        showNotification('Vui lòng chọn file hình ảnh!', 'warning');
+        input.value = '';
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = function(ev) {
+        const img = new Image();
+        img.onload = function() {
+          // Nén ảnh để nhẹ database (tối đa 600px, JPEG chất lượng 0.78)
+          const MAX = 600;
+          let w = img.width, h = img.height;
+          if (w > MAX || h > MAX) {
+            if (w >= h) { h = Math.round(h * MAX / w); w = MAX; }
+            else { w = Math.round(w * MAX / h); h = MAX; }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
+          currentInvImageData = canvas.toDataURL('image/jpeg', 0.78);
+          currentInvImageChanged = true;
+          setInvImagePreview(currentInvImageData);
+          input.value = '';
+        };
+        img.onerror = function() {
+          showNotification('Không đọc được hình ảnh này, vui lòng chọn ảnh khác!', 'error');
+          input.value = '';
+        };
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function removeInvImage() {
+      currentInvImageData = '';
+      currentInvImageChanged = true;
+      setInvImagePreview('');
+    }
+
     function setEditUnit(unit) {
       const input = document.getElementById('inv-edit-unit');
       if (input) {
@@ -2732,6 +2908,9 @@
       document.getElementById('inv-edit-cost').value = '';
       document.getElementById('inv-edit-price').value = '';
       document.getElementById('inv-edit-stock').value = '5';
+      currentInvImageData = '';
+      currentInvImageChanged = false;
+      setInvImagePreview('');
       document.getElementById('inventory-modal').classList.remove('hidden');
       setTimeout(() => document.getElementById('inv-edit-name').focus(), 150);
     }
@@ -2750,6 +2929,9 @@
       document.getElementById('inv-edit-cost').value = p.costPrice ? formatMoney(p.costPrice) : '';
       document.getElementById('inv-edit-price').value = p.price ? formatMoney(p.price) : '';
       document.getElementById('inv-edit-stock').value = p.stock || 0;
+      currentInvImageData = getProductImage(p);
+      currentInvImageChanged = false;
+      setInvImagePreview(currentInvImageData);
       document.getElementById('inventory-modal').classList.remove('hidden');
     }
 
@@ -2798,6 +2980,10 @@
           p.costPrice = costPrice;
           p.price = price;
           p.stock = stock;
+          if (currentInvImageChanged) {
+            if (currentInvImageData) { p.image = currentInvImageData; } else { delete p.image; }
+            noteDetails.push(currentInvImageData ? 'Cập nhật hình ảnh' : 'Xóa hình ảnh');
+          }
 
           const logType = isStockChanged ? (stock > prevStock ? 'NHAP' : 'DIEUCHINH') : 'DIEUCHINH';
           logStockEvent(logType, p.id, p.name, unit, prevStock, stock, noteDetails.join(', ') || 'Cập nhật thông tin phụ tùng');
@@ -2812,7 +2998,8 @@
           unit: unit,
           costPrice: costPrice,
           price: price,
-          stock: stock
+          stock: stock,
+          image: currentInvImageData || ''
         });
         logStockEvent('NHAP', newCode, name, unit, 0, stock, `Thêm mới mặt hàng vào kho (Tồn: ${formatStockQty(stock)}, Giá vốn: ${formatMoney(costPrice)} đ, Bán: ${formatMoney(price)} đ)`);
         showNotification(`Đã thêm mới "${name}" (${unit}) vào kho!`, 'success');
@@ -3402,7 +3589,7 @@
                   <span class="text-xs sm:text-sm font-bold text-white leading-tight">${log.itemName}</span>
                   <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-gray-900 text-gray-400 border border-gray-800">${log.itemId}</span>
                 </div>
-                <p class="text-xs text-gray-300 mt-1"><i class="fa-solid fa-memo text-gray-500 text-[10px] mr-1"></i>${log.note || 'Không có ghi chú'}</p>
+                <p class="text-xs text-gray-300 mt-1"><i class="fa-solid fa-note-sticky text-gray-500 text-[10px] mr-1"></i>${log.note || 'Không có ghi chú'}</p>
               </div>
 
               <div class="text-right shrink-0">
