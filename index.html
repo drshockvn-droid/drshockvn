@@ -1747,6 +1747,48 @@
       renderStockLogs();
     }
 
+    // ===== SẮP XẾP THEO THỜI GIAN =====
+    let invoiceSortDir = 'desc';        // desc: mới nhất trước, asc: cũ nhất trước
+    let customerSortMode = 'recent';    // recent | oldest | spend
+
+    // Chuyển "5/10/2026 09:30" (ngày/tháng/năm giờ:phút) thành mốc thời gian để so sánh đúng
+    function parseViDateTime(s) {
+      const m = String(s || '').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\D+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+      if (!m) return 0;
+      return new Date(+m[3], +m[2] - 1, +m[1], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0)).getTime();
+    }
+    function invTime(inv) { return parseViDateTime(inv && inv.date); }
+    function invSeq(inv) { const n = parseInt(String((inv && inv.id) || '').replace(/\D/g, ''), 10); return isNaN(n) ? 0 : n; }
+    function sortInvoicesByTime(list, dir) {
+      const d = dir === 'asc' ? 1 : -1;
+      return list.slice().sort((a, b) => ((invTime(a) - invTime(b)) * d) || ((invSeq(a) - invSeq(b)) * d));
+    }
+
+    function mountSortSelect(inputId, selectId, options, current, onChange) {
+      const input = document.getElementById(inputId);
+      if (!input || document.getElementById(selectId)) return;
+      const wrap = input.parentElement, parent = wrap.parentElement;
+      const sel = document.createElement('select');
+      sel.id = selectId;
+      sel.className = 'shrink-0 bg-gray-800 border border-gray-700 rounded-xl px-2 py-2 text-xs text-white focus:outline-none focus:border-red-500';
+      sel.innerHTML = options.map(o => `<option value="${o[0]}"${o[0] === current ? ' selected' : ''}>${o[1]}</option>`).join('');
+      sel.addEventListener('change', () => onChange(sel.value));
+      const box = document.createElement('div');
+      box.className = 'flex items-center gap-2';
+      parent.insertBefore(box, wrap);
+      box.appendChild(sel);
+      box.appendChild(wrap);
+      wrap.classList.add('flex-1');
+    }
+    function initSortControls() {
+      mountSortSelect('invoice-search', 'invoice-sort-select',
+        [['desc', 'Mới nhất trước'], ['asc', 'Cũ nhất trước']], invoiceSortDir,
+        v => { invoiceSortDir = v; renderInvoiceList(); });
+      mountSortSelect('customer-search-input', 'customer-sort-select',
+        [['recent', 'Đến gần đây nhất'], ['oldest', 'Đến lâu nhất'], ['spend', 'Chi tiêu cao nhất']], customerSortMode,
+        v => { customerSortMode = v; renderCustomerAndReports(); });
+    }
+
     // ===== TÌM KIẾM THÔNG MINH (không phân biệt dấu, nhiều từ khóa, xếp hạng gợi ý) =====
     function normText(s) {
       return String(s == null ? '' : s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').trim();
@@ -1932,7 +1974,7 @@
       const key = invoiceList.length + '|' + invoiceList.reduce((a, i) => a + (i.total || 0), 0);
       if (_custIdxCache.key === key) return _custIdxCache.list;
       const map = {};
-      invoiceList.forEach(inv => {
+      sortInvoicesByTime(invoiceList, 'desc').forEach(inv => {
         const plate = String(inv.plate || '').trim().toUpperCase();
         const phone = String(inv.phone || '').trim();
         const name = String(inv.name || '').trim();
@@ -2376,7 +2418,7 @@
 
     function renderInvoiceList() {
       const q = (document.getElementById('invoice-search') ? document.getElementById('invoice-search').value.toLowerCase() : '');
-      const filtered = smartFilterInvoices(invoiceList, document.getElementById('invoice-search') ? document.getElementById('invoice-search').value : '');
+      const filtered = sortInvoicesByTime(smartFilterInvoices(invoiceList, document.getElementById('invoice-search') ? document.getElementById('invoice-search').value : ''), invoiceSortDir);
       const container = document.getElementById('invoice-list-container');
       if (!container) return;
       if (filtered.length === 0) {
@@ -3407,6 +3449,11 @@
       });
 
       let allCustomers = Object.values(custMap);
+      allCustomers.forEach(c => {
+        c.invoices = sortInvoicesByTime(c.invoices, 'desc');
+        c.latestTs = invTime(c.invoices[0]);
+        c.latestDate = c.invoices[0].date;
+      });
       
       const countAll = allCustomers.length;
       const countDealer = allCustomers.filter(c => c.customerType.includes('Garage') || c.customerType.includes('Đại lý')).length;
@@ -3446,7 +3493,7 @@
         displayList = displayList.filter(c => !c.customerType.includes('Garage') && !c.customerType.includes('Đại lý'));
       }
 
-      displayList.sort((a, b) => b.total - a.total);
+      displayList.sort(customerSortMode === 'spend' ? (a, b) => b.total - a.total : (customerSortMode === 'oldest' ? (a, b) => a.latestTs - b.latestTs : (a, b) => b.latestTs - a.latestTs));
 
       const container = document.getElementById('customer-list-container');
       if (!container) return;
@@ -4111,6 +4158,7 @@
     }
 
     initCustomerSuggest();
+    initSortControls();
     initSystem();
     window.addEventListener('DOMContentLoaded', initSystem);
   </script>
