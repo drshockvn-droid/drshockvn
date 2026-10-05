@@ -13,10 +13,9 @@
   <meta name="theme-color" content="#0b0f19">
 
   <!-- Logo nhận diện di động -->
-  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
-  <link rel="apple-touch-icon" href="logo.png">
-  <link rel="icon" type="image/png" sizes="192x192" href="apple-touch-icon.png">
-  <link rel="icon" type="image/png" sizes="32x32" href="logo.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="avatar.jpg?v=2">
+  <link rel="apple-touch-icon" href="avatar.jpg?v=2">
+  <link rel="icon" type="image/jpeg" href="avatar.jpg?v=2">
 
   <!-- Thư viện UI Tailwind CSS & FontAwesome Icons -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -4157,8 +4156,51 @@
       initFirebaseConnection();
     }
 
+    // ===== ẢNH AVATAR / LOGO (tự dò file ảnh có thật trong thư mục web) =====
+    const AVATAR_CANDIDATES = ['avatar.jpg', 'AVATAR%20Dr.SHOCK.jpg', 'avatar.png', 'logo.png', 'apple-touch-icon.png'];
+
+    function applyAvatar(src) {
+      // Icon tab trình duyệt + icon khi "Thêm vào màn hình chính"
+      document.querySelectorAll('link[rel="icon"], link[rel="apple-touch-icon"]').forEach(l => l.remove());
+      [['icon', ''], ['apple-touch-icon', '180x180']].forEach(pair => {
+        const l = document.createElement('link');
+        l.rel = pair[0];
+        if (pair[1]) l.setAttribute('sizes', pair[1]);
+        l.href = src;
+        document.head.appendChild(l);
+      });
+
+      // Hiển thị avatar trên màn hình đăng nhập và thanh tiêu đề
+      const mk = (id, cls) => {
+        const i = document.createElement('img');
+        i.id = id; i.src = src; i.alt = 'Dr.Shock VN'; i.className = cls;
+        i.onerror = () => i.remove();
+        return i;
+      };
+      const loginTitle = document.querySelector('#login-screen h1');
+      if (loginTitle && !document.getElementById('login-avatar')) {
+        loginTitle.parentElement.insertBefore(mk('login-avatar', 'w-20 h-20 rounded-2xl object-cover mx-auto mb-3 border border-gray-700 shadow-lg'), loginTitle);
+      }
+      const headerTitle = document.querySelector('#main-app header h1');
+      if (headerTitle && !document.getElementById('header-avatar')) {
+        headerTitle.parentElement.insertBefore(mk('header-avatar', 'w-8 h-8 rounded-lg object-cover border border-gray-700 shrink-0'), headerTitle);
+      }
+    }
+
+    function initAvatar() {
+      const v = '?v=' + Math.floor(Date.now() / 3600000); // làm mới bộ nhớ đệm mỗi giờ để ảnh mới cập nhật nhanh
+      (function tryNext(i) {
+        if (i >= AVATAR_CANDIDATES.length) { console.warn('Không tìm thấy file ảnh avatar trong thư mục web.'); return; }
+        const img = new Image();
+        img.onload = function() { applyAvatar(AVATAR_CANDIDATES[i] + v); };
+        img.onerror = function() { tryNext(i + 1); };
+        img.src = AVATAR_CANDIDATES[i] + v;
+      })(0);
+    }
+
     initCustomerSuggest();
     initSortControls();
+    initAvatar();
     initSystem();
     window.addEventListener('DOMContentLoaded', initSystem);
   </script>
