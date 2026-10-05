@@ -13,9 +13,10 @@
   <meta name="theme-color" content="#0b0f19">
 
   <!-- Logo nhận diện di động -->
-   <link rel="apple-touch-icon" sizes="180x180" href="avatar.jpg?v=1">
-   <link rel="apple-touch-icon" href="avatar.jpg?v=1">
-   <link rel="icon" type="image/jpeg" href="avatar.jpg?v=1">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link rel="apple-touch-icon" href="logo.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="logo.png">
 
   <!-- Thư viện UI Tailwind CSS & FontAwesome Icons -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -317,7 +318,7 @@
               <!-- Ô TÌM PHỤ TÙNG -->
               <div class="relative">
                 <div class="relative">
-                  <input type="text" id="part-search-input" placeholder="🔍 Gõ tên hoặc mã phụ tùng cần tìm (VD: Xpander, Tein, Nhớt, Bố thắng...)" 
+                  <input type="text" id="part-search-input" placeholder="🔍 Gõ tên hoặc mã phụ tùng cần tìm (VD: xpander, tein, nhot, bo thang - gõ không dấu cũng được)" 
                     autocomplete="off" oninput="handlePartSearch(this.value)" onfocus="handlePartSearch(this.value)"
                     class="w-full bg-gray-800 border border-gray-700 rounded-xl pl-9 pr-9 py-2.5 text-xs sm:text-sm text-white placeholder-gray-400 focus:outline-none focus:border-red-500 shadow-inner">
                   <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-gray-400 text-xs"></i>
@@ -386,7 +387,7 @@
               </button>
             </div>
             <div class="relative">
-              <input type="text" id="invoice-search" oninput="renderInvoiceList()" placeholder="Tìm biển số, khách..." 
+              <input type="text" id="invoice-search" oninput="debInvoiceSearch()" autocomplete="off" placeholder="Tìm biển số, tên khách, SĐT, dòng xe..." 
                 class="w-full sm:w-64 bg-gray-800 border border-gray-700 rounded-xl pl-8 pr-3 py-2 text-xs text-white focus:outline-none focus:border-red-500">
               <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-gray-500 text-xs"></i>
             </div>
@@ -487,7 +488,7 @@
             </div>
             
             <div class="relative">
-              <input type="text" id="inventory-search" oninput="renderInventoryTable()" placeholder="Tìm tên phụ tùng, mã..." 
+              <input type="text" id="inventory-search" oninput="debInventorySearch()" autocomplete="off" placeholder="Tìm tên, mã, nhóm (không cần gõ dấu)..." 
                 class="w-full sm:w-64 bg-gray-800 border border-gray-700 rounded-xl pl-8 pr-3 py-2 text-xs text-white focus:outline-none focus:border-red-500">
               <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-gray-500 text-xs"></i>
             </div>
@@ -563,7 +564,7 @@
             </div>
 
             <div class="relative flex-1 sm:max-w-xs">
-              <input type="text" id="customer-search-input" oninput="renderCustomerAndReports()" placeholder="Tìm tên khách, Garage, SĐT, biển số..." 
+              <input type="text" id="customer-search-input" oninput="debCustomerSearch()" autocomplete="off" placeholder="Tìm tên khách, Garage, SĐT, biển số..." 
                 class="w-full bg-gray-800 border border-gray-700 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-gray-400 focus:outline-none focus:border-red-500">
               <i class="fa-solid fa-magnifying-glass absolute left-3 top-2 text-gray-400 text-xs"></i>
             </div>
@@ -1746,68 +1747,302 @@
       renderStockLogs();
     }
 
+    // ===== TÌM KIẾM THÔNG MINH (không phân biệt dấu, nhiều từ khóa, xếp hạng gợi ý) =====
+    function normText(s) {
+      return String(s == null ? '' : s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').trim();
+    }
+    function normPlate(s) { return normText(s).replace(/[^a-z0-9]/g, ''); }
+    function debounce(fn, ms) { let t; return function() { clearTimeout(t); t = setTimeout(fn, ms); }; }
+    const debInvoiceSearch = debounce(() => renderInvoiceList(), 120);
+    const debInventorySearch = debounce(() => renderInventoryTable(), 120);
+    const debCustomerSearch = debounce(() => renderCustomerAndReports(), 120);
+
+    const CAT_LABELS = { PHUOC: 'phuoc nang cap bao duong', NHOT: 'nhot dau bao duong', BOTHANG: 'bo thang dia phanh', ROTUYN: 'rotuyn cao su gam', GAM: 'he thong gam cang a', KHAC: 'phu tung khac' };
+
+    function makeHay(parts) {
+      const arr = parts.filter(Boolean).map(String);
+      return normText(arr.join(' ')) + ' ' + arr.map(x => normText(x).replace(/[^a-z0-9]/g, '')).join(' ');
+    }
+    function looseMatch(hay, query) {
+      const tokens = normText(query).split(/\s+/).filter(Boolean);
+      return tokens.every(t => {
+        if (hay.includes(t)) return true;
+        const tc = t.replace(/[^a-z0-9]/g, '');
+        return tc.length >= 3 && hay.includes(tc);
+      });
+    }
+    function smartFilterInvoices(list, query) {
+      if (!normText(query)) return list;
+      return list.filter(i => looseMatch(makeHay([i.plate, i.name, i.phone, i.car, i.id, i.note, i.advisor]), query));
+    }
+
+    let _soldCache = { key: '', map: {} };
+    function getSoldMap() {
+      const key = invoiceList.length + '|' + invoiceList.reduce((a, i) => a + (i.total || 0), 0);
+      if (_soldCache.key !== key) {
+        const m = {};
+        invoiceList.forEach(inv => (inv.items || []).forEach(it => {
+          if (it.id && !String(it.id).startsWith('LBR')) m[it.id] = (m[it.id] || 0) + (parseFloat(it.qty) || 1);
+        }));
+        _soldCache = { key: key, map: m };
+      }
+      return _soldCache.map;
+    }
+
+    function productKey(p) {
+      return {
+        id: normText(p.id),
+        name: normText(p.name),
+        all: normText([p.id, p.name, CAT_LABELS[p.cat] || '', p.cat, p.unit].filter(Boolean).join(' '))
+      };
+    }
+    function scoreProduct(p, q, tokens, sold) {
+      const k = productKey(p);
+      if (!tokens.every(t => k.all.includes(t))) return null;
+      let s = 0;
+      if (k.id === q) s += 1000; else if (k.id.startsWith(q)) s += 600;
+      if (k.name.startsWith(q)) s += 500; else if (k.name.includes(q)) s += 300;
+      const words = k.name.split(/\s+/);
+      tokens.forEach(t => { s += words.some(w => w.startsWith(t)) ? 60 : 10; });
+      s += Math.min(sold[p.id] || 0, 50);
+      if ((parseFloat(p.stock) || 0) <= 0) s -= 200;
+      return s;
+    }
+    function smartFilterProducts(list, query) {
+      const q = normText(query);
+      if (!q) return list;
+      const tokens = q.split(/\s+/), sold = getSoldMap();
+      return list.map(p => ({ p: p, s: scoreProduct(p, q, tokens, sold) })).filter(x => x.s !== null).sort((a, b) => b.s - a.s).map(x => x.p);
+    }
+
+    function highlightMatch(text, tokens) {
+      const raw = String(text == null ? '' : text);
+      const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      if (!tokens || !tokens.length) return esc(raw);
+      const chars = Array.from(raw);
+      if (chars.length !== raw.length) return esc(raw);
+      const folded = chars.map(c => { const f = normText(c); return f.length === 1 ? f : '\u0000'; }).join('');
+      const mark = new Array(raw.length).fill(false);
+      tokens.forEach(t => {
+        if (!t) return;
+        let i = folded.indexOf(t);
+        while (i > -1) { for (let j = i; j < i + t.length; j++) mark[j] = true; i = folded.indexOf(t, i + t.length); }
+      });
+      let out = '', open = false;
+      chars.forEach((c, i) => {
+        if (mark[i] && !open) { out += '<mark class="bg-amber-500/30 text-amber-200 rounded px-0.5">'; open = true; }
+        else if (!mark[i] && open) { out += '</mark>'; open = false; }
+        out += esc(c);
+      });
+      return open ? out + '</mark>' : out;
+    }
+
+    // ----- Gợi ý phụ tùng khi lập bill -----
+    let partSugIdx = -1;
+
+    function partSuggestItem(item, tokens) {
+      const qty = parseFloat(item.stock) || 0, out = qty <= 0, low = qty <= 2;
+      const inBill = currentQuoteItems.find(i => i.id === item.id);
+      return `
+        <div data-pid="${item.id}" onclick="selectSuggestedPart('${item.id}')"
+          class="p-2.5 sm:p-3 hover:bg-gray-800/90 active:bg-gray-700 cursor-pointer flex items-center justify-between gap-2.5 transition ${out ? 'opacity-60' : ''}">
+          ${productThumbHtml(item, 'w-11 h-11')}
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <span class="text-xs sm:text-sm font-bold text-white">${highlightMatch(item.name, tokens)}</span>
+              <span class="text-[10px] font-mono px-1.5 rounded bg-gray-800 text-gray-300 border border-gray-700">${highlightMatch(item.id, tokens)}</span>
+              <span class="text-[10px] px-1.5 rounded bg-orange-950/60 text-orange-400 border border-orange-500/30">${item.cat || 'PHUOC'}</span>
+              ${inBill ? `<span class="text-[10px] px-1.5 rounded bg-emerald-950/70 text-emerald-300 border border-emerald-500/30 font-bold">Trong bill ×${formatStockQty(inBill.qty)}</span>` : ''}
+            </div>
+            <div class="flex items-center gap-2 text-xs mt-1">
+              <span class="font-bold text-amber-400 font-mono">${formatMoney(item.price)} đ</span>
+              <span class="text-gray-500">•</span>
+              <span class="text-[11px] ${(out || low) ? 'text-red-400 font-semibold' : 'text-sky-400'}">${out ? 'Hết hàng' : `Tồn: <strong>${formatStockQty(item.stock)}</strong> ${item.unit || 'Cái'}`}</span>
+            </div>
+          </div>
+          <button type="button" class="shrink-0 px-2.5 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold shadow flex items-center gap-1">
+            <i class="fa-solid fa-plus text-[10px]"></i><span>Thêm</span>
+          </button>
+        </div>`;
+    }
+
     function handlePartSearch(keyword) {
-      const q = (keyword || '').toLowerCase().trim();
       const dropdown = document.getElementById('part-suggestions-dropdown');
       const clearBtn = document.getElementById('clear-search-btn');
-      if (clearBtn) {
-        if (q) clearBtn.classList.remove('hidden');
-        else clearBtn.classList.add('hidden');
-      }
+      const q = normText(keyword);
+      if (clearBtn) clearBtn.classList.toggle('hidden', !q);
+      partSugIdx = -1;
       if (!dropdown) return;
 
+      const tokens = q ? q.split(/\s+/) : [];
+      let items = [], header = '', more = 0;
       if (!q) {
-        dropdown.classList.add('hidden');
-        dropdown.innerHTML = '';
-        return;
+        const sold = getSoldMap();
+        items = inventoryList.filter(p => (parseFloat(p.stock) || 0) > 0).sort((a, b) => (sold[b.id] || 0) - (sold[a.id] || 0)).slice(0, 6);
+        header = Object.keys(sold).length ? 'Gợi ý: phụ tùng hay bán nhất' : 'Gợi ý: phụ tùng trong kho';
+        if (!items.length) { dropdown.classList.add('hidden'); return; }
+      } else {
+        const sold = getSoldMap();
+        const scored = inventoryList.map(p => ({ p: p, s: scoreProduct(p, q, tokens, sold) })).filter(x => x.s !== null).sort((a, b) => b.s - a.s);
+        items = scored.slice(0, 12).map(x => x.p);
+        more = Math.max(0, scored.length - 12);
+        if (!items.length && tokens.length > 1) {
+          items = inventoryList.map(p => { const k = productKey(p); return { p: p, s: tokens.filter(t => k.all.includes(t)).length }; })
+            .filter(x => x.s > 0).sort((a, b) => b.s - a.s).slice(0, 6).map(x => x.p);
+          header = 'Không khớp đủ các từ - gần đúng:';
+        }
       }
 
-      const matches = inventoryList.filter(item => {
-        const nameMatch = item.name && item.name.toLowerCase().includes(q);
-        const codeMatch = item.id && item.id.toLowerCase().includes(q);
-        const catMatch = item.cat && item.cat.toLowerCase().includes(q);
-        return nameMatch || codeMatch || catMatch;
-      });
-
-      if (matches.length === 0) {
-        dropdown.innerHTML = `
-          <div class="p-3 text-center text-xs text-gray-400 italic">
-            <i class="fa-solid fa-circle-question mr-1 text-gray-500"></i>Không tìm thấy phụ tùng khớp với "<strong>${keyword}</strong>".
-          </div>
-        `;
-        dropdown.classList.remove('hidden');
-        return;
+      if (!items.length) {
+        dropdown.innerHTML = `<div class="p-3 text-center text-xs text-gray-400 italic"><i class="fa-solid fa-circle-question mr-1 text-gray-500"></i>Không tìm thấy phụ tùng khớp với "<strong>${highlightMatch(keyword, [])}</strong>". Thử gõ ít từ hơn.</div>`;
+      } else {
+        dropdown.innerHTML =
+          (header ? `<div class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-500 bg-gray-950/60">${header}</div>` : '') +
+          items.map(i => partSuggestItem(i, tokens)).join('') +
+          (more ? `<div class="px-3 py-1.5 text-[10px] text-gray-500 text-center">Còn ${more} kết quả nữa - gõ thêm để lọc</div>` : '');
       }
-
-      dropdown.innerHTML = matches.map(item => {
-        const isLow = (item.stock <= 2);
-        const unitStr = item.unit || 'Cái';
-        return `
-          <div onclick="selectSuggestedPart('${item.id}')" 
-            class="p-2.5 sm:p-3 hover:bg-gray-800/90 active:bg-gray-700 cursor-pointer flex items-center justify-between gap-2.5 transition">
-            ${productThumbHtml(item, 'w-11 h-11')}
-            <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-1.5 flex-wrap">
-                <span class="text-xs sm:text-sm font-bold text-white">${item.name}</span>
-                <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-gray-800 text-gray-300 border border-gray-700">${item.id}</span>
-                <span class="text-[10px] px-1.5 py-0.2 rounded bg-orange-950/60 text-orange-400 border border-orange-500/30">${item.cat || 'PHUOC'}</span>
-              </div>
-              <div class="flex items-center gap-2 text-xs mt-1">
-                <span class="font-bold text-amber-400 font-mono">${formatMoney(item.price)} đ</span>
-                <span class="text-gray-500">•</span>
-                <span class="text-[11px] ${isLow ? 'text-red-400 font-semibold' : 'text-sky-400'}">
-                  Tồn: <strong>${formatStockQty(item.stock)}</strong> ${unitStr}
-                </span>
-              </div>
-            </div>
-            <button type="button" class="shrink-0 px-2.5 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold shadow flex items-center gap-1">
-              <i class="fa-solid fa-plus text-[10px]"></i><span>Thêm</span>
-            </button>
-          </div>
-        `;
-      }).join('');
-
       dropdown.classList.remove('hidden');
+    }
+
+    function handlePartKeydown(e) {
+      const dd = document.getElementById('part-suggestions-dropdown');
+      if (!dd || dd.classList.contains('hidden')) return;
+      const items = dd.querySelectorAll('[data-pid]');
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (!items.length) return;
+        partSugIdx = (partSugIdx + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+        items.forEach((el, i) => el.classList.toggle('bg-gray-700', i === partSugIdx));
+        items[partSugIdx].scrollIntoView({ block: 'nearest' });
+      } else if (e.key === 'Enter') {
+        if (!items.length) return;
+        e.preventDefault();
+        selectSuggestedPart(items[partSugIdx >= 0 ? partSugIdx : 0].getAttribute('data-pid'));
+        setTimeout(() => { const i = document.getElementById('part-search-input'); if (i) i.focus(); }, 0);
+      } else if (e.key === 'Escape') {
+        dd.classList.add('hidden');
+      }
+    }
+
+    // ----- Gợi ý khách hàng cũ (theo biển số / tên / SĐT) khi tiếp nhận xe -----
+    let _custIdxCache = { key: '', list: [] };
+    let _custSug = { field: '', list: [], idx: -1 };
+
+    function getCustomerIndex() {
+      const key = invoiceList.length + '|' + invoiceList.reduce((a, i) => a + (i.total || 0), 0);
+      if (_custIdxCache.key === key) return _custIdxCache.list;
+      const map = {};
+      invoiceList.forEach(inv => {
+        const plate = String(inv.plate || '').trim().toUpperCase();
+        const phone = String(inv.phone || '').trim();
+        const name = String(inv.name || '').trim();
+        const pn = normPlate(plate), pd = phone.replace(/\D/g, '');
+        const realPlate = pn && pn !== '0';
+        if (!name && !realPlate && !pd) return;
+        const k = realPlate ? 'P' + pn : (pd.length >= 9 ? 'T' + pd : 'N' + normText(name));
+        let c = map[k];
+        if (!c) c = map[k] = { plate: realPlate ? plate : '', name: name, phone: phone, car: inv.car || '', customerType: inv.customerType || 'Khách lẻ', visits: 0 };
+        c.visits++;
+        if (!c.phone && phone) c.phone = phone;
+        if (!c.car && inv.car) c.car = inv.car;
+        if (inv.customerType && inv.customerType.includes('Garage')) c.customerType = 'Khách Garage / Đại lý';
+      });
+      const list = Object.values(map).map(c => Object.assign({}, c, { nName: normText(c.name), nPlate: normPlate(c.plate), nPhone: c.phone.replace(/\D/g, '') }));
+      _custIdxCache = { key: key, list: list };
+      return list;
+    }
+
+    function hideCustSuggest() {
+      document.querySelectorAll('[id^="cust-suggest-"]').forEach(d => d.classList.add('hidden'));
+      _custSug.idx = -1;
+    }
+
+    function suggestCustomers(field) {
+      const ids = { plate: 'quote-plate', name: 'quote-name', phone: 'quote-phone' };
+      const input = document.getElementById(ids[field]);
+      const dd = document.getElementById('cust-suggest-' + field);
+      if (!input || !dd) return;
+      hideCustSuggest();
+      let q, minLen;
+      if (field === 'plate') { q = normPlate(input.value); minLen = 2; }
+      else if (field === 'phone') { q = input.value.replace(/\D/g, ''); minLen = 3; }
+      else { q = normText(input.value); minLen = 2; }
+      if (q.length < minLen) return;
+      const tokens = field === 'name' ? q.split(/\s+/) : [q];
+      const hayOf = c => field === 'plate' ? c.nPlate : (field === 'phone' ? c.nPhone : c.nName);
+      let res = getCustomerIndex().filter(c => tokens.every(t => hayOf(c).includes(t)));
+      res.sort((a, b) => ((hayOf(b).startsWith(tokens[0]) ? 1 : 0) - (hayOf(a).startsWith(tokens[0]) ? 1 : 0)) || (b.visits - a.visits));
+      res = res.slice(0, 6);
+      if (!res.length) return;
+      if (res.length === 1 && field === 'plate' && res[0].nPlate === q && document.getElementById('quote-name').value.trim()) return;
+
+      _custSug = { field: field, list: res, idx: -1 };
+      dd.innerHTML = '<div class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-500 bg-gray-950/60">Khách đã từng đến xưởng - chạm để tự điền</div>' +
+        res.map((c, i) => `
+          <div data-cidx="${i}" onmousedown="event.preventDefault(); pickCustomerSuggestion(${i})" class="p-2.5 hover:bg-gray-800/90 active:bg-gray-700 cursor-pointer">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              ${c.plate ? `<span class="text-xs font-black font-mono text-amber-400 uppercase">${c.plate}</span>` : ''}
+              <span class="text-xs font-bold text-white">${field === 'name' ? highlightMatch(c.name, tokens) : highlightMatch(c.name, [])}</span>
+              <span class="text-[10px] px-1.5 rounded bg-red-950 text-red-400 border border-red-500/30 font-bold">${c.visits} lần</span>
+              ${c.customerType.includes('Garage') ? '<span class="text-[10px] px-1.5 rounded bg-amber-950/80 text-amber-300 border border-amber-500/30 font-semibold">Garage / ĐL</span>' : ''}
+            </div>
+            <div class="text-[11px] text-gray-400 mt-0.5">${c.car ? `<span class="text-sky-300">${highlightMatch(c.car, [])}</span>` : ''}${c.car && c.phone ? ' • ' : ''}${c.phone ? `<span class="font-mono">${highlightMatch(c.phone, [])}</span>` : ''}</div>
+          </div>`).join('');
+      dd.classList.remove('hidden');
+    }
+
+    function pickCustomerSuggestion(i) {
+      const c = _custSug.list[i];
+      if (!c) return;
+      const set = (id, v) => { const e = document.getElementById(id); if (e && v) e.value = v; };
+      set('quote-plate', c.plate);
+      set('quote-name', c.name);
+      set('quote-phone', c.phone);
+      set('quote-carmodel', c.car);
+      setCustomerType(c.customerType);
+      hideCustSuggest();
+      showNotification('Đã tự điền thông tin khách: ' + c.name, 'success');
+    }
+
+    function custSuggestKey(e, field) {
+      const dd = document.getElementById('cust-suggest-' + field);
+      if (!dd || dd.classList.contains('hidden')) return;
+      const items = dd.querySelectorAll('[data-cidx]');
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (!items.length) return;
+        _custSug.idx = (_custSug.idx + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+        items.forEach((el, i) => el.classList.toggle('bg-gray-700', i === _custSug.idx));
+      } else if (e.key === 'Enter' && _custSug.idx >= 0) {
+        e.preventDefault();
+        pickCustomerSuggestion(_custSug.idx);
+      } else if (e.key === 'Escape') {
+        hideCustSuggest();
+      }
+    }
+
+    function initCustomerSuggest() {
+      if (window._custSugInit) return;
+      window._custSugInit = true;
+      [['plate', 'quote-plate'], ['name', 'quote-name'], ['phone', 'quote-phone']].forEach(pair => {
+        const f = pair[0], input = document.getElementById(pair[1]);
+        if (!input) return;
+        input.setAttribute('autocomplete', 'off');
+        const wrap = input.parentElement;
+        wrap.classList.add('relative');
+        const dd = document.createElement('div');
+        dd.id = 'cust-suggest-' + f;
+        dd.className = 'hidden absolute left-0 right-0 top-full mt-1 z-40 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl overflow-hidden max-h-64 overflow-y-auto divide-y divide-gray-800';
+        wrap.appendChild(dd);
+        input.addEventListener('input', () => suggestCustomers(f));
+        input.addEventListener('focus', () => suggestCustomers(f));
+        input.addEventListener('keydown', e => custSuggestKey(e, f));
+      });
+      const pi = document.getElementById('part-search-input');
+      if (pi) pi.addEventListener('keydown', handlePartKeydown);
+      document.addEventListener('click', e => {
+        if (!e.target.closest('[id^="cust-suggest-"]') && ['quote-plate', 'quote-name', 'quote-phone'].indexOf(e.target.id) < 0) hideCustSuggest();
+      });
     }
 
     function selectSuggestedPart(id) {
@@ -2141,7 +2376,7 @@
 
     function renderInvoiceList() {
       const q = (document.getElementById('invoice-search') ? document.getElementById('invoice-search').value.toLowerCase() : '');
-      const filtered = invoiceList.filter(i => (i.plate && i.plate.toLowerCase().includes(q)) || (i.name && i.name.toLowerCase().includes(q)));
+      const filtered = smartFilterInvoices(invoiceList, document.getElementById('invoice-search') ? document.getElementById('invoice-search').value : '');
       const container = document.getElementById('invoice-list-container');
       if (!container) return;
       if (filtered.length === 0) {
@@ -2595,7 +2830,7 @@
     function renderInventoryTable() {
       updateInventoryOverviewStats();
       const q = (document.getElementById('inventory-search') ? document.getElementById('inventory-search').value.toLowerCase() : '');
-      const filtered = inventoryList.filter(i => (i.name && i.name.toLowerCase().includes(q)) || (i.id && i.id.toLowerCase().includes(q)));
+      const filtered = smartFilterProducts(inventoryList, document.getElementById('inventory-search') ? document.getElementById('inventory-search').value : '');
       
       const mobileContainer = document.getElementById('inventory-mobile-cards');
       const desktopThead = document.getElementById('inventory-table-thead');
@@ -3202,12 +3437,7 @@
       const q = searchInput ? searchInput.value.toLowerCase().trim() : '';
 
       if (q) {
-        displayList = displayList.filter(c => 
-          c.name.toLowerCase().includes(q) || 
-          c.phone.toLowerCase().includes(q) ||
-          Array.from(c.plates).some(p => p.toLowerCase().includes(q)) ||
-          Array.from(c.cars).some(car => car.toLowerCase().includes(q))
-        );
+        displayList = displayList.filter(c => looseMatch(makeHay([c.name, c.phone, Array.from(c.plates).join(' '), Array.from(c.cars).join(' ')]), q));
       }
 
       if (currentCustomerFilter === 'DEALER') {
@@ -3880,6 +4110,7 @@
       initFirebaseConnection();
     }
 
+    initCustomerSuggest();
     initSystem();
     window.addEventListener('DOMContentLoaded', initSystem);
   </script>
