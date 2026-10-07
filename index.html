@@ -478,9 +478,10 @@
               <h2 class="text-sm sm:text-base font-bold text-white flex items-center">
                 <i class="fa-solid fa-boxes-stacked mr-2 text-orange-400"></i>Kho Phụ Tùng & Vật Tư
               </h2>
-              <button id="btn-add-inventory-trigger" onclick="openModalAddInventory()" class="stock-manage-only px-3 py-1.5 bg-red-600 hover:bg-red-500 active:scale-95 text-white text-xs font-bold rounded-xl shadow flex items-center gap-1.5 transition">
-                <i class="fa-solid fa-plus text-xs"></i><span>+ Nhập Hàng Mới</span>
+              <button id="btn-add-inventory-trigger" onclick="openReceiptModal()" class="stock-manage-only px-3 py-1.5 bg-red-600 hover:bg-red-500 active:scale-95 text-white text-xs font-bold rounded-xl shadow flex items-center gap-1.5 transition">
+                <i class="fa-solid fa-plus text-xs"></i><span>+ Nhập Hàng (Phiếu)</span>
               </button>
+              <button onclick="openModalAddInventory()" class="stock-manage-only px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 active:scale-95 text-amber-300 border border-amber-500/40 text-xs font-semibold rounded-xl shadow flex items-center gap-1 transition"><i class="fa-solid fa-box-open"></i><span>+ Mã Hàng Mới</span></button>
               <button id="btn-export-inventory-trigger" onclick="exportInventoryToExcel()" class="stock-manage-only px-2.5 py-1.5 bg-emerald-700/80 hover:bg-emerald-600 active:scale-95 text-white text-xs font-semibold rounded-xl shadow flex items-center gap-1 transition">
                 <i class="fa-solid fa-file-excel"></i><span class="hidden sm:inline">Xuất Kho</span>
               </button>
@@ -491,6 +492,11 @@
                 class="w-full sm:w-64 bg-gray-800 border border-gray-700 rounded-xl pl-8 pr-3 py-2 text-xs text-white focus:outline-none focus:border-red-500">
               <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-gray-500 text-xs"></i>
             </div>
+          </div>
+
+          <div class="stock-manage-only mb-4 bg-gray-800/40 border border-gray-800 rounded-2xl p-3">
+            <h3 class="text-xs font-bold text-orange-400 uppercase tracking-wider flex items-center gap-2 mb-2"><i class="fa-solid fa-file-invoice"></i>Phiếu Nhập Hàng Gần Đây</h3>
+            <div id="receipt-list-container" class="space-y-2"></div>
           </div>
 
           <div id="inventory-mobile-cards" class="block md:hidden space-y-2.5">
@@ -879,7 +885,7 @@
           </div>
           <div class="col-span-2">
             <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Nhóm Hàng</label>
-            <select id="inv-edit-cat" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-xs text-white focus:outline-none focus:border-red-500">
+            <select id="inv-edit-cat" onchange="autoUnitForCategory()" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-xs text-white focus:outline-none focus:border-red-500">
               <option value="PHUOC">Phuộc (Nâng cấp & Bảo dưỡng)</option>
               <option value="NHOT">Nhớt & Dầu bảo dưỡng</option>
               <option value="BOTHANG">Bố Thắng / Đĩa Phanh</option>
@@ -934,6 +940,7 @@
               <button type="button" onclick="setEditUnit('Cái')" class="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-sky-300 font-bold text-xs rounded-lg border border-sky-500/30">Cái</button>
               <button type="button" onclick="setEditUnit('Lần')" class="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-emerald-300 font-bold text-xs rounded-lg border border-emerald-500/30">Lần</button>
               <button type="button" onclick="setEditUnit('Bộ')" class="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-orange-400 font-bold text-xs rounded-lg border border-orange-500/30">Bộ</button>
+              <button type="button" onclick="setEditUnit('Lít')" class="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-sky-300 font-bold text-xs rounded-lg border border-sky-500/30">Lít</button>
             </div>
           </div>
         </div>
@@ -959,13 +966,13 @@
 
         <div>
           <label class="block text-[10px] font-bold uppercase tracking-wider text-sky-400 mb-1">
-            <i class="fa-solid fa-boxes-stacked mr-0.5"></i>Số Lượng Tồn Kho Hiện Tại
+            <i class="fa-solid fa-boxes-stacked mr-0.5"></i>Tồn Kho Hiện Tại <span class="normal-case text-gray-500 font-normal">(chỉ đổi qua Phiếu Nhập / Bán Bill)</span>
           </label>
           <div class="flex items-center gap-2">
-            <button type="button" onclick="adjustEditStock(-0.5)" class="w-11 h-9 bg-gray-800 hover:bg-gray-700 active:scale-95 text-red-400 font-black rounded-xl border border-gray-700 flex items-center justify-center text-xs">-0.5</button>
-            <input type="number" step="0.5" id="inv-edit-stock" min="0" value="0" 
+            
+            <input type="number" step="0.5" id="inv-edit-stock" min="0" value="0" readonly tabindex="-1" 
               class="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-center text-sm font-bold text-white focus:outline-none focus:border-red-500">
-            <button type="button" onclick="adjustEditStock(0.5)" class="w-11 h-9 bg-gray-800 hover:bg-gray-700 active:scale-95 text-emerald-400 font-black rounded-xl border border-gray-700 flex items-center justify-center text-xs">+0.5</button>
+            
           </div>
         </div>
       </div>
@@ -1133,6 +1140,57 @@
     </div>
   </div>
 
+  <!-- ================= MODAL PHIẾU NHẬP HÀNG ================= -->
+  <div id="receipt-modal" class="fixed inset-0 z-50 bg-black/85 hidden flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+    <div class="bg-gray-900 border border-gray-700 text-gray-100 rounded-t-3xl sm:rounded-2xl w-full max-w-xl p-4 sm:p-5 shadow-2xl max-h-[92vh] overflow-y-auto custom-scrollbar">
+      <div class="flex items-center justify-between border-b border-gray-800 pb-2.5 mb-3">
+        <h3 class="text-sm sm:text-base font-bold text-orange-400 flex items-center gap-2"><i class="fa-solid fa-truck-ramp-box"></i>Lập Phiếu Nhập Hàng</h3>
+        <button onclick="closeReceiptModal()" class="w-8 h-8 rounded-full bg-gray-800 text-gray-400 hover:text-white flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="space-y-3 text-xs">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <input id="rc-supplier" type="text" placeholder="Nhà cung cấp (không bắt buộc)" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-red-500">
+          <input id="rc-note" type="text" placeholder="Ghi chú phiếu (không bắt buộc)" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-red-500">
+        </div>
+        <div class="bg-gray-800/40 p-2.5 rounded-xl border border-gray-800">
+          <label class="block text-[10px] font-bold uppercase tracking-wider text-sky-400 mb-1.5"><i class="fa-solid fa-image mr-1"></i>Ảnh Chụp Phiếu Nhập Hàng * (bắt buộc)</label>
+          <div class="flex items-center gap-3">
+            <div id="rc-photo-preview" onclick="document.getElementById('rc-photo-file').click()" class="w-20 h-20 shrink-0 rounded-xl bg-gray-800 border border-dashed border-gray-600 overflow-hidden flex items-center justify-center cursor-pointer text-gray-500"><i class="fa-solid fa-camera text-xl"></i></div>
+            <div class="flex-1">
+              <input type="file" id="rc-photo-file" accept="image/*" class="hidden" onchange="handleReceiptPhoto(this)">
+              <button type="button" onclick="document.getElementById('rc-photo-file').click()" class="w-full px-3 py-2 bg-sky-600/20 hover:bg-sky-600/30 active:scale-95 text-sky-300 border border-sky-500/40 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5"><i class="fa-solid fa-camera"></i>Chụp / Chọn ảnh phiếu</button>
+            </div>
+          </div>
+        </div>
+        <div>
+          <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Thêm hàng vào phiếu</label>
+          <input id="rc-search" type="text" autocomplete="off" oninput="renderReceiptPicker()" placeholder="Gõ tên hoặc mã phụ tùng (không cần gõ dấu)..." class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-red-500">
+          <div id="rc-picker" class="mt-1 max-h-36 overflow-y-auto custom-scrollbar bg-gray-800/60 border border-gray-700 rounded-xl divide-y divide-gray-700/60 text-[11px]"></div>
+        </div>
+        <div id="rc-items" class="space-y-2"></div>
+        <div class="flex items-center justify-between bg-gray-800/50 p-2.5 rounded-xl border border-gray-800">
+          <span class="text-gray-300 font-semibold">Tổng tiền hàng nhập:</span>
+          <span id="rc-total" class="text-base font-black text-emerald-400 font-mono">0 đ</span>
+        </div>
+      </div>
+      <div class="mt-4 pt-3 border-t border-gray-800 flex items-center justify-end gap-2">
+        <button type="button" onclick="closeReceiptModal()" class="px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs rounded-xl border border-gray-700">Hủy Bỏ</button>
+        <button type="button" id="rc-save-btn" onclick="saveReceipt()" class="px-5 py-2.5 bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow-lg flex items-center gap-1.5"><i class="fa-solid fa-floppy-disk"></i>Lưu Phiếu & Nhập Kho</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODAL CHI TIẾT PHIẾU NHẬP ================= -->
+  <div id="receipt-detail-modal" class="fixed inset-0 z-50 bg-black/85 hidden flex items-center justify-center p-3 overflow-y-auto">
+    <div class="bg-gray-900 border border-gray-700 text-gray-100 rounded-2xl w-full max-w-lg p-4 shadow-2xl my-auto max-h-[92vh] overflow-y-auto custom-scrollbar">
+      <div class="flex items-center justify-between border-b border-gray-800 pb-2.5 mb-3">
+        <h3 class="text-sm font-bold text-orange-400 flex items-center gap-2"><i class="fa-solid fa-file-invoice"></i>Phiếu <span id="rd-id" class="font-mono text-amber-400"></span></h3>
+        <button onclick="document.getElementById('receipt-detail-modal').classList.add('hidden')" class="w-8 h-8 rounded-full bg-gray-800 text-gray-400 hover:text-white flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="rd-body" class="space-y-3 text-xs"></div>
+    </div>
+  </div>
+
   <!-- ================= MODAL XÁC NHẬN ================= -->
   <div id="confirm-modal" class="fixed inset-0 z-[60] bg-black/85 hidden flex items-center justify-center p-4">
     <div class="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-sm p-4 text-center space-y-3 shadow-2xl">
@@ -1164,7 +1222,7 @@
       { id: 'P01', name: 'Bộ Phuộc Tein Street Advance Z', cat: 'PHUOC', unit: 'Bộ', stock: 5, costPrice: 21500000, price: 26500000 },
       { id: 'P02', name: 'Bộ Phuộc Profender Monotube 2.0', cat: 'PHUOC', unit: 'Bộ', stock: 4.5, costPrice: 15000000, price: 18500000 },
       { id: 'P03', name: 'Phuộc PNK - Xpander', cat: 'PHUOC', unit: 'Cặp', stock: 2.5, costPrice: 28000000, price: 35000000 },
-      { id: 'N01', name: 'Nhớt Động Cơ Motul 300V 5W40 (Can 4L)', cat: 'NHOT', unit: 'Can', stock: 15, costPrice: 1300000, price: 1650000 },
+      { id: 'N01', name: 'Nhớt Động Cơ Motul 300V 5W40', cat: 'NHOT', unit: 'Lít', stock: 60, costPrice: 325000, price: 412500 },
       { id: 'B01', name: 'Bộ Bố Thắng Trước Ceramic Dr.Shock', cat: 'BOTHANG', unit: 'Bộ', stock: 8, costPrice: 1450000, price: 1950000 },
       { id: 'R01', name: 'Rotuyn Cân Bằng Trước 555 Japan', cat: 'ROTUYN', unit: 'Cái', stock: 12, costPrice: 450000, price: 650000 },
       { id: 'G01', name: 'Càng A Dưới Nâng Cấp Cao Su Đúc', cat: 'GAM', unit: 'Cặp', stock: 6, costPrice: 2100000, price: 2800000 }
@@ -1331,6 +1389,7 @@
 
     function setupFirebaseRealtimeListeners() {
       if (!firebaseDb) return;
+      setupReceiptListeners();
 
       firebaseDb.ref('garage/inventory').on('value', snapshot => {
         const val = snapshot.val();
@@ -2952,12 +3011,7 @@
                 <i class="fa-solid fa-pen-to-square"></i>Sửa Thông Tin
               </button>
 
-              <div class="flex items-center space-x-1 shrink-0">
-                <button onclick="quickUpdateStock('${p.id}', -0.5)" title="Giảm 0.5" 
-                  class="px-2 h-8 bg-gray-700 hover:bg-gray-600 active:scale-90 text-red-400 font-black rounded-xl border border-gray-600 flex items-center justify-center text-xs">-0.5</button>
-                <button onclick="quickUpdateStock('${p.id}', 0.5)" title="Thêm 0.5" 
-                  class="px-2 h-8 bg-gray-700 hover:bg-gray-600 active:scale-90 text-emerald-400 font-black rounded-xl border border-gray-600 flex items-center justify-center text-xs">+0.5</button>
-              </div>
+              
 
               <button onclick="deleteInventoryItem('${p.id}')" title="Xóa phụ tùng" 
                 class="w-8 h-8 bg-gray-800 hover:bg-red-950/60 active:scale-90 text-gray-500 hover:text-red-400 rounded-xl border border-gray-700 flex items-center justify-center text-xs shrink-0 transition">
@@ -3014,10 +3068,7 @@
                       class="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-semibold transition flex items-center gap-1">
                       <i class="fa-solid fa-pen-to-square"></i>Sửa
                     </button>
-                    <button onclick="quickUpdateStock('${p.id}', 0.5)" title="Thêm 0.5" 
-                      class="px-2 h-7 bg-gray-800 hover:bg-gray-700 text-emerald-400 rounded-lg border border-gray-700 font-bold flex items-center justify-center text-xs">+0.5</button>
-                    <button onclick="quickUpdateStock('${p.id}', -0.5)" title="Giảm 0.5" 
-                      class="px-2 h-7 bg-gray-800 hover:bg-gray-700 text-red-400 rounded-lg border border-gray-700 font-bold flex items-center justify-center text-xs">-0.5</button>
+                    
                     <button onclick="deleteInventoryItem('${p.id}')" title="Xóa phụ tùng" 
                       class="w-7 h-7 bg-gray-800 hover:bg-red-950/60 text-gray-500 hover:text-red-400 rounded-lg border border-gray-700 flex items-center justify-center text-xs transition">
                       <i class="fa-solid fa-trash-can"></i>
@@ -3163,6 +3214,13 @@
       setInvImagePreview('');
     }
 
+    // Nhóm Nhớt tính theo Lít: tự gợi ý đơn vị "Lít" khi đơn vị còn là mặc định
+    function autoUnitForCategory() {
+      const cat = document.getElementById('inv-edit-cat').value;
+      const u = document.getElementById('inv-edit-unit');
+      if (cat === 'NHOT' && ['', 'bo', 'cap', 'cai', 'can'].indexOf(normText(u.value)) > -1) u.value = 'Lít';
+    }
+
     function setEditUnit(unit) {
       const input = document.getElementById('inv-edit-unit');
       if (input) {
@@ -3182,7 +3240,7 @@
       document.getElementById('inv-edit-unit').value = 'Bộ';
       document.getElementById('inv-edit-cost').value = '';
       document.getElementById('inv-edit-price').value = '';
-      document.getElementById('inv-edit-stock').value = '5';
+      document.getElementById('inv-edit-stock').value = '0';
       currentInvImageData = '';
       currentInvImageChanged = false;
       setInvImagePreview('');
@@ -3230,7 +3288,7 @@
       const unit = document.getElementById('inv-edit-unit').value.trim() || 'Cái';
       const costPrice = parseCurrencyNumber(document.getElementById('inv-edit-cost').value);
       const price = parseCurrencyNumber(document.getElementById('inv-edit-price').value);
-      const stock = Math.max(0, parseFloat(document.getElementById('inv-edit-stock').value) || 0);
+      let stock = editId ? (parseFloat((inventoryList.find(i => i.id === editId) || {}).stock) || 0) : 0; // tồn kho chỉ đổi qua phiếu nhập / bán bill
 
       if (!name) {
         showNotification('Vui lòng nhập Tên phụ tùng!', 'warning');
@@ -3241,6 +3299,18 @@
       if (editId) {
         const p = inventoryList.find(i => i.id === editId);
         if (p) {
+          const oldUnit = p.unit || 'Cái';
+          if (oldUnit !== unit && (parseFloat(p.stock) || 0) > 0) {
+            const ans = window.prompt('Đổi đơn vị từ "' + oldUnit + '" sang "' + unit + '".\nTồn kho hiện là ' + formatStockQty(p.stock) + ' ' + oldUnit + '.\n\n1 ' + oldUnit + ' = bao nhiêu ' + unit + '? (VD: 4)\nNhập số để quy đổi tồn kho. Bỏ trống hoặc Hủy = giữ nguyên số tồn.\nLưu ý: nhập Giá nhập / Giá bán theo ' + unit + '.', '');
+            const f = parseFloat(String(ans || '').replace(',', '.'));
+            if (f > 0 && isFinite(f)) {
+              const before = parseFloat(p.stock) || 0;
+              const after = Math.round(before * f * 10) / 10;
+              p.stock = after;
+              stock = after;
+              logStockEvent('DIEUCHINH', p.id, p.name, unit, before, after, 'Quy đổi đơn vị ' + oldUnit + ' → ' + unit + ' (×' + f + '): ' + formatStockQty(before) + ' ' + oldUnit + ' = ' + formatStockQty(after) + ' ' + unit);
+            }
+          }
           const prevStock = parseFloat(p.stock) || 0;
           const isStockChanged = prevStock !== stock;
           let noteDetails = [];
@@ -3389,6 +3459,7 @@
       if (revElem) revElem.textContent = formatMoney(totalRev) + ' đ';
       if (invElem) invElem.textContent = invoiceList.length;
 
+      renderRevenueDashboard();
       // THUẬT TOÁN GOM NHÓM CHỐNG GỘP SĐT "0":
       const custMap = {};
 
@@ -3925,7 +3996,8 @@
         inventory: inventoryList,
         invoices: invoiceList,
         stockLogs: stockLogList,
-        staff: staffList
+        staff: staffList,
+        receipts: receiptList
       };
 
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData, null, 2));
@@ -4156,6 +4228,344 @@
       initFirebaseConnection();
     }
 
+    // ===== PHIẾU NHẬP HÀNG + THÔNG BÁO =====
+    let receiptList = convertToArray(getStoredData('drshock_receipts', []), []);
+    let receiptDraft = { items: [], photo: '' };
+    let notifList = [];
+    let notifReadTs = parseInt(localStorage.getItem('drshock_notif_read_ts') || '0', 10) || 0;
+    let notifFirstLoad = true;
+    const DEVICE_ID = (function() {
+      let d = '';
+      try { d = localStorage.getItem('drshock_device_id') || ''; if (!d) { d = 'D' + Math.random().toString(36).slice(2, 9); localStorage.setItem('drshock_device_id', d); } } catch (e) { d = 'D' + Math.random().toString(36).slice(2, 9); }
+      return d;
+    })();
+
+    function isStockManagerUser() { return !!currentLoggedInUser && (currentLoggedInUser.role === 'admin' || currentLoggedInUser.role === 'stock'); }
+
+    function compressImageFile(file, maxSize, quality, cb) {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const img = new Image();
+        img.onload = () => {
+          let w = img.width, h = img.height;
+          if (w > maxSize || h > maxSize) { if (w >= h) { h = Math.round(h * maxSize / w); w = maxSize; } else { w = Math.round(w * maxSize / h); h = maxSize; } }
+          const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+          const ctx = cv.getContext('2d'); ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h); ctx.drawImage(img, 0, 0, w, h);
+          cb(cv.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = () => showNotification('Không đọc được ảnh này, vui lòng chọn ảnh khác!', 'error');
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function setReceiptPhotoPreview(src) {
+      const el = document.getElementById('rc-photo-preview');
+      if (el) el.innerHTML = src ? `<img src="${src}" alt="" class="w-full h-full object-cover">` : '<i class="fa-solid fa-camera text-xl"></i>';
+    }
+    function handleReceiptPhoto(input) {
+      const f = input.files && input.files[0];
+      if (!f) return;
+      compressImageFile(f, 1000, 0.72, data => { receiptDraft.photo = data; setReceiptPhotoPreview(data); input.value = ''; });
+    }
+
+    function openReceiptModal() {
+      if (!checkStockManagePermission()) return;
+      receiptDraft = { items: [], photo: '' };
+      ['rc-supplier', 'rc-note', 'rc-search'].forEach(id => { document.getElementById(id).value = ''; });
+      setReceiptPhotoPreview('');
+      renderReceiptItems();
+      renderReceiptPicker();
+      document.getElementById('receipt-modal').classList.remove('hidden');
+    }
+    function closeReceiptModal() { document.getElementById('receipt-modal').classList.add('hidden'); }
+
+    function renderReceiptPicker() {
+      const q = document.getElementById('rc-search').value;
+      const tokens = normText(q).split(/\s+/).filter(Boolean);
+      const list = smartFilterProducts(inventoryList, q).slice(0, 8);
+      document.getElementById('rc-picker').innerHTML = list.length ? list.map(p => `
+        <button type="button" onclick="addReceiptItem('${p.id}')" class="w-full text-left px-2.5 py-2 hover:bg-gray-700 flex items-center justify-between gap-2">
+          <span class="truncate"><b class="text-amber-400 font-mono">${p.id}</b> ${highlightMatch(p.name, tokens)}</span>
+          <span class="shrink-0 text-sky-400">Tồn ${formatStockQty(p.stock)}</span>
+        </button>`).join('') : '<div class="p-2 text-gray-500 italic">Không tìm thấy. Hàng mới chưa có mã: đóng phiếu, bấm "+ Mã Hàng Mới" rồi lập phiếu lại.</div>';
+    }
+
+    function addReceiptItem(id) {
+      const p = inventoryList.find(i => i.id === id);
+      if (!p) return;
+      const ex = receiptDraft.items.find(i => i.id === id);
+      if (ex) ex.qty += 1; else receiptDraft.items.push({ id: p.id, name: p.name, unit: p.unit || 'Cái', qty: 1, cost: parseCurrencyNumber(p.costPrice) || 0 });
+      renderReceiptItems();
+    }
+    function removeReceiptItem(i) { receiptDraft.items.splice(i, 1); renderReceiptItems(); }
+    function updateReceiptTotals() {
+      receiptDraft.items.forEach((it, i) => { const s = document.getElementById('rc-line-' + i); if (s) s.textContent = formatMoney(it.qty * it.cost) + ' đ'; });
+      document.getElementById('rc-total').textContent = formatMoney(receiptDraft.items.reduce((s, i) => s + i.qty * i.cost, 0)) + ' đ';
+    }
+    function updateReceiptQty(i, v) { if (receiptDraft.items[i]) { receiptDraft.items[i].qty = Math.max(0.5, parseFloat(v) || 0.5); updateReceiptTotals(); } }
+    function updateReceiptCost(i, input) { if (receiptDraft.items[i]) { receiptDraft.items[i].cost = formatLiveCurrency(input); updateReceiptTotals(); } }
+
+    function renderReceiptItems() {
+      const c = document.getElementById('rc-items');
+      c.innerHTML = receiptDraft.items.length ? receiptDraft.items.map((it, i) => `
+        <div class="bg-gray-800/70 border border-gray-700/70 rounded-xl p-2 space-y-1.5">
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-semibold text-white truncate">${highlightMatch(it.name, [])}</span>
+            <button type="button" onclick="removeReceiptItem(${i})" class="text-gray-500 hover:text-red-400 px-1"><i class="fa-solid fa-trash-can"></i></button>
+          </div>
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-1"><span class="text-[10px] text-gray-400">SL:</span>
+              <input type="number" min="0.5" step="0.5" value="${it.qty}" onfocus="this.select()" oninput="updateReceiptQty(${i}, this.value)" class="w-14 bg-gray-900 border border-gray-700 rounded text-center py-0.5 text-white font-bold">
+              <span class="text-[10px] text-amber-400 font-bold">${it.unit}</span></div>
+            <div class="flex items-center gap-1.5">
+              <input type="text" inputmode="numeric" value="${formatMoney(it.cost)}" onfocus="handleMoneyFocus(this)" oninput="updateReceiptCost(${i}, this)" onblur="handleMoneyBlur(this)" class="w-24 bg-gray-900 border border-gray-700 rounded px-1.5 py-0.5 text-right font-mono text-white" title="Giá nhập / 1 đơn vị">
+              <span id="rc-line-${i}" class="font-mono font-bold text-emerald-400">${formatMoney(it.qty * it.cost)} đ</span></div>
+          </div>
+        </div>`).join('') : '<div class="p-4 text-center text-gray-500 italic bg-gray-800/30 rounded-xl">Chưa có hàng nào trong phiếu. Tìm và chọn phụ tùng ở trên.</div>';
+      updateReceiptTotals();
+    }
+
+    async function saveReceipt() {
+      if (!checkStockManagePermission()) return;
+      const items = receiptDraft.items.filter(i => i.qty > 0);
+      if (!items.length) { showNotification('Phiếu nhập chưa có hàng nào!', 'warning'); return; }
+      if (!receiptDraft.photo) { showNotification('Vui lòng chụp/đính kèm ảnh phiếu nhập hàng!', 'warning'); return; }
+      if (!firebaseDb || !cloudReady['garage/inventory'] || !cloudReady['garage/stockLogs']) {
+        showNotification('Chưa kết nối xong đám mây (cần để lưu ảnh phiếu). Vui lòng đợi vài giây rồi lưu lại!', 'warning'); return;
+      }
+      const btn = document.getElementById('rc-save-btn'); btn.disabled = true;
+      const now = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      const id = 'PN-' + pad(now.getDate()) + pad(now.getMonth() + 1) + String(now.getFullYear()).slice(2) + '-' + now.getTime().toString().slice(-4);
+      const date = now.toLocaleDateString('vi-VN') + ' ' + now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+      const user = currentLoggedInUser ? currentLoggedInUser.name : 'Chủ Xưởng';
+      const supplier = document.getElementById('rc-supplier').value.trim();
+      const note = document.getElementById('rc-note').value.trim();
+      const totalQty = items.reduce((s, i) => s + i.qty, 0);
+      const totalCost = items.reduce((s, i) => s + i.qty * i.cost, 0);
+      const receipt = { id: id, date: date, ts: now.getTime(), user: user, supplier: supplier, note: note, items: items.map(i => ({ id: i.id, name: i.name, unit: i.unit, qty: i.qty, cost: i.cost })), totalQty: totalQty, totalCost: totalCost };
+      const notif = { id: 'N' + now.getTime(), ts: now.getTime(), device: DEVICE_ID, type: 'IMPORT', title: 'Nhập hàng mới', receiptId: id, time: date, user: user,
+        message: `${user} vừa nhập ${items.length} mặt hàng (${formatStockQty(totalQty)} món)${supplier ? ' từ ' + supplier : ''} - phiếu ${id}` };
+      const upd = {};
+      upd['garage/receipts/' + id] = receipt;
+      upd['garage/receiptPhotos/' + id] = receiptDraft.photo;
+      upd['garage/notifications/' + notif.id] = notif;
+      try { await firebaseDb.ref().update(upd); }
+      catch (e) { btn.disabled = false; showNotification('Không lưu được phiếu lên đám mây, kho chưa bị thay đổi. Vui lòng thử lại!', 'error'); return; }
+
+      items.forEach(it => {
+        const p = inventoryList.find(x => x.id === it.id);
+        if (!p) return;
+        const prev = parseFloat(p.stock) || 0;
+        const next = Math.round((prev + it.qty) * 10) / 10;
+        p.stock = next;
+        if (it.cost > 0) p.costPrice = it.cost;
+        logStockEvent('NHAP', p.id, p.name, p.unit || 'Cái', prev, next, `Nhập theo phiếu ${id}` + (supplier ? ` - ${supplier}` : ''));
+      });
+      setStoredData('drshock_inventory', inventoryList);
+      firebaseDb.ref('garage/inventory').set(inventoryList);
+      btn.disabled = false;
+      renderInventoryTable();
+      populateInventorySelector('ALL');
+      closeReceiptModal();
+      showNotification(`Đã lưu phiếu ${id} và nhập kho thành công!`, 'success');
+    }
+
+    function renderReceiptList() {
+      const c = document.getElementById('receipt-list-container');
+      if (!c) return;
+      if (!receiptList.length) { c.innerHTML = '<div class="p-3 text-center text-xs text-gray-500 italic">Chưa có phiếu nhập hàng nào.</div>'; return; }
+      c.innerHTML = receiptList.slice(0, 10).map(r => `
+        <div class="flex items-center justify-between gap-2 bg-gray-800/60 border border-gray-700/60 rounded-xl p-2.5">
+          <div class="min-w-0">
+            <div class="flex items-center gap-1.5 flex-wrap"><span class="text-xs font-bold text-amber-400 font-mono">${r.id}</span><span class="text-[10px] text-gray-400">${r.date}</span></div>
+            <p class="text-[11px] text-gray-300 truncate mt-0.5">${(r.items || []).length} mặt hàng · ${formatStockQty(r.totalQty)} món${r.supplier ? ' · ' + highlightMatch(r.supplier, []) : ''} · <span class="text-orange-400">${highlightMatch(r.user || '', [])}</span></p>
+          </div>
+          <div class="text-right shrink-0">
+            <p class="text-xs font-black text-emerald-400 font-mono">${formatMoney(r.totalCost || 0)} đ</p>
+            <button onclick="openReceiptDetail('${r.id}')" class="mt-1 px-2.5 py-1 bg-gray-700 hover:bg-gray-600 text-amber-300 rounded-lg text-[10px] font-semibold"><i class="fa-solid fa-image mr-1"></i>Xem phiếu</button>
+          </div>
+        </div>`).join('') + (receiptList.length > 10 ? `<p class="text-center text-[10px] text-gray-500">Hiển thị 10/${receiptList.length} phiếu gần nhất</p>` : '');
+    }
+
+    function openReceiptDetail(id) {
+      if (!checkStockManagePermission()) return;
+      const r = receiptList.find(x => x.id === id);
+      if (!r) return;
+      document.getElementById('rd-id').textContent = r.id;
+      document.getElementById('rd-body').innerHTML = `
+        <div class="grid grid-cols-2 gap-2 bg-gray-800/50 p-2.5 rounded-xl border border-gray-800">
+          <div><span class="text-gray-400">Thời gian:</span> <b>${r.date}</b></div><div><span class="text-gray-400">Người nhập:</span> <b class="text-orange-400">${highlightMatch(r.user || '', [])}</b></div>
+          <div><span class="text-gray-400">Nhà cung cấp:</span> <b>${r.supplier ? highlightMatch(r.supplier, []) : '---'}</b></div><div><span class="text-gray-400">Ghi chú:</span> <b>${r.note ? highlightMatch(r.note, []) : '---'}</b></div>
+        </div>
+        <div class="border border-gray-800 rounded-xl divide-y divide-gray-800">${(r.items || []).map(i => `
+          <div class="flex items-center justify-between gap-2 p-2"><span class="truncate"><b class="text-amber-400 font-mono">${i.id}</b> ${highlightMatch(i.name, [])}</span>
+          <span class="shrink-0 font-mono">${formatStockQty(i.qty)} ${i.unit} × ${formatMoney(i.cost)} = <b class="text-emerald-400">${formatMoney(i.qty * i.cost)} đ</b></span></div>`).join('')}</div>
+        <div class="text-right font-black text-emerald-400 font-mono">Tổng: ${formatMoney(r.totalCost || 0)} đ</div>
+        <div id="rd-photo" class="text-center text-gray-500 italic p-4 bg-gray-800/30 rounded-xl">Đang tải ảnh phiếu...</div>`;
+      document.getElementById('receipt-detail-modal').classList.remove('hidden');
+      if (!firebaseDb) { document.getElementById('rd-photo').textContent = 'Cần kết nối đám mây để xem ảnh phiếu.'; return; }
+      firebaseDb.ref('garage/receiptPhotos/' + id).once('value').then(s => {
+        const el = document.getElementById('rd-photo'); if (!el) return;
+        const v = s.val();
+        el.className = 'text-center';
+        el.innerHTML = v ? `<img src="${v}" alt="Ảnh phiếu nhập" class="w-full rounded-xl border border-gray-700">` : '<span class="text-gray-500 italic">Không có ảnh cho phiếu này.</span>';
+      }).catch(() => { const el = document.getElementById('rd-photo'); if (el) el.textContent = 'Không tải được ảnh phiếu.'; });
+    }
+
+    // ----- Thông báo nhập hàng (đẩy tức thì tới mọi máy đang mở app) -----
+    function setupReceiptListeners() {
+      firebaseDb.ref('garage/receipts').on('value', snap => {
+        receiptList = convertToArray(snap.val(), []).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+        setStoredData('drshock_receipts', receiptList);
+        renderReceiptList();
+      });
+      firebaseDb.ref('garage/notifications').on('value', snap => {
+        const list = convertToArray(snap.val(), []).sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 30);
+        const knownMax = notifList.length ? notifList[0].ts : 0;
+        if (notifFirstLoad) {
+          notifFirstLoad = false;
+          if (!notifReadTs && list.length) { notifReadTs = list[0].ts; try { localStorage.setItem('drshock_notif_read_ts', String(notifReadTs)); } catch (e) {} }
+        } else {
+          list.filter(n => n.ts > knownMax && n.device !== DEVICE_ID).forEach(n => {
+            showNotification('🔔 ' + n.title + ': ' + n.message, 'info');
+            try { if ('Notification' in window && Notification.permission === 'granted') new Notification(n.title, { body: n.message, icon: 'avatar.jpg' }); } catch (e) {}
+          });
+        }
+        notifList = list;
+        renderNotifBell();
+      });
+    }
+
+    function unreadNotifCount() { return notifList.filter(n => n.ts > notifReadTs && n.device !== DEVICE_ID).length; }
+    function renderNotifBell() {
+      const b = document.getElementById('notif-badge');
+      if (b) { const c = unreadNotifCount(); b.textContent = c > 9 ? '9+' : c; b.style.display = c ? 'flex' : 'none'; }
+      const p = document.getElementById('notif-panel');
+      if (p && !p.classList.contains('hidden')) renderNotifPanel();
+    }
+    function renderNotifPanel() {
+      const p = document.getElementById('notif-panel');
+      const canAsk = 'Notification' in window && Notification.permission === 'default';
+      p.innerHTML = `<div class="flex items-center justify-between px-3 py-2 border-b border-gray-800 bg-gray-950/60"><span class="text-xs font-bold text-white"><i class="fa-solid fa-bell text-orange-400 mr-1.5"></i>Thông báo</span>
+        ${canAsk ? '<button onclick="askBrowserNotify()" class="text-[10px] px-2 py-1 rounded-lg bg-sky-600/20 text-sky-300 border border-sky-500/40 font-semibold">Bật thông báo máy này</button>' : ''}</div>
+        <div class="max-h-80 overflow-y-auto custom-scrollbar divide-y divide-gray-800">${notifList.length ? notifList.map(n => `
+          <div onclick="openNotif('${n.id}')" class="p-2.5 hover:bg-gray-800/80 cursor-pointer ${n.ts > notifReadTs && n.device !== DEVICE_ID ? 'bg-red-950/20' : ''}">
+            <div class="flex items-center justify-between gap-2"><span class="text-xs font-bold text-orange-400"><i class="fa-solid fa-truck-ramp-box mr-1"></i>${highlightMatch(n.title, [])}</span><span class="text-[10px] text-gray-500">${n.time || ''}</span></div>
+            <p class="text-[11px] text-gray-300 mt-0.5">${highlightMatch(n.message, [])}</p></div>`).join('') : '<div class="p-4 text-center text-xs text-gray-500 italic">Chưa có thông báo nào.</div>'}</div>`;
+    }
+    function toggleNotifPanel() {
+      const p = document.getElementById('notif-panel');
+      const open = p.classList.contains('hidden');
+      p.classList.toggle('hidden', !open);
+      if (open) {
+        renderNotifPanel();
+        if (notifList.length) { notifReadTs = Math.max(notifReadTs, notifList[0].ts); try { localStorage.setItem('drshock_notif_read_ts', String(notifReadTs)); } catch (e) {} }
+        const b = document.getElementById('notif-badge'); if (b) b.style.display = 'none';
+      }
+    }
+    function askBrowserNotify() { try { Notification.requestPermission().then(() => renderNotifPanel()); } catch (e) {} }
+    function openNotif(id) {
+      const n = notifList.find(x => x.id === id);
+      if (n && n.receiptId) { document.getElementById('notif-panel').classList.add('hidden'); if (isStockManagerUser()) openReceiptDetail(n.receiptId); }
+    }
+    function initNotifications() {
+      const logout = document.querySelector('button[onclick="handleLogout()"]');
+      if (!logout || document.getElementById('notif-bell')) return;
+      const b = document.createElement('button');
+      b.id = 'notif-bell'; b.type = 'button'; b.title = 'Thông báo';
+      b.className = 'relative p-2 sm:px-2.5 sm:py-2 bg-gray-800 hover:bg-gray-700 active:scale-95 text-gray-300 rounded-xl border border-gray-700 transition flex items-center justify-center';
+      b.innerHTML = '<i class="fa-solid fa-bell text-xs sm:text-sm"></i><span id="notif-badge" style="display:none" class="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-red-600 text-white text-[9px] font-black items-center justify-center">0</span>';
+      b.onclick = toggleNotifPanel;
+      logout.parentElement.insertBefore(b, logout);
+      const p = document.createElement('div');
+      p.id = 'notif-panel';
+      p.className = 'hidden fixed right-2 top-14 z-[70] w-[calc(100vw-1rem)] max-w-sm bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl overflow-hidden';
+      document.body.appendChild(p);
+      document.addEventListener('click', e => { if (!e.target.closest('#notif-panel') && !e.target.closest('#notif-bell')) p.classList.add('hidden'); });
+    }
+
+    // ===== DASHBOARD DOANH THU =====
+    let revPeriod = 'month';
+    function setRevPeriod(v) { revPeriod = v; renderRevenueDashboard(); }
+    function revRange(p) {
+      const n = new Date(), day = 86400000;
+      const sod = new Date(n.getFullYear(), n.getMonth(), n.getDate()).getTime();
+      if (p === 'today') return [sod, Infinity];
+      if (p === '7d') return [sod - 6 * day, Infinity];
+      if (p === 'month') return [new Date(n.getFullYear(), n.getMonth(), 1).getTime(), Infinity];
+      if (p === 'lastmonth') return [new Date(n.getFullYear(), n.getMonth() - 1, 1).getTime(), new Date(n.getFullYear(), n.getMonth(), 1).getTime()];
+      if (p === 'year') return [new Date(n.getFullYear(), 0, 1).getTime(), Infinity];
+      return [0, Infinity];
+    }
+    function renderRevenueDashboard() {
+      const sec = document.getElementById('tab-reports');
+      if (!sec) return;
+      let box = document.getElementById('revenue-dashboard');
+      if (!box) {
+        box = document.createElement('div');
+        box.id = 'revenue-dashboard';
+        box.className = 'bg-gray-900 border border-gray-800 rounded-2xl p-3 sm:p-4 space-y-4';
+        sec.insertBefore(box, sec.children[1] || null);
+      }
+      const range = revRange(revPeriod);
+      const list = invoiceList.filter(i => { const t = invTime(i); return t >= range[0] && t < range[1]; });
+      const mk = () => ({ rev: 0, n: 0 });
+      const S = { shop: mk(), ship: mk() }, C = { retail: mk(), dealer: mk() };
+      const M = { shop_retail: mk(), shop_dealer: mk(), ship_retail: mk(), ship_dealer: mk() };
+      list.forEach(i => {
+        const s = (i.serviceType || '').includes('Gửi') ? 'ship' : 'shop';
+        const c = ((i.customerType || '').includes('Garage') || (i.customerType || '').includes('Đại lý')) ? 'dealer' : 'retail';
+        const t = i.total || 0;
+        [S[s], C[c], M[s + '_' + c]].forEach(a => { a.rev += t; a.n++; });
+      });
+      const total = S.shop.rev + S.ship.rev, cnt = list.length;
+      const row = (label, icon, txt, bg, a) => {
+        const pct = total ? Math.round(a.rev * 100 / total) : 0;
+        return `<div><div class="flex items-center justify-between gap-2 text-xs mb-1"><span class="font-semibold ${txt}"><i class="fa-solid ${icon} mr-1.5"></i>${label}</span>
+          <span class="font-mono font-bold text-white">${formatMoney(a.rev)} đ <span class="text-gray-400 font-normal">· ${a.n} HĐ · ${pct}%</span></span></div>
+          <div class="h-2.5 rounded-full bg-gray-800 overflow-hidden"><div class="h-full rounded-full ${bg}" style="width:${pct}%"></div></div></div>`;
+      };
+      const cell = (a, color) => `<div class="p-2.5 text-center"><div class="font-mono font-black ${color}">${formatMoney(a.rev)} đ</div><div class="text-[10px] text-gray-400">${a.n} hóa đơn</div></div>`;
+      const byMonth = revPeriod === 'year' || revPeriod === 'all';
+      const buckets = {};
+      list.forEach(i => {
+        const t = invTime(i); if (!t) return;
+        const d = new Date(t);
+        const k = byMonth ? d.getFullYear() * 100 + d.getMonth() : d.getFullYear() * 10000 + d.getMonth() * 100 + d.getDate();
+        const lbl = byMonth ? (d.getMonth() + 1) + '/' + String(d.getFullYear()).slice(2) : d.getDate() + '/' + (d.getMonth() + 1);
+        (buckets[k] = buckets[k] || { lbl: lbl, rev: 0 }).rev += i.total || 0;
+      });
+      const keys = Object.keys(buckets).sort((a, b) => a - b);
+      const max = Math.max(1, ...keys.map(k => buckets[k].rev));
+      const periods = [['today', 'Hôm nay'], ['7d', '7 ngày qua'], ['month', 'Tháng này'], ['lastmonth', 'Tháng trước'], ['year', 'Năm nay'], ['all', 'Tất cả']];
+      box.innerHTML = `
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <h3 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-chart-pie text-orange-400"></i>Dashboard Doanh Thu</h3>
+          <select onchange="setRevPeriod(this.value)" class="bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500">${periods.map(p => `<option value="${p[0]}"${p[0] === revPeriod ? ' selected' : ''}>${p[1]}</option>`).join('')}</select>
+        </div>
+        <div class="grid grid-cols-3 gap-2">
+          <div class="bg-gray-800/70 border border-gray-700/70 rounded-xl p-2.5"><p class="text-[10px] text-gray-400 uppercase font-bold">Doanh thu</p><p class="text-sm sm:text-lg font-black text-red-500 font-mono">${formatMoney(total)} đ</p></div>
+          <div class="bg-gray-800/70 border border-gray-700/70 rounded-xl p-2.5"><p class="text-[10px] text-gray-400 uppercase font-bold">Số hóa đơn</p><p class="text-sm sm:text-lg font-black text-orange-400 font-mono">${cnt}</p></div>
+          <div class="bg-gray-800/70 border border-gray-700/70 rounded-xl p-2.5"><p class="text-[10px] text-gray-400 uppercase font-bold">TB / hóa đơn</p><p class="text-sm sm:text-lg font-black text-emerald-400 font-mono">${formatMoney(cnt ? Math.round(total / cnt) : 0)} đ</p></div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div class="bg-gray-800/40 border border-gray-800 rounded-xl p-3 space-y-3"><p class="text-[11px] font-bold text-gray-300 uppercase tracking-wider">Theo hình thức phục vụ</p>
+            ${row('Lắp tại xưởng (Garage)', 'fa-wrench', 'text-red-400', 'bg-red-500', S.shop)}${row('Gửi về (Ship)', 'fa-box', 'text-sky-400', 'bg-sky-500', S.ship)}</div>
+          <div class="bg-gray-800/40 border border-gray-800 rounded-xl p-3 space-y-3"><p class="text-[11px] font-bold text-gray-300 uppercase tracking-wider">Theo đối tượng khách</p>
+            ${row('Khách lẻ', 'fa-user', 'text-amber-400', 'bg-amber-500', C.retail)}${row('Khách Garage / Đại lý', 'fa-warehouse', 'text-emerald-400', 'bg-emerald-500', C.dealer)}</div>
+        </div>
+        <div class="bg-gray-800/40 border border-gray-800 rounded-xl overflow-hidden"><p class="text-[11px] font-bold text-gray-300 uppercase tracking-wider p-3 pb-2">Chi tiết: hình thức × đối tượng</p>
+          <div class="grid grid-cols-3 text-xs border-t border-gray-800">
+            <div class="p-2 bg-gray-900/60"></div><div class="p-2 bg-gray-900/60 text-center font-bold text-amber-400">Khách lẻ</div><div class="p-2 bg-gray-900/60 text-center font-bold text-emerald-400">Garage / Đại lý</div>
+            <div class="p-2.5 font-bold text-red-400 border-t border-gray-800 flex items-center">Lắp tại xưởng</div><div class="border-t border-gray-800">${cell(M.shop_retail, 'text-amber-300')}</div><div class="border-t border-gray-800">${cell(M.shop_dealer, 'text-emerald-300')}</div>
+            <div class="p-2.5 font-bold text-sky-400 border-t border-gray-800 flex items-center">Gửi về (Ship)</div><div class="border-t border-gray-800">${cell(M.ship_retail, 'text-amber-300')}</div><div class="border-t border-gray-800">${cell(M.ship_dealer, 'text-emerald-300')}</div>
+          </div></div>
+        <div class="bg-gray-800/40 border border-gray-800 rounded-xl p-3"><p class="text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-2">Doanh thu theo ${byMonth ? 'tháng' : 'ngày'}</p>
+          ${keys.length ? `<div class="flex items-end gap-1 overflow-x-auto no-scrollbar pb-1" style="min-height:120px">${keys.map(k => `<div class="flex flex-col items-center gap-1 shrink-0" style="width:36px" title="${buckets[k].lbl}: ${formatMoney(buckets[k].rev)} đ"><div class="w-5 rounded-t bg-gradient-to-t from-red-600 to-orange-400" style="height:${Math.max(3, Math.round(buckets[k].rev * 96 / max))}px"></div><span class="text-[9px] text-gray-500">${buckets[k].lbl}</span></div>`).join('')}</div>` : '<p class="text-xs text-gray-500 italic text-center py-6">Không có hóa đơn trong khoảng thời gian này.</p>'}</div>`;
+    }
+
     // ===== ẢNH AVATAR / LOGO (tự dò file ảnh có thật trong thư mục web) =====
     const AVATAR_CANDIDATES = ['avatar.jpg', 'AVATAR%20Dr.SHOCK.jpg', 'avatar.png', 'logo.png', 'apple-touch-icon.png'];
 
@@ -4201,6 +4611,8 @@
     initCustomerSuggest();
     initSortControls();
     initAvatar();
+    initNotifications();
+    renderReceiptList();
     initSystem();
     window.addEventListener('DOMContentLoaded', initSystem);
   </script>
