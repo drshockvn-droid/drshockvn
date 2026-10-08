@@ -136,7 +136,7 @@
               CÔNG TY TNHH DR.SHOCK VN
             </h1>
             <!-- Huy hiệu trạng thái đám mây Firebase -->
-            <div id="cloud-status-badge" class="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950/80 text-emerald-400 border border-emerald-500/40" title="Dữ liệu đồng bộ tức thì thời gian thực">
+            <div id="cloud-status-badge" onclick="showCloudPanel()" style="cursor:pointer" class="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950/80 text-emerald-400 border border-emerald-500/40" title="Dữ liệu đồng bộ tức thì thời gian thực">
               <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
               <span id="cloud-status-text">Đám mây: Trực tuyến</span>
             </div>
@@ -1354,6 +1354,61 @@
 
     // Báo lỗi rõ ràng khi máy này không đọc được 1 nhánh dữ liệu (sai quyền, bị chặn, sai URL...)
     const cloudErrors = {};
+    const cloudState = { connected: false, everConnected: false, longPoll: false, startedAt: Date.now(), timedOut: false, readyAt: {}, sizeKB: {} };
+    const CLOUD_LABELS = { 'garage/inventory': 'Kho phụ tùng', 'garage/invoices': 'Hóa đơn', 'garage/stockLogs': 'Lịch sử kho', 'garage/staff': 'Nhân viên' };
+
+    // Tính lại huy hiệu từ trạng thái thật (tự chuyển về "Trực tuyến" khi dữ liệu tải xong, dù chậm)
+    function refreshCloudBadge() {
+      if (!firebaseDb) return;
+      const keys = Object.keys(CLOUD_LOCAL_KEYS);
+      const ready = keys.filter(k => cloudReady[k]).length;
+      if (Object.keys(cloudErrors).length) updateCloudStatus(false, 'Lỗi đám mây');
+      else if (ready === keys.length) updateCloudStatus(cloudState.connected, cloudState.connected ? ('Đám mây: Trực tuyến' + (cloudState.longPoll ? ' (dự phòng)' : '')) : 'Mất kết nối đám mây');
+      else if (!cloudState.connected) updateCloudStatus(false, cloudState.everConnected ? 'Mất kết nối đám mây' : (cloudState.timedOut ? 'Chưa đồng bộ' : 'Đang kết nối...'));
+      else updateCloudStatus(false, (cloudState.timedOut ? 'Chưa đồng bộ' : 'Đang tải dữ liệu') + ' (' + ready + '/' + keys.length + ')');
+    }
+
+    // Bấm vào huy hiệu: xem chi tiết từng phần dữ liệu đang kẹt ở đâu
+    function showCloudPanel() {
+      let box = document.getElementById('cloud-panel');
+      if (!box) {
+        box = document.createElement('div');
+        box.id = 'cloud-panel';
+        box.className = 'fixed inset-0 z-[80] bg-black/80 flex items-center justify-center p-3';
+        box.addEventListener('click', e => { if (e.target === box) box.remove(); });
+        document.body.appendChild(box);
+      }
+      const secs = Math.round((Date.now() - cloudState.startedAt) / 1000);
+      const rowsHtml = Object.keys(CLOUD_LOCAL_KEYS).map(k => {
+        const err = cloudErrors[k], ok = cloudReady[k];
+        const st = err ? `<span class="text-red-400 font-bold">Lỗi: ${highlightMatch(err, [])}</span>`
+          : ok ? `<span class="text-emerald-400 font-bold">Đã tải (${Math.round((cloudState.readyAt[k] - cloudState.startedAt) / 1000)}s${cloudState.sizeKB[k] ? ', ' + formatMoney(cloudState.sizeKB[k]) + ' KB' : ''})</span>`
+          : '<span class="text-amber-400 font-bold">Đang chờ...</span>';
+        return `<div class="flex items-center justify-between gap-2 py-1.5 border-b border-gray-800"><span class="text-gray-300">${CLOUD_LABELS[k]}</span>${st}</div>`;
+      }).join('');
+      box.innerHTML = `
+        <div class="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-sm p-4 text-xs space-y-3 shadow-2xl">
+          <div class="flex items-center justify-between"><h3 class="text-sm font-bold text-orange-400"><i class="fa-solid fa-cloud mr-1.5"></i>Tình trạng đồng bộ máy này</h3>
+            <button onclick="document.getElementById('cloud-panel').remove()" class="w-7 h-7 rounded-full bg-gray-800 text-gray-400"><i class="fa-solid fa-xmark"></i></button></div>
+          <div class="bg-gray-800/60 rounded-xl p-2.5 space-y-1">
+            <div class="flex justify-between"><span class="text-gray-400">Kết nối máy chủ:</span><b class="${cloudState.connected ? 'text-emerald-400' : 'text-red-400'}">${cloudState.connected ? 'Đã kết nối' : (cloudState.everConnected ? 'Mất kết nối' : 'Chưa kết nối được')}</b></div>
+            <div class="flex justify-between"><span class="text-gray-400">Chế độ:</span><b class="text-white">${cloudState.longPoll ? 'Dự phòng (long-polling)' : 'Thường (WebSocket)'}</b></div>
+            <div class="flex justify-between"><span class="text-gray-400">Thời gian từ lúc mở app:</span><b class="text-white">${secs} giây</b></div>
+          </div>
+          <div>${rowsHtml}</div>
+          <p class="text-[11px] text-gray-400">${!cloudState.everConnected ? 'Máy này <b class="text-red-400">chưa kết nối được máy chủ</b>: kết nối đang bị chặn (phần mềm diệt virus, tường lửa, DNS). Xem trang kiểm tra để biết chỗ bị chặn.' : (Object.keys(CLOUD_LOCAL_KEYS).every(k => cloudReady[k]) ? 'Mọi dữ liệu đã đồng bộ.' : 'Đã kết nối nhưng dữ liệu tải chậm. Nếu đứng yên lâu, phần mềm diệt virus có thể đang quét làm nghẽn kết nối.')}</p>
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="resetCloudConnection()" class="py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl font-bold text-sky-300"><i class="fa-solid fa-rotate mr-1"></i>Kết nối lại</button>
+            <a href="kiemtra.html" target="_blank" class="py-2 text-center bg-gradient-to-r from-red-600 to-orange-600 rounded-xl font-bold text-white"><i class="fa-solid fa-stethoscope mr-1"></i>Trang kiểm tra</a>
+          </div>
+        </div>`;
+    }
+
+    function resetCloudConnection() {
+      try { localStorage.removeItem('drshock_fb_longpoll'); localStorage.removeItem('drshock_firebase_config'); } catch (e) {}
+      showNotification('Đang kết nối lại đám mây...', 'info');
+      setTimeout(() => location.reload(), 700);
+    }
     function onCloudErr(path) {
       return function(err) {
         const code = (err && (err.code || err.message)) || 'không rõ';
@@ -1384,6 +1439,12 @@
             apiKey: cfg.apiKey || 'AIzaSyD8iJcVdRJ3XD2_YaWz8aSljJFKn7D5SKU'
           });
         }
+        // Chế độ kết nối dự phòng (long-polling) cho máy bị chặn WebSocket (diệt virus, tường lửa, proxy công ty...)
+        const longPollMode = (function() { try { return localStorage.getItem('drshock_fb_longpoll') === '1'; } catch (e) { return false; } })();
+        if (longPollMode && firebase.database && firebase.database.INTERNAL && typeof firebase.database.INTERNAL.forceLongPolling === 'function') {
+          firebase.database.INTERNAL.forceLongPolling();
+          console.info('Đang dùng chế độ kết nối dự phòng (long-polling).');
+        }
         firebaseDb = firebase.database();
         (function guardCloudWrites() {
           const rawRef = firebaseDb.ref.bind(firebaseDb);
@@ -1392,7 +1453,16 @@
             // Tự gắn hàm báo lỗi cho mọi listener chưa có
             const rawOn = r.on.bind(r);
             r.on = function(evt, cb, cancel, ctx) {
-              return rawOn(evt, cb, typeof cancel === 'function' ? cancel : onCloudErr(String(path || '/')), ctx);
+              const wrapped = function(snap) {
+                const out = cb.apply(this, arguments);
+                if (typeof path === 'string' && CLOUD_LOCAL_KEYS[path] && !cloudState.readyAt[path]) {
+                  cloudState.readyAt[path] = Date.now();
+                  try { cloudState.sizeKB[path] = Math.round(JSON.stringify(snap.val() || '').length / 1024); } catch (e) {}
+                  refreshCloudBadge();
+                }
+                return out;
+              };
+              return rawOn(evt, wrapped, typeof cancel === 'function' ? cancel : onCloudErr(String(path || '/')), ctx);
             };
             if (typeof path === 'string' && CLOUD_LOCAL_KEYS[path]) {
               const rawSet = r.set.bind(r);
@@ -1411,20 +1481,35 @@
           };
         })();
         // Trạng thái kết nối THẬT (trước đây luôn báo "Trực tuyến" dù không kết nối được)
+        cloudState.longPoll = longPollMode;
         updateCloudStatus(false, 'Đang kết nối...');
+        let everConnected = false;
         firebaseDb.ref('.info/connected').on('value', s => {
-          if (Object.keys(cloudErrors).length) return;
-          if (s.val() === true) updateCloudStatus(true, 'Đám mây: Trực tuyến');
-          else updateCloudStatus(false, 'Mất kết nối đám mây');
+          cloudState.connected = s.val() === true;
+          if (cloudState.connected) { everConnected = true; cloudState.everConnected = true; }
+          refreshCloudBadge();
         });
+        // Sau 10 giây vẫn chưa kết nối được bằng WebSocket -> tự chuyển sang chế độ dự phòng và tải lại 1 lần
+        if (!longPollMode) {
+          setTimeout(() => {
+            if (everConnected) return;
+            try { localStorage.setItem('drshock_fb_longpoll', '1'); } catch (e) { return; }
+            updateCloudStatus(false, 'Chuyển kết nối dự phòng...');
+            showNotification('Máy này không kết nối được đám mây theo cách thường. Đang tự chuyển sang chế độ kết nối dự phòng...', 'warning');
+            setTimeout(() => location.reload(), 1500);
+          }, 10000);
+        }
         setupFirebaseRealtimeListeners();
         setTimeout(() => {
           const missing = Object.keys(CLOUD_LOCAL_KEYS).filter(k => !cloudReady[k] && !cloudErrors[k]);
-          if (missing.length) {
-            updateCloudStatus(false, 'Chưa đồng bộ');
-            showNotification('Máy này chưa tải được dữ liệu đám mây sau 15 giây. Kiểm tra mạng, phần mềm diệt virus hoặc tiện ích chặn quảng cáo.', 'error');
+          if (missing.length && (longPollMode || everConnected)) {
+            cloudState.timedOut = true;
+            refreshCloudBadge();
+            showNotification(everConnected
+              ? 'Đã kết nối nhưng dữ liệu tải rất chậm. Bấm vào huy hiệu "Chưa đồng bộ" để xem chi tiết.'
+              : 'Máy này không kết nối được máy chủ đám mây (đã thử cả chế độ dự phòng). Bấm vào huy hiệu "Chưa đồng bộ" để xem chi tiết.', 'error');
           }
-        }, 15000);
+        }, longPollMode ? 20000 : 15000);
       } catch (err) {
         console.error('Lỗi khởi tạo Firebase:', err);
         updateCloudStatus(false, 'Ngoại tuyến (Offline)');
@@ -1649,6 +1734,7 @@
 
       if (errBox) errBox.classList.add('hidden');
       currentLoggedInUser = user;
+      try { sessionStorage.setItem('drshock_session_uid', user.id); } catch (e) {}
       document.getElementById('login-screen').classList.add('hidden');
       document.getElementById('main-app').classList.remove('hidden');
 
@@ -1677,6 +1763,7 @@
 
     function handleLogout() {
       currentLoggedInUser = null;
+      try { sessionStorage.removeItem('drshock_session_uid'); } catch (e) {}
       const pinInput = document.getElementById('login-pin-input');
       if (pinInput) pinInput.value = '';
       document.getElementById('main-app').classList.add('hidden');
@@ -5070,6 +5157,18 @@
     initNotifications();
     renderReceiptList();
     initSystem();
+
+    // Tự đăng nhập lại sau khi trang tải lại (Kết nối lại / chuyển chế độ dự phòng) - chỉ trong cùng tab đang mở
+    (function restoreSession() {
+      let uid = '';
+      try { uid = sessionStorage.getItem('drshock_session_uid') || ''; } catch (e) {}
+      const u = uid && staffList.find(x => x.id === uid);
+      if (!u) return;
+      selectedLoginUserId = u.id;
+      const pin = document.getElementById('login-pin-input');
+      if (pin) pin.value = u.pin;
+      handleLoginSubmit();
+    })();
   </script>
 </body>
 </html>
