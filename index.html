@@ -1297,6 +1297,10 @@
       } catch (e) {}
     }
 
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     function convertToArray(val, fallback = []) {
       if (!val) return fallback;
       if (Array.isArray(val)) return val;
@@ -1426,7 +1430,9 @@
 
       firebaseDb.ref('garage/invoices').on('value', snapshot => {
         const val = snapshot.val();
+        const wasReady = cloudReady['garage/invoices'];
         cloudReady['garage/invoices'] = true;
+        if (!val && wasReady) { invoiceList = []; setStoredData('drshock_invoices', invoiceList); renderInvoiceList(); renderCustomerAndReports(); }
         if (val) {
           keepLocalSafetyCopy('garage/invoices');
           invoiceList = convertToArray(val, invoiceList);
@@ -1438,7 +1444,9 @@
 
       firebaseDb.ref('garage/stockLogs').on('value', snapshot => {
         const val = snapshot.val();
+        const wasReady = cloudReady['garage/stockLogs'];
         cloudReady['garage/stockLogs'] = true;
+        if (!val && wasReady) { stockLogList = []; setStoredData('drshock_stock_logs', stockLogList); renderStockLogs(); updateInventoryOverviewStats(); }
         if (val) {
           keepLocalSafetyCopy('garage/stockLogs');
           stockLogList = convertToArray(val, stockLogList);
@@ -1489,7 +1497,7 @@
 
       firebaseConfig = { databaseURL: url, projectId: proj, apiKey: key };
       setStoredData('drshock_firebase_config', firebaseConfig);
-      initFirebaseConnection();
+      if (!firebaseDb) { _fbInitDone = true; initFirebaseConnection(); }
       syncAllToCloudForce();
       showNotification('Đã lưu và kích hoạt kết nối đám mây thành công!', 'success');
     }
@@ -1526,8 +1534,8 @@
                 <i class="fa-solid ${icon}"></i>
               </div>
               <div>
-                <p class="text-sm font-bold text-white leading-tight">${s.name}</p>
-                <p class="text-[11px] text-orange-400 font-medium">${s.roleTitle || s.name}</p>
+                <p class="text-sm font-bold text-white leading-tight">${esc(s.name)}</p>
+                <p class="text-[11px] text-orange-400 font-medium">${esc(s.roleTitle || s.name)}</p>
               </div>
             </div>
             <i id="check-user-${s.id}" class="fa-solid fa-circle-check text-red-500 text-base ${isSelected ? '' : 'hidden'}"></i>
@@ -1821,6 +1829,7 @@
         note: note || ''
       };
       stockLogList.unshift(newLog);
+      if (stockLogList.length > 1000) stockLogList.length = 1000;
       setStoredData('drshock_stock_logs', stockLogList);
       if (firebaseDb) firebaseDb.ref('garage/stockLogs').set(stockLogList);
       renderStockLogs();
@@ -2211,7 +2220,7 @@
     function populateAdvisorSelect() {
       const sel = document.getElementById('quote-advisor');
       if (!sel) return;
-      sel.innerHTML = staffList.map(s => `<option value="${s.name}">${s.name} (${s.roleTitle || s.name})</option>`).join('');
+      sel.innerHTML = staffList.map(s => `<option value="${esc(s.name)}">${esc(s.name)} (${esc(s.roleTitle || s.name)})</option>`).join('');
     }
 
     function populateInventorySelector(cat) {
@@ -2219,7 +2228,7 @@
       if (!sel) return;
       const filtered = (cat === 'ALL') ? inventoryList : inventoryList.filter(i => i.cat === cat);
       sel.innerHTML = `<option value="">-- Chọn phụ tùng từ kho (${filtered.length}) --</option>` + 
-        filtered.map(i => `<option value="${i.id}">${i.name} [Tồn: ${formatStockQty(i.stock)} ${i.unit || 'Cái'}] - ${formatMoney(i.price)} đ</option>`).join('');
+        filtered.map(i => `<option value="${esc(i.id)}">${esc(i.name)} [Tồn: ${formatStockQty(i.stock)} ${i.unit || 'Cái'}] - ${formatMoney(i.price)} đ</option>`).join('');
     }
 
     function filterInventorySelector(cat) {
@@ -2272,7 +2281,7 @@
       container.innerHTML = currentQuoteItems.map((item, idx) => `
         <div class="bg-gray-800/70 border border-gray-700/70 rounded-xl p-2.5 space-y-2">
           <div class="flex items-center justify-between gap-2">
-            <input type="text" value="${item.name}" oninput="updateItemName(${idx}, this.value)" 
+            <input type="text" value="${esc(item.name)}" oninput="updateItemName(${idx}, this.value)" 
               class="flex-1 bg-transparent text-xs sm:text-sm font-semibold text-white focus:outline-none focus:border-b border-red-500">
             <button onclick="removeQuoteItem(${idx})" class="w-7 h-7 rounded-lg text-gray-500 hover:text-red-400 active:scale-95 flex items-center justify-center shrink-0">
               <i class="fa-solid fa-trash-can text-xs"></i>
@@ -2399,10 +2408,15 @@
         return;
       }
 
+      if (firebaseDb && (!cloudReady['garage/invoices'] || !cloudReady['garage/inventory'] || !cloudReady['garage/stockLogs'])) {
+        showNotification('Đang tải dữ liệu từ đám mây, vui lòng đợi vài giây rồi xuất hóa đơn lại!', 'warning');
+        return;
+      }
+
       const { subtotal, discount, finalTotal } = calculateQuoteTotal();
 
       const newInv = {
-        id: 'INV-' + (invoiceList.length + 101),
+        id: 'INV-' + (Math.max(100, ...invoiceList.map(i => invSeq(i))) + 1),
         date: new Date().toLocaleDateString('vi-VN') + ' ' + new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'}),
         plate: plate.toUpperCase(),
         name: name,
@@ -2481,8 +2495,8 @@
       const tbody = document.getElementById('inv-print-tbody');
       tbody.innerHTML = inv.items.map(i => `
         <tr>
-          <td class="p-1.5 border-r border-gray-200">${i.name}</td>
-          <td class="p-1.5 text-center border-r border-gray-200 font-semibold">${formatStockQty(i.qty)} ${i.unit || 'Cái'}</td>
+          <td class="p-1.5 border-r border-gray-200">${esc(i.name)}</td>
+          <td class="p-1.5 text-center border-r border-gray-200 font-semibold">${formatStockQty(i.qty)} ${esc(i.unit || 'Cái')}</td>
           <td class="p-1.5 text-right border-r border-gray-200">${formatMoney(i.price)} đ</td>
           <td class="p-1.5 text-right font-semibold">${formatMoney(i.qty * i.price)} đ</td>
         </tr>
@@ -2532,18 +2546,18 @@
           <div class="bg-gray-800/60 border border-gray-700/60 rounded-xl p-3 flex items-center justify-between gap-2.5">
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2 flex-wrap">
-                <span class="text-xs font-bold text-amber-400 uppercase tracking-wide">${inv.plate}</span>
-                <span class="text-[10px] text-gray-400 font-mono">${inv.id}</span>
-                ${inv.odo ? `<span class="text-[10px] px-1.5 py-0.2 rounded bg-sky-950/80 text-sky-400 border border-sky-500/30">${inv.odo}</span>` : ''}
-                <span class="text-[10px] px-1.5 py-0.2 rounded bg-red-950/80 text-red-400 border border-red-500/30 font-semibold">${inv.serviceType || 'Lắp tại xưởng'}</span>
-                <span class="text-[10px] px-1.5 py-0.2 rounded bg-amber-950/80 text-amber-300 border border-amber-500/30 font-semibold">${inv.customerType || 'Khách lẻ'}</span>
+                <span class="text-xs font-bold text-amber-400 uppercase tracking-wide">${esc(inv.plate)}</span>
+                <span class="text-[10px] text-gray-400 font-mono">${esc(inv.id)}</span>
+                ${inv.odo ? `<span class="text-[10px] px-1.5 py-0.2 rounded bg-sky-950/80 text-sky-400 border border-sky-500/30">${esc(inv.odo)}</span>` : ''}
+                <span class="text-[10px] px-1.5 py-0.2 rounded bg-red-950/80 text-red-400 border border-red-500/30 font-semibold">${esc(inv.serviceType || 'Lắp tại xưởng')}</span>
+                <span class="text-[10px] px-1.5 py-0.2 rounded bg-amber-950/80 text-amber-300 border border-amber-500/30 font-semibold">${esc(inv.customerType || 'Khách lẻ')}</span>
               </div>
-              <p class="text-xs font-semibold text-white truncate mt-0.5">${inv.name} <span class="text-gray-400 font-normal">(${inv.car} - ${inv.phone || 'Không SĐT'})</span></p>
-              ${inv.note ? `<p class="text-[11px] text-amber-300/90 truncate mt-0.5"><i class="fa-solid fa-note-sticky text-[10px] mr-1 text-amber-400"></i>${inv.note}</p>` : ''}
+              <p class="text-xs font-semibold text-white truncate mt-0.5">${esc(inv.name)} <span class="text-gray-400 font-normal">(${esc(inv.car)} - ${esc(inv.phone || 'Không SĐT')})</span></p>
+              ${inv.note ? `<p class="text-[11px] text-amber-300/90 truncate mt-0.5"><i class="fa-solid fa-note-sticky text-[10px] mr-1 text-amber-400"></i>${esc(inv.note)}</p>` : ''}
               <div class="flex items-center gap-2 text-[10px] text-gray-400 mt-0.5">
                 <span><i class="fa-solid fa-clock mr-1"></i>${inv.date}</span>
                 <span>•</span>
-                <span class="text-orange-400">${inv.advisor}</span>
+                <span class="text-orange-400">${esc(inv.advisor)}</span>
               </div>
             </div>
             <div class="text-right shrink-0">
@@ -2583,7 +2597,7 @@
       const sel = document.getElementById('edit-inv-add-select');
       if (sel) {
         sel.innerHTML = `<option value="">-- Chọn phụ tùng từ kho để thêm --</option>` + 
-          inventoryList.map(p => `<option value="${p.id}">${p.name} [Tồn: ${formatStockQty(p.stock)} ${p.unit || 'Cái'}] - ${formatMoney(p.price)} đ</option>`).join('');
+          inventoryList.map(p => `<option value="${esc(p.id)}">${esc(p.name)} [Tồn: ${formatStockQty(p.stock)} ${p.unit || 'Cái'}] - ${formatMoney(p.price)} đ</option>`).join('');
       }
 
       renderEditInvoiceItems();
@@ -2607,7 +2621,7 @@
       container.innerHTML = currentEditingInvoiceItems.map((item, idx) => `
         <div class="bg-gray-800/80 border border-gray-700/80 rounded-xl p-2.5 space-y-1.5">
           <div class="flex items-center justify-between gap-2">
-            <input type="text" value="${item.name}" oninput="currentEditingInvoiceItems[${idx}].name=this.value" 
+            <input type="text" value="${esc(item.name)}" oninput="currentEditingInvoiceItems[${idx}].name=this.value" 
               class="flex-1 bg-transparent text-xs font-semibold text-white focus:outline-none focus:border-b border-amber-500">
             <button type="button" onclick="removeEditInvoiceItem(${idx})" class="text-gray-500 hover:text-red-400 px-1">
               <i class="fa-solid fa-trash-can text-xs"></i>
@@ -2620,7 +2634,7 @@
               <input type="number" min="0.5" step="0.5" value="${item.qty}" onfocus="this.select()" oninput="updateEditInvoiceItemQtyDirect(${idx}, this.value)" 
                 class="w-12 bg-gray-900 border border-gray-700 rounded text-center text-xs py-0.5 text-white font-bold">
               <button type="button" onclick="adjustEditInvoiceItemQty(${idx}, 0.5)" class="w-7 h-6 bg-gray-700 rounded text-emerald-400 font-bold text-[11px]">+0.5</button>
-              <input type="text" value="${item.unit || 'Cái'}" oninput="currentEditingInvoiceItems[${idx}].unit=this.value" 
+              <input type="text" value="${esc(item.unit || 'Cái')}" oninput="currentEditingInvoiceItems[${idx}].unit=this.value" 
                 class="w-12 bg-gray-900 border border-gray-700 rounded text-center text-[10px] py-0.5 text-amber-300 font-bold uppercase">
             </div>
             <div class="flex items-center space-x-1.5">
@@ -3046,9 +3060,9 @@
               <div class="flex items-start justify-between gap-2.5">
                 ${productThumbHtml(p, 'w-14 h-14')}
                 <div class="min-w-0 flex-1">
-                  <h3 class="text-xs sm:text-sm font-bold text-white leading-snug">${p.name}</h3>
+                  <h3 class="text-xs sm:text-sm font-bold text-white leading-snug">${esc(p.name)}</h3>
                   <div class="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                    <span class="text-[10px] font-mono font-bold text-gray-400">${p.id}</span>
+                    <span class="text-[10px] font-mono font-bold text-gray-400">${esc(p.id)}</span>
                     <span class="text-[10px] px-1.5 py-0.2 rounded bg-orange-950/60 text-orange-400 border border-orange-500/30 font-semibold">${p.cat || 'PHUOC'}</span>
                     <span class="text-[10px] px-1.5 py-0.2 rounded bg-amber-950/60 text-amber-300 border border-amber-500/30 font-bold uppercase">ĐVT: ${unitStr}</span>
                   </div>
@@ -3074,8 +3088,8 @@
             return `
               <tr class="hover:bg-gray-800/40 transition">
                 <td class="py-2 px-3 text-center">${productThumbHtml(p, 'w-10 h-10 inline-flex')}</td>
-                <td class="py-2.5 px-3 font-mono font-bold text-gray-400">${p.id}</td>
-                <td class="py-2.5 px-3 font-bold text-white">${p.name}</td>
+                <td class="py-2.5 px-3 font-mono font-bold text-gray-400">${esc(p.id)}</td>
+                <td class="py-2.5 px-3 font-bold text-white">${esc(p.name)}</td>
                 <td class="py-2.5 px-3 text-xs text-orange-400 font-medium">${p.cat || 'PHUOC'}</td>
                 <td class="py-2.5 px-3 text-center">
                   <span class="px-2 py-0.5 rounded bg-amber-950/60 text-amber-300 border border-amber-500/30 text-xs font-bold">${p.unit || 'Cái'}</span>
@@ -3102,8 +3116,8 @@
             return `
               <tr class="hover:bg-gray-800/40 transition">
                 <td class="py-2 px-3 text-center">${productThumbHtml(p, 'w-10 h-10 inline-flex')}</td>
-                <td class="py-2.5 px-3 font-mono font-bold text-gray-400">${p.id}</td>
-                <td class="py-2.5 px-3 font-bold text-white">${p.name}</td>
+                <td class="py-2.5 px-3 font-mono font-bold text-gray-400">${esc(p.id)}</td>
+                <td class="py-2.5 px-3 font-bold text-white">${esc(p.name)}</td>
                 <td class="py-2.5 px-3 text-xs text-orange-400 font-medium">${p.cat || 'PHUOC'}</td>
                 <td class="py-2.5 px-3 text-center">
                   <span class="px-2 py-0.5 rounded bg-amber-950/60 text-amber-300 border border-amber-500/30 text-xs font-bold">${p.unit || 'Cái'}</span>
@@ -3172,7 +3186,7 @@
         document.body.appendChild(box);
       }
       box.innerHTML = `<img src="${src}" alt="" class="max-w-full max-h-[80vh] rounded-2xl shadow-2xl object-contain">
-        <div class="mt-3 text-sm font-bold text-white text-center">${p.name}</div>
+        <div class="mt-3 text-sm font-bold text-white text-center">${esc(p.name)}</div>
         <div class="mt-1 text-[11px] text-gray-400">Chạm để đóng</div>`;
       box.classList.remove('hidden');
     }
@@ -3602,9 +3616,9 @@
           : 'bg-sky-950/80 text-sky-400 border-sky-500/40';
         const badgeIcon = isDealer ? 'fa-warehouse' : 'fa-user';
 
-        const plateStr = Array.from(c.plates).join(', ') || 'Chưa gắn biển (Gửi ship)';
-        const carStr = Array.from(c.cars).join(', ') || 'Chưa có dòng xe';
-        const phoneDisplay = c.phone ? c.phone : '<span class="text-gray-500 italic font-normal">Chưa có SĐT</span>';
+        const plateStr = esc(Array.from(c.plates).join(', ')) || 'Chưa gắn biển (Gửi ship)';
+        const carStr = esc(Array.from(c.cars).join(', ')) || 'Chưa có dòng xe';
+        const phoneDisplay = c.phone ? esc(c.phone) : '<span class="text-gray-500 italic font-normal">Chưa có SĐT</span>';
 
         const invoicesListHtml = c.invoices.map(inv => `
           <div class="flex items-center justify-between text-[11px] bg-gray-900/80 p-2 rounded-lg border border-gray-800">
@@ -3612,9 +3626,9 @@
               <div class="flex items-center gap-1.5 flex-wrap">
                 <span class="font-bold text-amber-400 font-mono">${inv.id}</span>
                 <span class="text-gray-400">•</span>
-                <span class="text-gray-300 font-semibold uppercase">${inv.plate || 'Xe ship'}</span>
+                <span class="text-gray-300 font-semibold uppercase">${esc(inv.plate || 'Xe ship')}</span>
                 <span class="text-gray-500">•</span>
-                <span class="text-gray-400 truncate">${inv.car || '---'}</span>
+                <span class="text-gray-400 truncate">${esc(inv.car || '---')}</span>
               </div>
               <p class="text-[10px] text-gray-500 mt-0.5"><i class="fa-regular fa-clock mr-1"></i>${inv.date} | KTV: ${inv.advisor || '---'}</p>
             </div>
@@ -3635,9 +3649,9 @@
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-1.5 flex-wrap">
                   <span class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-bold uppercase ${badgeColor}">
-                    <i class="fa-solid ${badgeIcon} text-[9px]"></i>${c.customerType}
+                    <i class="fa-solid ${badgeIcon} text-[9px]"></i>${esc(c.customerType)}
                   </span>
-                  <span class="text-xs sm:text-sm font-bold text-white leading-tight">${c.name}</span>
+                  <span class="text-xs sm:text-sm font-bold text-white leading-tight">${esc(c.name)}</span>
                   <span class="text-[10px] px-2 py-0.5 rounded-full bg-red-950 text-red-400 font-black border border-red-500/30">
                     Đã mua: ${c.visits} lần
                   </span>
@@ -3758,15 +3772,15 @@
           <div class="bg-gray-800/60 border border-gray-700/60 rounded-xl p-3 flex items-center justify-between gap-2.5">
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
-                <p class="text-xs sm:text-sm font-bold text-white">${s.name}</p>
-                <span class="text-[10px] px-1.5 py-0.2 rounded bg-orange-950/60 text-orange-400 border border-orange-500/30 font-semibold">${s.roleTitle || s.name}</span>
+                <p class="text-xs sm:text-sm font-bold text-white">${esc(s.name)}</p>
+                <span class="text-[10px] px-1.5 py-0.2 rounded bg-orange-950/60 text-orange-400 border border-orange-500/30 font-semibold">${esc(s.roleTitle || s.name)}</span>
               </div>
               <p class="text-[10px] text-gray-400 mt-1">${s.role === 'admin' ? 'Toàn quyền 1-8' : (s.role === 'stock' ? 'Quyền Lập Bill, Quản Lý Kho & Sửa Hóa Đơn' : 'Tiếp nhận xe, lập bill & in hóa đơn')}</p>
             </div>
             <div class="flex items-center gap-2 shrink-0">
               <div class="text-right">
                 <span class="text-[10px] text-gray-400 block font-semibold mb-0.5">Mã PIN</span>
-                <input type="text" value="${s.pin}" maxlength="6" inputmode="numeric" onchange="updateStaffPin(${idx}, this.value)" 
+                <input type="text" value="${esc(s.pin)}" maxlength="6" inputmode="numeric" onchange="updateStaffPin(${idx}, this.value)" 
                   class="w-16 bg-gray-900 border border-gray-700 rounded-lg px-1.5 py-1 text-center font-mono text-xs font-bold text-amber-400 focus:border-red-500">
               </div>
               ${!isMasterAdmin ? `
@@ -3954,10 +3968,10 @@
                   <span class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border ${badgeColor} font-bold uppercase">
                     <i class="fa-solid ${badgeIcon} text-[9px]"></i>${badgeText}
                   </span>
-                  <span class="text-xs sm:text-sm font-bold text-white leading-tight">${log.itemName}</span>
-                  <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-gray-900 text-gray-400 border border-gray-800">${log.itemId}</span>
+                  <span class="text-xs sm:text-sm font-bold text-white leading-tight">${esc(log.itemName)}</span>
+                  <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-gray-900 text-gray-400 border border-gray-800">${esc(log.itemId)}</span>
                 </div>
-                <p class="text-xs text-gray-300 mt-1"><i class="fa-solid fa-note-sticky text-gray-500 text-[10px] mr-1"></i>${log.note || 'Không có ghi chú'}</p>
+                <p class="text-xs text-gray-300 mt-1"><i class="fa-solid fa-note-sticky text-gray-500 text-[10px] mr-1"></i>${esc(log.note || 'Không có ghi chú')}</p>
               </div>
 
               <div class="text-right shrink-0">
@@ -3971,7 +3985,7 @@
             <div class="flex items-center justify-between text-[10px] text-gray-400 pt-1.5 border-t border-gray-700/40">
               <div class="flex items-center gap-1.5 text-orange-400 font-medium">
                 <i class="fa-solid fa-user-check text-[9px]"></i>
-                <span>Thực hiện: <strong>${log.user || 'Chủ Xưởng'}</strong></span>
+                <span>Thực hiện: <strong>${esc(log.user || 'Chủ Xưởng')}</strong></span>
               </div>
               <div class="text-gray-400 flex items-center gap-1 font-mono">
                 <i class="fa-regular fa-clock text-[9px]"></i>
@@ -4258,6 +4272,7 @@
       }
     }
 
+    let _fbInitDone = false;
     function initSystem() {
       renderLoginUserList();
       populateAdvisorSelect();
@@ -4269,7 +4284,7 @@
       renderQuoteItems();
       renderStockLogs();
       updateInventoryOverviewStats();
-      initFirebaseConnection();
+      if (!_fbInitDone) { _fbInitDone = true; initFirebaseConnection(); }
     }
 
     // ===== PHIẾU NHẬP HÀNG + THÔNG BÁO =====
@@ -4444,7 +4459,7 @@
       c.innerHTML = receiptList.slice(0, 10).map(r => `
         <div class="flex items-center justify-between gap-2 bg-gray-800/60 border border-gray-700/60 rounded-xl p-2.5">
           <div class="min-w-0">
-            <div class="flex items-center gap-1.5 flex-wrap"><span class="text-xs font-bold text-amber-400 font-mono">${r.id}</span><span class="text-[10px] text-gray-400">${r.date}</span></div>
+            <div class="flex items-center gap-1.5 flex-wrap"><span class="text-xs font-bold text-amber-400 font-mono">${esc(r.id)}</span><span class="text-[10px] text-gray-400">${esc(r.date)}</span></div>
             <p class="text-[11px] text-gray-300 truncate mt-0.5">${(r.items || []).length} mặt hàng · ${formatStockQty(r.totalQty)} món${r.supplier ? ' · ' + highlightMatch(r.supplier, []) : ''} · <span class="text-orange-400">${highlightMatch(r.user || '', [])}</span></p>
           </div>
           <div class="text-right shrink-0">
@@ -5018,7 +5033,6 @@
     initNotifications();
     renderReceiptList();
     initSystem();
-    window.addEventListener('DOMContentLoaded', initSystem);
   </script>
 </body>
 </html>
