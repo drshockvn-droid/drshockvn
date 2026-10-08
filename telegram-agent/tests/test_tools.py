@@ -1,26 +1,34 @@
-import os, sys, tempfile
+import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-import db, tools
+import tools
+from store import MemoryStore
 
-p = os.path.join(tempfile.mkdtemp(), "t.db")
-db.init(p)
-with db.connect(p) as c:
-    db.upsert_part(c, "PH-VIOS-R", "Phuộc sau KYB Vios", "Phuộc", "Toyota Vios 2014-2018", 4, 1450000, "A2")
-    db.upsert_part(c, "PH-VIOS-F", "Phuộc trước KYB Vios", "Phuộc", "Toyota Vios 2014-2018", 0, 1650000, "A1")
+s = MemoryStore([
+    {"id": "P01", "name": "Phuộc sau KYB Vios 2014-2018", "cat": "PHUOC", "unit": "Cái", "costPrice": 900000, "price": 1450000, "stock": 4},
+    {"id": "P02", "name": "Phuộc trước KYB Vios 2014-2018", "cat": "PHUOC", "unit": "Cái", "costPrice": 1000000, "price": 1650000, "stock": 0},
+    {"id": "P03", "name": "Nhớt Castrol 5W30", "cat": "NHOT", "unit": "Lít", "price": 195000, "stock": 12},
+])
+run = lambda n, a, c=None: tools.run(n, a, c or {"user": "Tuấn"}, s)
 
-r = tools.run("search_inventory", {"query": "phuoc", "vehicle": "vios 2016"}, {}, p)
-assert r["exact_match"] and len(r["results"]) == 2, r
-assert tools.run("search_inventory", {"query": "phuộc", "in_stock_only": True}, {}, p)["results"][0]["sku"] == "PH-VIOS-R"
+r = run("search_inventory", {"query": "phuoc", "vehicle": "Vios 2016"})
+assert r["exact_match"] and [p["id"] for p in r["results"]] == ["P01", "P02"], r  # còn hàng xếp trước
+assert all("costPrice" not in p for p in r["results"])  # không lộ giá vốn
+assert run("search_inventory", {"query": "phuoc", "vehicle": "Vios 2022"})["exact_match"] is False
+assert [p["id"] for p in run("search_inventory", {"query": "phuoc", "in_stock_only": True})["results"]] == ["P01"]
 
-b = tools.run("record_bill", {"plate": "51k-123.45", "items": [
-    {"kind": "part", "name": "Phuộc sau", "qty": 2, "unit_price": 1450000, "sku": "PH-VIOS-R"},
-    {"kind": "labor", "name": "Công thay", "unit_price": 300000}]}, {"user": "Tuấn"}, p)
-assert b["total_vnd"] == 3200000 and b["plate"] == "51K12345", b
-stock = lambda: tools.run("search_inventory", {"query": "phuoc sau"}, {}, p)["results"][0]["qty"]
-assert stock() == 2
-assert tools.run("vehicle_history", {"plate": "51K-123.45"}, {}, p)["visits"][0]["total"] == 3200000
-assert tools.run("void_bill", {"bill_id": b["bill_id"]}, {}, p) == {"voided": b["bill_id"]}
-assert stock() == 4
-assert "error" in tools.run("record_bill", {"plate": "x", "items": []}, {}, p)
+b = run("record_bill", {"plate": "51k-123.45", "car": "Vios 2016", "items": [
+    {"name": "Phuộc sau KYB Vios 2014-2018", "id": "P01", "qty": 2},
+    {"name": "Công thay phuộc", "unit_price": 300000}]})
+assert b["total_vnd"] == 3200000 and b["bill_id"] == "INV-101" and b["plate"] == "51K-123.45", b
+stock = lambda: next(p["stock"] for p in s.inventory() if p["id"] == "P01")
+assert stock() == 2 and s._logs[0]["type"] == "XUAT"
+inv = s.invoices()[0]
+assert inv["name"] == "Khách lẻ" and inv["subtotal"] == 3200000 and inv["items"][0]["price"] == 1450000
+assert run("vehicle_history", {"plate": "51K12345"})["visits"][0]["total"] == 3200000
+assert run("today_summary", {})["count"] == 1
+assert "error" in run("record_bill", {"plate": "51K-123.45", "car": "x", "items": [{"name": "Z", "id": "NOPE"}]})
+assert "error" in run("record_bill", {"plate": "x", "car": "x", "items": []})
+assert run("void_bill", {"bill_id": "inv-101"}) == {"voided": "INV-101"}
+assert stock() == 4 and not s.invoices()
+assert "error" in run("void_bill", {"bill_id": "INV-101"})
 print("OK")
-assert tools.run("search_inventory", {"query": "phuoc", "vehicle": "Vios 2022"}, {}, p)["exact_match"] is False

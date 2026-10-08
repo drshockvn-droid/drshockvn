@@ -1,4 +1,5 @@
 """Telegram bot: lắng nghe group, chuyển ảnh/câu hỏi cho agent."""
+import asyncio
 import logging
 import os
 
@@ -8,7 +9,7 @@ from telegram.ext import Application, ContextTypes, MessageHandler, CommandHandl
 
 load_dotenv()
 import agent  # noqa: E402  (sau load_dotenv để đọc env)
-import db  # noqa: E402
+import store as store_mod  # noqa: E402
 import tools  # noqa: E402
 
 logging.basicConfig(level=logging.INFO)
@@ -51,26 +52,25 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_huy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not allowed(update):
         return
-    try:
-        bid = int(context.args[0])
-    except (IndexError, ValueError):
-        return await update.effective_message.reply_text("Dùng: /huy <mã bill>")
-    out = tools.run("void_bill", {"bill_id": bid}, {}, agent.DB_PATH)
+    if not context.args:
+        return await update.effective_message.reply_text("Dùng: /huy INV-xxx")
+    bid = context.args[0].upper()
+    out = await asyncio.to_thread(tools.run, "void_bill", {"bill_id": bid}, {"user": update.effective_user.full_name}, agent.store)
     await update.effective_message.reply_text(
-        f"Đã huỷ bill #{bid}, hoàn tồn kho." if "voided" in out else f"Lỗi: {out['error']}")
+        f"Đã xoá bill {bid}, hoàn tồn kho." if "voided" in out else f"Lỗi: {out['error']}")
 
 
 async def cmd_homnay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not allowed(update):
         return
-    s = tools.run("today_summary", {}, {}, agent.DB_PATH)
-    lines = [f"#{b['id']} {b['plate']} — {b['total']:,}đ" for b in s["bills"]]
+    s = await asyncio.to_thread(tools.run, "today_summary", {}, {}, agent.store)
+    lines = [f"{b['id']} {b['plate']} — {b['total']:,}đ" for b in s["bills"]]
     await update.effective_message.reply_text(
         f"Hôm nay: {s['count']} xe, doanh thu {s['revenue_vnd']:,}đ\n" + "\n".join(lines))
 
 
 def main():
-    db.init(agent.DB_PATH)
+    agent.store = store_mod.from_env()
     app = Application.builder().token(os.environ["TELEGRAM_BOT_TOKEN"]).build()
     app.add_handler(CommandHandler("huy", cmd_huy))
     app.add_handler(CommandHandler("homnay", cmd_homnay))

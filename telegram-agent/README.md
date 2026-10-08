@@ -1,22 +1,21 @@
 # Dr.ShockVN — AI trưởng nhóm Telegram
 
-Bot trong group nội bộ garage:
-1. **Ghi bill**: nhân viên gửi ảnh xe + chú thích (biển số, việc làm, giá) → AI đọc, ghi vào SQLite, trừ tồn kho, xác nhận lại. Thiếu/mờ thông tin thì hỏi lại.
-2. **Tư vấn hàng**: hỏi "Vios 2016 có phuộc gì?" / "đề xuất hạng mục cho 51K-123.45" → AI tra kho thật + lịch sử xe rồi trả lời.
+Bot trong group nội bộ garage, dùng **chung database Firebase với webapp** (`garage/inventory`, `garage/invoices`, `garage/stockLogs`):
+1. **Ghi bill**: nhân viên gửi ảnh xe + chú thích (biển số, dòng xe, việc làm, giá) → AI đọc, ghi hoá đơn `INV-xxx` đúng định dạng webapp (hiện ngay trong tab hoá đơn), tự trừ tồn kho và ghi nhật ký kho. Thiếu/mờ thông tin thì hỏi lại.
+2. **Tư vấn hàng**: hỏi "Vios 2016 có phuộc gì?" / "đề xuất hạng mục cho 51K-123.45" → AI tra tồn kho thật + lịch sử xe rồi trả lời. Không bao giờ lộ giá vốn.
 
-Lệnh: `/huy <mã bill>` (huỷ + hoàn kho), `/homnay` (tổng kết ngày). Trong group, bot chỉ trả lời ảnh, tin @mention hoặc reply bot.
+Lệnh: `/huy INV-xxx` (xoá bill + hoàn kho, giống nút xoá hoá đơn của webapp), `/homnay` (tổng kết ngày). Trong group, bot chỉ trả lời ảnh, tin @mention hoặc reply bot.
 
 ## Cài đặt
-```
-pip install -r requirements.txt
-cp .env.example .env      # điền token BotFather, API key, ALLOWED_CHAT_IDS
-python import_inventory.py kho_mau.csv   # nạp kho (thay bằng file kho thật)
-python bot.py
-```
-Tắt "Group Privacy" của bot trong @BotFather (/setprivacy → Disable) để bot thấy ảnh trong group. Lấy chat id group: thêm @RawDataBot hoặc xem log bot.
+1. @BotFather: tạo bot, lấy token; `/setprivacy` → Disable để bot thấy ảnh trong group.
+2. Firebase Console → Project settings → Service accounts → **Generate new private key**, lưu thành `firebase-service-account.json` (đã được .gitignore, đừng commit). Admin SDK bỏ qua security rules nên không cần mở rules công khai.
+3. `pip install -r requirements.txt && cp .env.example .env` rồi điền token, API key, `ALLOWED_CHAT_IDS`.
+4. `python bot.py`
 
 ## Kiểm thử
-`python tests/test_tools.py` (không cần mạng/API key).
+`python tests/test_tools.py` (dữ liệu giả trong bộ nhớ, không cần mạng/API key).
 
-## Nối kho thật
-Kho hiện đọc từ bảng `inventory` (CSV import, chạy lại để đồng bộ). Nếu kho nằm ở Google Sheet/phần mềm khác, chỉ cần thay `_search_inventory` trong `tools.py`.
+## Lưu ý
+- Kho webapp **không có cột tương thích xe**, nên "hợp xe" chỉ suy từ tên mã hàng (vd "Phuộc sau KYB Vios 2014-2018"). Đặt tên mã hàng có dòng xe + đời xe càng đủ thì bot tư vấn càng đúng.
+- Webapp ghi cả mảng bằng `set(...)`. Bot dùng transaction nên không đè dữ liệu nhau, nhưng nếu ai đó đang mở webapp offline lâu rồi lưu thì có thể ghi đè thay đổi của bot (rủi ro sẵn có của webapp).
+- Hoá đơn và tồn kho là 2 nhánh riêng, không có ghi nguyên tử: nếu lỗi mạng giữa chừng, bill có thể đã ghi mà tồn chưa trừ (xem `/homnay` và Lịch sử kho để đối chiếu).

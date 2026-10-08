@@ -1,46 +1,53 @@
-"""Các tool Claude được phép gọi. Mọi tính toán tiền/tồn kho làm ở đây, không để AI tự tính."""
+"""Các tool Claude được phép gọi. Tính tiền/tồn kho làm ở đây, không để AI tự tính."""
 import re
 
-import db
+import db_text
+from store import num
 
 TOOLS = [
     {
         "name": "record_bill",
-        "description": "Ghi nhận phiếu/bill của 1 xe vào database. Chỉ gọi khi đã đọc được biển số và ít nhất 1 hạng mục. "
-                       "Tổng tiền do hệ thống tự tính. Nếu hạng mục là phụ tùng có trong kho, truyền sku để trừ tồn.",
+        "description": "Ghi bill 1 xe vào hệ thống webapp (hiện ngay trong tab hoá đơn) và tự trừ tồn kho phụ tùng. "
+                       "Chỉ gọi khi đã đọc được biển số, dòng xe và ít nhất 1 hạng mục. Tổng tiền hệ thống tự tính. "
+                       "Phụ tùng lấy từ kho PHẢI truyền id đúng của mã hàng (lấy từ search_inventory); công/dịch vụ thì bỏ id.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "plate": {"type": "string", "description": "Biển số xe, vd 51K-123.45"},
-                "vehicle": {"type": "string", "description": "Hãng/dòng/đời xe nếu biết"},
-                "customer": {"type": "string"},
+                "car": {"type": "string", "description": "Dòng xe/đời xe, vd 'Vios 2016'"},
+                "customer": {"type": "string", "description": "Tên khách; không biết thì bỏ trống"},
+                "phone": {"type": "string"},
+                "odo": {"type": "string"},
                 "note": {"type": "string"},
+                "discount": {"type": "integer", "description": "Giảm giá VND, mặc định 0"},
+                "service_type": {"type": "string", "enum": ["Lắp tại xưởng", "Gửi về"]},
+                "customer_type": {"type": "string", "enum": ["Khách lẻ", "Khách Garage / Đại lý"]},
                 "items": {
                     "type": "array",
                     "items": {
                         "type": "object",
                         "properties": {
-                            "kind": {"type": "string", "enum": ["labor", "part"]},
                             "name": {"type": "string"},
-                            "qty": {"type": "integer", "minimum": 1},
-                            "unit_price": {"type": "integer", "description": "VND, số nguyên"},
-                            "sku": {"type": "string"},
+                            "id": {"type": "string", "description": "id mã hàng trong kho (chỉ với phụ tùng)"},
+                            "qty": {"type": "number"},
+                            "unit_price": {"type": "integer", "description": "VND/đơn vị. Bỏ trống với phụ tùng để dùng giá niêm yết"},
+                            "unit": {"type": "string"},
                         },
-                        "required": ["name", "unit_price"],
+                        "required": ["name"],
                     },
                 },
             },
-            "required": ["plate", "items"],
+            "required": ["plate", "car", "items"],
         },
     },
     {
         "name": "search_inventory",
-        "description": "Tra kho hàng thực tế của Dr.ShockVN (tồn kho, giá, vị trí). Luôn dùng tool này trước khi nói còn/hết hàng.",
+        "description": "Tra kho hàng thực tế của Dr.ShockVN (tồn kho, giá bán). Luôn dùng tool này trước khi nói còn/hết hàng.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "query": {"type": "string", "description": "Tên/loại hàng, vd 'phuộc sau', 'nhớt 5W30'"},
-                "vehicle": {"type": "string", "description": "Hãng/dòng/đời xe để lọc hàng tương thích, vd 'Vios 2016'"},
+                "vehicle": {"type": "string", "description": "Dòng/đời xe để lọc hàng hợp xe, vd 'Vios 2016'"},
                 "in_stock_only": {"type": "boolean"},
             },
             "required": ["query"],
@@ -53,8 +60,8 @@ TOOLS = [
     },
     {
         "name": "void_bill",
-        "description": "Huỷ 1 bill đã ghi nhầm và hoàn lại tồn kho.",
-        "input_schema": {"type": "object", "properties": {"bill_id": {"type": "integer"}}, "required": ["bill_id"]},
+        "description": "Xoá 1 bill ghi nhầm (vd INV-105) và hoàn lại tồn kho.",
+        "input_schema": {"type": "object", "properties": {"bill_id": {"type": "string"}}, "required": ["bill_id"]},
     },
     {
         "name": "today_summary",
@@ -64,101 +71,103 @@ TOOLS = [
 ]
 
 
-def run(name: str, args: dict, ctx: dict, path: str) -> dict:
-    with db.connect(path) as c:
-        return globals()[f"_{name}"](c, args, ctx)
+def norm_plate(p):
+    return "".join(c for c in (p or "").upper() if c.isalnum())
 
 
-def _record_bill(c, a, ctx):
-    plate = db.norm_plate(a.get("plate", ""))
-    items = a.get("items") or []
-    if len(plate) < 5 or not items:
-        return {"error": "thiếu biển số hợp lệ hoặc hạng mục"}
-    warnings, rows, total = [], [], 0
-    for it in items:
-        qty = max(int(it.get("qty") or 1), 1)
-        price = max(int(it.get("unit_price") or 0), 0)
-        kind = it.get("kind") or "labor"
-        sku = (it.get("sku") or "").strip()
-        if sku and kind == "part":
-            p = c.execute("SELECT qty FROM inventory WHERE sku=?", (sku,)).fetchone()
+def run(name, args, ctx, store):
+    return globals()[f"_{name}"](store, args, ctx)
+
+
+def _record_bill(s, a, ctx):
+    plate = (a.get("plate") or "").strip().upper()
+    if len(norm_plate(plate)) < 5 or not a.get("items") or not (a.get("car") or "").strip():
+        return {"error": "thiếu biển số hợp lệ, dòng xe hoặc hạng mục"}
+    stock = {p["id"]: p for p in s.inventory()}
+    items, warnings, deduct = [], [], []
+    for it in a["items"]:
+        qty = num(it.get("qty"), 1) or 1
+        pid = (it.get("id") or "").strip()
+        p = stock.get(pid) if pid else None
+        if pid and not p:
+            return {"error": f"id '{pid}' không có trong kho — hãy search_inventory để lấy đúng id"}
+        price = it.get("unit_price")
+        if price is None:
             if not p:
-                warnings.append(f"SKU {sku} không có trong kho, không trừ tồn")
-                sku = ""
-            elif p["qty"] < qty:
-                warnings.append(f"SKU {sku} chỉ còn {p['qty']} < {qty}, đã trừ về 0 — cần kiểm kho")
-        rows.append((kind, it["name"], sku, qty, price))
-        total += qty * price
-    cur = c.execute(
-        "INSERT INTO bills(plate,vehicle,customer,note,total,created_by,chat_id,photo_file_id) VALUES(?,?,?,?,?,?,?,?)",
-        (plate, a.get("vehicle", ""), a.get("customer", ""), a.get("note", ""), total,
-         ctx.get("user", ""), ctx.get("chat_id"), ctx.get("photo_file_id", "")),
-    )
-    bid = cur.lastrowid
-    for kind, name, sku, qty, price in rows:
-        c.execute("INSERT INTO bill_items(bill_id,kind,name,sku,qty,unit_price) VALUES(?,?,?,?,?,?)",
-                  (bid, kind, name, sku, qty, price))
-        if sku:
-            c.execute("UPDATE inventory SET qty=MAX(qty-?,0) WHERE sku=?", (qty, sku))
-    return {"bill_id": bid, "plate": plate, "total_vnd": total, "items": len(rows), "warnings": warnings}
+                return {"error": f"hạng mục '{it['name']}' thiếu đơn giá"}
+            price = p["price"]
+        if p:
+            if p["stock"] < qty:
+                warnings.append(f"{p['name']}: tồn {p['stock']:g} < cần {qty:g} — cần kiểm kho")
+            deduct.append((p, qty))
+        items.append({"id": pid or f"LBR_{len(items)+1}_{abs(hash(it['name'])) % 10**6}", "name": it["name"],
+                      "unit": it.get("unit") or (p["unit"] if p else "Lần"), "qty": qty, "price": int(price)})
+    subtotal = sum(i["qty"] * i["price"] for i in items)
+    discount = max(int(a.get("discount") or 0), 0)
+    inv = s.add_invoice({
+        "plate": plate, "name": (a.get("customer") or "").strip() or "Khách lẻ", "phone": a.get("phone", ""),
+        "car": a["car"], "odo": a.get("odo", ""), "note": (a.get("note", "") + f" [Bot Telegram - {ctx.get('user','')}]").strip(),
+        "serviceType": a.get("service_type", "Lắp tại xưởng"), "customerType": a.get("customer_type", "Khách lẻ"),
+        "advisor": ctx.get("user", "Bot Telegram"), "items": items,
+        "subtotal": subtotal, "discount": discount, "total": max(0, subtotal - discount)})
+    for p, qty in deduct:
+        s.adjust_stock(p["id"], -qty, "XUAT", ctx.get("user", "Bot Telegram"),
+                       f"Xuất theo hóa đơn {inv['id']} cho xe {plate} (Bot Telegram)")
+    return {"bill_id": inv["id"], "plate": plate, "total_vnd": inv["total"], "items": len(items), "warnings": warnings}
 
 
-def _year_ok(compat: str, year: int) -> bool:
-    """compat có khoảng năm (2014-2018 / 2016) thì năm xe phải nằm trong; không ghi năm thì coi là phù hợp."""
-    spans = re.findall(r"(\d{4})(?:\s*-\s*(\d{4}))?", compat)
-    if not spans:
-        return True
-    return any(int(a) <= year <= int(b or a) for a, b in spans)
+def _year_ok(text, year):
+    spans = re.findall(r"((?:19|20)\d{2})(?:\s*-\s*((?:19|20)\d{2}))?", text)
+    return not spans or any(int(a) <= year <= int(b or a) for a, b in spans)
 
 
-def _search_inventory(c, a, ctx):
-    q_words = db.norm(a["query"]).split()
-    v_words = db.norm(a.get("vehicle", "")).split()
-    year = next((int(w) for w in v_words if re.fullmatch(r"(19|20)\d{2}", w)), None)
-    v_words = [w for w in v_words if not re.fullmatch(r"(19|20)\d{2}", w)]
+def _search_inventory(s, a, ctx):
+    q = db_text.norm(a["query"]).split()
+    v = db_text.norm(a.get("vehicle", "")).split()
+    year = next((int(w) for w in v if re.fullmatch(r"(19|20)\d{2}", w)), None)
+    v = [w for w in v if not re.fullmatch(r"(19|20)\d{2}", w)]
+    inv = s.inventory()
 
-    def fetch(words):
-        sql = "SELECT sku,name,category,compat,qty,price,location FROM inventory WHERE 1=1"
-        sql += "".join(" AND search_text LIKE ?" for _ in words)
-        if a.get("in_stock_only"):
-            sql += " AND qty>0"
-        return [dict(r) for r in c.execute(sql + " ORDER BY qty>0 DESC, name LIMIT 30", [f"%{w}%" for w in words])]
+    def match(words, only_stock=a.get("in_stock_only")):
+        out = []
+        for p in inv:
+            hay = db_text.norm(f"{p['id']} {p['name']} {p['cat']}")
+            if all(w in hay for w in words) and (not only_stock or p["stock"] > 0):
+                out.append(p)
+        return out
 
-    rows = fetch(q_words + v_words)
+    rows = match(q + v)
     if year:
-        rows = [r for r in rows if _year_ok(r["compat"], year)]
-    rows = rows[:15]
-    if not rows and v_words:
-        # nới lỏng: bỏ điều kiện xe, AI phải nói rõ chưa xác nhận tương thích
-        return {"exact_match": False, "results": fetch(q_words)[:10],
-                "note": "không có hàng ghi tương thích với xe này; đây là hàng cùng loại, CHƯA xác nhận tương thích"}
-    return {"exact_match": True, "results": rows}
+        rows = [p for p in rows if _year_ok(p["name"], year)]
+    rows.sort(key=lambda p: (p["stock"] <= 0, p["name"]))
+    if not rows and v:
+        return {"exact_match": False, "results": sorted(match(q), key=lambda p: (p["stock"] <= 0, p["name"]))[:10],
+                "note": "không có mã hàng ghi hợp với xe này; đây là hàng cùng loại, CHƯA xác nhận lắp vừa — thợ phải kiểm tra"}
+    return {"exact_match": True, "results": rows[:15],
+            "note": "kho không có cột tương thích xe: tương thích chỉ suy từ tên mã hàng, thợ vẫn nên đối chiếu"}
 
 
-def _vehicle_history(c, a, ctx):
-    plate = db.norm_plate(a["plate"])
-    out = []
-    for b in c.execute("SELECT * FROM bills WHERE plate=? AND status='open' ORDER BY id DESC LIMIT 10", (plate,)):
-        items = [dict(i) for i in c.execute(
-            "SELECT kind,name,qty,unit_price FROM bill_items WHERE bill_id=?", (b["id"],))]
-        out.append({"bill_id": b["id"], "date": b["created_at"], "vehicle": b["vehicle"],
-                    "total": b["total"], "items": items})
-    return {"plate": plate, "visits": out}
+def _vehicle_history(s, a, ctx):
+    plate = norm_plate(a["plate"])
+    visits = [{"bill_id": i["id"], "date": i.get("date"), "car": i.get("car"), "odo": i.get("odo"),
+               "total": i.get("total"), "items": [{"name": x["name"], "qty": x["qty"], "price": x["price"]}
+                                                    for x in i.get("items", [])]}
+              for i in s.invoices() if norm_plate(i.get("plate")) == plate]
+    return {"plate": plate, "visits": visits[:10]}
 
 
-def _void_bill(c, a, ctx):
-    b = c.execute("SELECT status FROM bills WHERE id=?", (a["bill_id"],)).fetchone()
-    if not b:
+def _void_bill(s, a, ctx):
+    inv = s.delete_invoice(str(a["bill_id"]).strip().upper())
+    if not inv:
         return {"error": "không có bill này"}
-    if b["status"] == "void":
-        return {"error": "bill đã huỷ trước đó"}
-    for i in c.execute("SELECT sku,qty FROM bill_items WHERE bill_id=? AND sku!=''", (a["bill_id"],)).fetchall():
-        c.execute("UPDATE inventory SET qty=qty+? WHERE sku=?", (i["qty"], i["sku"]))
-    c.execute("UPDATE bills SET status='void' WHERE id=?", (a["bill_id"],))
-    return {"voided": a["bill_id"]}
+    for it in inv.get("items", []):
+        s.adjust_stock(it["id"], num(it.get("qty"), 1), "NHAP", ctx.get("user", "Bot Telegram"),
+                       f"Hoàn kho do xoá hóa đơn {inv['id']} (Bot Telegram)")
+    return {"voided": inv["id"]}
 
 
-def _today_summary(c, a, ctx):
-    rows = [dict(r) for r in c.execute(
-        "SELECT id,plate,vehicle,total,created_by FROM bills WHERE status='open' AND date(created_at)=date('now','localtime') ORDER BY id")]
+def _today_summary(s, a, ctx):
+    today = db_text.today_prefix()
+    rows = [{"id": i["id"], "plate": i.get("plate"), "car": i.get("car"), "total": i.get("total", 0)}
+            for i in s.invoices() if str(i.get("date", "")).startswith(today + " ")]
     return {"count": len(rows), "revenue_vnd": sum(r["total"] for r in rows), "bills": rows}
