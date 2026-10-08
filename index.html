@@ -1316,7 +1316,18 @@
     let inventoryList = convertToArray(getStoredData('drshock_inventory', DEFAULT_INVENTORY), DEFAULT_INVENTORY);
     let invoiceList = convertToArray(getStoredData('drshock_invoices', DEFAULT_INVOICES), DEFAULT_INVOICES);
     let stockLogList = convertToArray(getStoredData('drshock_stock_logs', DEFAULT_STOCK_LOGS), DEFAULT_STOCK_LOGS);
-    let firebaseConfig = getStoredData('drshock_firebase_config', MASTER_FIREBASE_CONFIG);
+    // Luôn dùng cấu hình đám mây gốc. Cấu hình cũ/sai lưu riêng trên 1 máy (VD máy tính) sẽ bị xóa,
+    // tránh tình trạng máy đó kết nối nhầm database trong khi các máy khác vẫn bình thường.
+    let firebaseConfig = MASTER_FIREBASE_CONFIG;
+    try {
+      const _oldCfg = getStoredData('drshock_firebase_config', null);
+      if (_oldCfg) {
+        if (_oldCfg.databaseURL !== MASTER_FIREBASE_CONFIG.databaseURL || _oldCfg.apiKey !== MASTER_FIREBASE_CONFIG.apiKey) {
+          console.warn('Đã bỏ cấu hình Firebase cũ lưu trên máy này:', _oldCfg);
+        }
+        localStorage.removeItem('drshock_firebase_config');
+      }
+    } catch (e) {}
 
     let firebaseDb = null;
 
@@ -1341,9 +1352,27 @@
       } catch (e) {}
     }
 
+    // Báo lỗi rõ ràng khi máy này không đọc được 1 nhánh dữ liệu (sai quyền, bị chặn, sai URL...)
+    const cloudErrors = {};
+    function onCloudErr(path) {
+      return function(err) {
+        const code = (err && (err.code || err.message)) || 'không rõ';
+        console.error('Lỗi đọc dữ liệu đám mây ' + path + ':', err);
+        if (cloudErrors[path]) return;
+        cloudErrors[path] = code;
+        updateCloudStatus(false, 'Lỗi đám mây');
+        showNotification('Máy này không đọc được dữ liệu ' + path + ' (' + code + '). Kiểm tra mạng / phần mềm diệt virus / tiện ích chặn quảng cáo.', 'error');
+      };
+    }
+
     // KHỞI TẠO FIREBASE
     function initFirebaseConnection() {
-      if (typeof firebase === 'undefined') return;
+      if (firebaseDb) return; // đã kết nối rồi, không khởi tạo / gắn listener lần 2
+      if (typeof firebase === 'undefined') {
+        updateCloudStatus(false, 'Không tải được Firebase');
+        showNotification('Máy này không tải được thư viện Firebase (gstatic.com bị chặn hoặc mất mạng). Dữ liệu sẽ KHÔNG đồng bộ!', 'error');
+        return;
+      }
       const cfg = firebaseConfig || MASTER_FIREBASE_CONFIG;
       if (!cfg || !cfg.databaseURL) return;
 
@@ -1360,6 +1389,11 @@
           const rawRef = firebaseDb.ref.bind(firebaseDb);
           firebaseDb.ref = function(path) {
             const r = rawRef(path);
+            // Tự gắn hàm báo lỗi cho mọi listener chưa có
+            const rawOn = r.on.bind(r);
+            r.on = function(evt, cb, cancel, ctx) {
+              return rawOn(evt, cb, typeof cancel === 'function' ? cancel : onCloudErr(String(path || '/')), ctx);
+            };
             if (typeof path === 'string' && CLOUD_LOCAL_KEYS[path]) {
               const rawSet = r.set.bind(r);
               r.set = function(value) {
@@ -1376,10 +1410,25 @@
             return r;
           };
         })();
-        updateCloudStatus(true, 'Đám mây: Trực tuyến');
+        // Trạng thái kết nối THẬT (trước đây luôn báo "Trực tuyến" dù không kết nối được)
+        updateCloudStatus(false, 'Đang kết nối...');
+        firebaseDb.ref('.info/connected').on('value', s => {
+          if (Object.keys(cloudErrors).length) return;
+          if (s.val() === true) updateCloudStatus(true, 'Đám mây: Trực tuyến');
+          else updateCloudStatus(false, 'Mất kết nối đám mây');
+        });
         setupFirebaseRealtimeListeners();
+        setTimeout(() => {
+          const missing = Object.keys(CLOUD_LOCAL_KEYS).filter(k => !cloudReady[k] && !cloudErrors[k]);
+          if (missing.length) {
+            updateCloudStatus(false, 'Chưa đồng bộ');
+            showNotification('Máy này chưa tải được dữ liệu đám mây sau 15 giây. Kiểm tra mạng, phần mềm diệt virus hoặc tiện ích chặn quảng cáo.', 'error');
+          }
+        }, 15000);
       } catch (err) {
+        console.error('Lỗi khởi tạo Firebase:', err);
         updateCloudStatus(false, 'Ngoại tuyến (Offline)');
+        showNotification('Lỗi khởi tạo kết nối đám mây: ' + (err && err.message ? err.message : err), 'error');
       }
     }
 
@@ -1390,10 +1439,10 @@
 
       if (isOnline) {
         badge.className = "shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950/80 text-emerald-400 border border-emerald-500/40";
-        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>${text || 'Đám mây: Trực tuyến'}</span>`;
+        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span id="cloud-status-text">${text || 'Đám mây: Trực tuyến'}</span>`;
       } else {
         badge.className = "shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-950/80 text-amber-400 border border-amber-500/40";
-        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span><span>${text || 'Ngoại tuyến (Offline)'}</span>`;
+        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span><span id="cloud-status-text">${text || 'Ngoại tuyến (Offline)'}</span>`;
       }
     }
 
@@ -1487,11 +1536,14 @@
         return;
       }
 
-      firebaseConfig = { databaseURL: url, projectId: proj, apiKey: key };
-      setStoredData('drshock_firebase_config', firebaseConfig);
-      initFirebaseConnection();
-      syncAllToCloudForce();
-      showNotification('Đã lưu và kích hoạt kết nối đám mây thành công!', 'success');
+      // App luôn dùng cấu hình gốc (MASTER_FIREBASE_CONFIG). Nút này giờ chỉ xóa cấu hình cũ trên máy và
+      // kết nối lại sạch sẽ - KHÔNG còn đẩy dữ liệu trên máy đè lên đám mây.
+      if (url !== MASTER_FIREBASE_CONFIG.databaseURL || key !== MASTER_FIREBASE_CONFIG.apiKey) {
+        showNotification('Cấu hình khác bản gốc sẽ không được dùng. Muốn đổi database cần sửa MASTER_FIREBASE_CONFIG trong code.', 'warning');
+      }
+      try { localStorage.removeItem('drshock_firebase_config'); } catch (e) {}
+      showNotification('Đang kết nối lại đám mây...', 'info');
+      setTimeout(() => location.reload(), 900);
     }
 
     // ĐĂNG NHẬP
@@ -5018,7 +5070,6 @@
     initNotifications();
     renderReceiptList();
     initSystem();
-    window.addEventListener('DOMContentLoaded', initSystem);
   </script>
 </body>
 </html>
