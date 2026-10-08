@@ -494,9 +494,19 @@
             </div>
           </div>
 
-          <div class="stock-manage-only mb-4 bg-gray-800/40 border border-gray-800 rounded-2xl p-3">
-            <h3 class="text-xs font-bold text-orange-400 uppercase tracking-wider flex items-center gap-2 mb-2"><i class="fa-solid fa-file-invoice"></i>Phiếu Nhập Hàng Gần Đây</h3>
-            <div id="receipt-list-container" class="space-y-2"></div>
+          <!-- PHIẾU NHẬP HÀNG GẦN ĐÂY (THU GỌN) -->
+          <div class="stock-manage-only mb-4 bg-gray-800/40 border border-gray-800 rounded-2xl overflow-hidden">
+            <button type="button" onclick="toggleReceiptList()" class="w-full flex items-center justify-between gap-2 px-3 py-2.5 hover:bg-gray-800/60 active:scale-[0.99] transition">
+              <span class="text-xs font-bold text-orange-400 uppercase tracking-wider flex items-center gap-2">
+                <i class="fa-solid fa-file-invoice"></i>Phiếu Nhập Hàng Gần Đây
+                <span id="receipt-count-badge" class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-900 text-gray-300 border border-gray-700 normal-case tracking-normal">0</span>
+              </span>
+              <span class="flex items-center gap-2 min-w-0">
+                <span id="receipt-latest-summary" class="text-[10px] text-gray-400 truncate hidden sm:inline"></span>
+                <i id="receipt-toggle-icon" class="fa-solid fa-chevron-down text-gray-400 text-xs transition-transform"></i>
+              </span>
+            </button>
+            <div id="receipt-list-container" class="hidden space-y-2 px-3 pb-3"></div>
           </div>
 
           <div id="inventory-mobile-cards" class="block md:hidden space-y-2.5">
@@ -602,7 +612,7 @@
             <h3 class="text-sm font-bold text-white flex items-center gap-2">
               <i class="fa-solid fa-file-excel text-emerald-400 text-base"></i>Cơ Sở Dữ Liệu Toàn Garage (.xlsx)
             </h3>
-            <p class="text-xs text-gray-400 mt-1">Tải về một file Excel chứa 5 sheet: Doanh thu, Hóa đơn chi tiết, Kho hàng, Nhật ký kho và Khách hàng.</p>
+            <p class="text-xs text-gray-400 mt-1">Tải về một file Excel chứa 5 sheet: Doanh thu, Hóa đơn chi tiết, Kho hàng, Nhật ký kho và KPI & chi phí.</p>
           </div>
           <button onclick="exportAllToExcel()" class="w-full sm:w-auto px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow flex items-center justify-center gap-2 transition shrink-0">
             <i class="fa-solid fa-cloud-arrow-down text-sm"></i><span>Xuất Trọn Bộ File Sheet (.xlsx)</span>
@@ -1390,6 +1400,17 @@
     function setupFirebaseRealtimeListeners() {
       if (!firebaseDb) return;
       setupReceiptListeners();
+
+      firebaseDb.ref('garage/finance').on('value', snapshot => {
+        const val = snapshot.val();
+        financeReady = true;
+        if (val && typeof val === 'object') {
+          financeData = val;
+          setStoredData('drshock_finance', financeData);
+        }
+        if (!finDirty) { loadFinDraft(); renderFinanceEditor(); }
+        renderFinanceDash();
+      });
 
       firebaseDb.ref('garage/inventory').on('value', snapshot => {
         const val = snapshot.val();
@@ -3460,6 +3481,7 @@
       if (invElem) invElem.textContent = invoiceList.length;
 
       renderRevenueDashboard();
+      renderFinanceDashboard();
       // THUẬT TOÁN GOM NHÓM CHỐNG GỘP SĐT "0":
       const custMap = {};
 
@@ -3997,7 +4019,8 @@
         invoices: invoiceList,
         stockLogs: stockLogList,
         staff: staffList,
-        receipts: receiptList
+        receipts: receiptList,
+        finance: financeData
       };
 
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData, null, 2));
@@ -4038,6 +4061,14 @@
                   firebaseDb.ref('garage/invoices').set(invoiceList);
                   firebaseDb.ref('garage/stockLogs').set(stockLogList);
                   firebaseDb.ref('garage/staff').set(staffList);
+                }
+
+                if (parsed.finance && typeof parsed.finance === 'object' && !Array.isArray(parsed.finance)) {
+                  financeData = parsed.finance;
+                  setStoredData('drshock_finance', financeData);
+                  if (firebaseDb && financeReady) firebaseDb.ref('garage/finance').set(financeData);
+                  loadFinDraft();
+                  renderFinanceEditor();
                 }
 
                 initSystem();
@@ -4146,6 +4177,19 @@
         });
         const wsStockLogs = XLSX.utils.aoa_to_sheet(stockLogRows);
         XLSX.utils.book_append_sheet(wb, wsStockLogs, 'Nhat_Ky_Kho');
+
+        const finCosts = finCostMap();
+        const finRows = [['Tháng', 'KPI Doanh Thu (đ)', 'Doanh Thu Thực Tế (đ)', '% Đạt KPI', 'Giá Vốn Hàng Bán (đ)', 'Lãi Gộp (đ)', 'Tổng Chi Phí Vận Hành (đ)', 'Lợi Nhuận Ròng (đ)', 'Chi Tiết Chi Phí']];
+        Object.keys(financeData).filter(k => /^\d{4}-\d{2}$/.test(k)).sort().forEach(k => {
+          const d = financeData[k], s = finMonthStats(k, finCosts);
+          const exps = convertToArray(d.expenses, []);
+          const expT = exps.reduce((a, e) => a + (+e.amount || 0), 0);
+          const kpiV = +d.kpi || 0;
+          finRows.push([monthLabel(k), kpiV, s.rev, kpiV ? Math.round(s.rev * 100 / kpiV) + '%' : '', s.cogs, s.rev - s.cogs, expT, s.rev - s.cogs - expT,
+            exps.map(e => (e.name || 'Khoản chi') + ': ' + formatMoney(+e.amount || 0)).join('; ')]);
+        });
+        if (finRows.length === 1) finRows.push(['Chưa nhập KPI & chi phí', '', '', '', '', '', '', '', '']);
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(finRows), 'KPI_Chi_Phi');
 
         const fileName = `DrShockVN_CoSoDuLieu_Garage_${getFormattedTimestamp()}.xlsx`;
         XLSX.writeFile(wb, fileName);
@@ -4372,9 +4416,30 @@
       showNotification(`Đã lưu phiếu ${id} và nhập kho thành công!`, 'success');
     }
 
+    // ----- Thu gọn / mở rộng mục Phiếu Nhập Hàng Gần Đây -----
+    function toggleReceiptList() {
+      const c = document.getElementById('receipt-list-container');
+      const icon = document.getElementById('receipt-toggle-icon');
+      if (!c) return;
+      const willOpen = c.classList.contains('hidden');
+      c.classList.toggle('hidden', !willOpen);
+      if (icon) icon.style.transform = willOpen ? 'rotate(180deg)' : '';
+    }
+
+    function updateReceiptHeader() {
+      const badge = document.getElementById('receipt-count-badge');
+      const sum = document.getElementById('receipt-latest-summary');
+      if (badge) badge.textContent = receiptList.length + ' phiếu';
+      if (sum) {
+        const r = receiptList[0];
+        sum.textContent = r ? ('Mới nhất: ' + r.id + ' · ' + formatMoney(r.totalCost || 0) + ' đ') : '';
+      }
+    }
+
     function renderReceiptList() {
       const c = document.getElementById('receipt-list-container');
       if (!c) return;
+      updateReceiptHeader();
       if (!receiptList.length) { c.innerHTML = '<div class="p-3 text-center text-xs text-gray-500 italic">Chưa có phiếu nhập hàng nào.</div>'; return; }
       c.innerHTML = receiptList.slice(0, 10).map(r => `
         <div class="flex items-center justify-between gap-2 bg-gray-800/60 border border-gray-700/60 rounded-xl p-2.5">
@@ -4564,6 +4629,345 @@
           </div></div>
         <div class="bg-gray-800/40 border border-gray-800 rounded-xl p-3"><p class="text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-2">Doanh thu theo ${byMonth ? 'tháng' : 'ngày'}</p>
           ${keys.length ? `<div class="flex items-end gap-1 overflow-x-auto no-scrollbar pb-1" style="min-height:120px">${keys.map(k => `<div class="flex flex-col items-center gap-1 shrink-0" style="width:36px" title="${buckets[k].lbl}: ${formatMoney(buckets[k].rev)} đ"><div class="w-5 rounded-t bg-gradient-to-t from-red-600 to-orange-400" style="height:${Math.max(3, Math.round(buckets[k].rev * 96 / max))}px"></div><span class="text-[9px] text-gray-500">${buckets[k].lbl}</span></div>`).join('')}</div>` : '<p class="text-xs text-gray-500 italic text-center py-6">Không có hóa đơn trong khoảng thời gian này.</p>'}</div>`;
+    }
+
+    // ===== KPI & CHI PHÍ VẬN HÀNH THEO THÁNG =====
+    const DEFAULT_EXPENSE_CATS = ['Lương nhân viên', 'Mặt bằng', 'Điện nước', 'Thuế', 'Internet & điện thoại', 'Chi phí khác'];
+    const FIN_PALETTE = ['bg-rose-500', 'bg-orange-500', 'bg-amber-500', 'bg-sky-500', 'bg-violet-500', 'bg-emerald-500', 'bg-pink-500', 'bg-teal-500', 'bg-lime-500', 'bg-indigo-500'];
+    let financeData = getStoredData('drshock_finance', {}) || {};
+    if (typeof financeData !== 'object' || Array.isArray(financeData)) financeData = {};
+    let financeReady = false;
+    let finMonth = monthKey(new Date());
+    let finDraft = null;
+    let finDirty = false;
+    let finEditorOpen = null;
+
+    function monthKey(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
+    function monthLabel(k) { const p = k.split('-'); return 'Tháng ' + (+p[1]) + '/' + p[0]; }
+    function monthRange(k) { const p = k.split('-').map(Number); return [new Date(p[0], p[1] - 1, 1).getTime(), new Date(p[0], p[1], 1).getTime()]; }
+    function escAttr(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
+    function shortMoney(n) {
+      const a = Math.abs(n), s = n < 0 ? '-' : '';
+      if (a >= 1e9) return s + String(Math.round(a / 1e8) / 10).replace('.', ',') + ' tỷ';
+      if (a >= 1e6) return s + String(Math.round(a / 1e5) / 10).replace('.', ',') + 'tr';
+      if (a >= 1e3) return s + Math.round(a / 1e3) + 'k';
+      return s + a;
+    }
+
+    function loadFinDraft() {
+      const src = financeData[finMonth];
+      const exps = src ? convertToArray(src.expenses, []) : [];
+      finDraft = {
+        kpi: src ? (+src.kpi || 0) : 0,
+        expenses: exps.length ? exps.map(e => ({ name: e.name || '', amount: +e.amount || 0 })) : DEFAULT_EXPENSE_CATS.map(n => ({ name: n, amount: 0 }))
+      };
+      finDirty = false;
+    }
+
+    function finCostMap() { const m = {}; inventoryList.forEach(p => { m[p.id] = parseCurrencyNumber(p.costPrice) || 0; }); return m; }
+
+    function finMonthStats(k, costMap) {
+      const r = monthRange(k);
+      let rev = 0, n = 0, cogs = 0, parts = 0, labor = 0;
+      invoiceList.forEach(inv => {
+        const t = invTime(inv);
+        if (t < r[0] || t >= r[1]) return;
+        rev += inv.total || 0; n++;
+        (inv.items || []).forEach(it => {
+          const q = parseFloat(it.qty) || 0;
+          const line = q * (parseCurrencyNumber(it.price) || 0);
+          if (String(it.id || '').startsWith('LBR')) { labor += line; return; }
+          parts += line;
+          cogs += q * (costMap[it.id] || 0);
+        });
+      });
+      return { rev: rev, n: n, cogs: cogs, parts: parts, labor: labor };
+    }
+    function finSrc(k) { return (k === finMonth && finDraft) ? finDraft : financeData[k]; }
+    function finExpTotal(k) { const d = finSrc(k); return d ? convertToArray(d.expenses, []).reduce((s, e) => s + (+e.amount || 0), 0) : 0; }
+    function finKpi(k) { const d = finSrc(k); return d ? (+d.kpi || 0) : 0; }
+
+    function finMonthOptions() {
+      const now = new Date(), set = new Set(Object.keys(financeData));
+      for (let i = -12; i <= 2; i++) set.add(monthKey(new Date(now.getFullYear(), now.getMonth() + i, 1)));
+      set.add(finMonth);
+      return Array.from(set).filter(k => /^\d{4}-\d{2}$/.test(k)).sort().reverse();
+    }
+
+    function ensureFinanceBox() {
+      const sec = document.getElementById('tab-reports');
+      if (!sec) return null;
+      let box = document.getElementById('finance-box');
+      if (!box) {
+        box = document.createElement('div');
+        box.id = 'finance-box';
+        box.className = 'bg-gray-900 border border-gray-800 rounded-2xl p-3 sm:p-4 space-y-4';
+        box.innerHTML = '<div id="fin-dash" class="space-y-4"></div><div id="fin-editor"></div>';
+        const rd = document.getElementById('revenue-dashboard');
+        if (rd && rd.nextSibling) sec.insertBefore(box, rd.nextSibling); else sec.appendChild(box);
+        if (!finDraft) loadFinDraft();
+        renderFinanceEditor();
+      }
+      return box;
+    }
+
+    function renderFinanceDashboard() {
+      if (!ensureFinanceBox()) return;
+      renderFinanceDash();
+    }
+
+    function renderFinanceDash() {
+      const el = document.getElementById('fin-dash');
+      if (!el) return;
+      if (!finDraft) loadFinDraft();
+      const costMap = finCostMap();
+      const st = finMonthStats(finMonth, costMap);
+      const kpi = finDraft.kpi || 0;
+      const expTotal = finExpTotal(finMonth);
+      const gross = st.rev - st.cogs, net = gross - expTotal;
+      const margin = st.rev ? Math.round(net * 1000 / st.rev) / 10 : 0;
+      const pct = kpi ? Math.round(st.rev * 100 / kpi) : 0;
+      const now = new Date(), ym = finMonth.split('-').map(Number), y = ym[0], m = ym[1];
+      const dim = new Date(y, m, 0).getDate();
+      const isCur = finMonth === monthKey(now);
+      const isFuture = new Date(y, m - 1, 1) > now;
+      const elapsed = isCur ? now.getDate() : (isFuture ? 0 : dim);
+      const daysLeft = isCur ? (dim - now.getDate() + 1) : 0;
+      const pace = Math.round(elapsed * 100 / dim);
+      const forecast = elapsed ? Math.round(st.rev / elapsed * dim) : 0;
+      const needPerDay = (isCur && kpi > st.rev) ? Math.round((kpi - st.rev) / daysLeft) : 0;
+      const grossRatio = st.rev ? gross / st.rev : 0;
+      const breakeven = grossRatio > 0 ? Math.round(expTotal / grossRatio) : 0;
+      const onTrack = isCur ? pct >= pace : pct >= 100;
+      const barColor = pct >= 100 ? 'from-emerald-600 to-emerald-400' : (onTrack || pct >= 70 ? 'from-amber-600 to-amber-400' : 'from-red-600 to-orange-500');
+
+      let status;
+      if (!kpi) status = '<span class="text-gray-400">Chưa đặt KPI cho ' + monthLabel(finMonth).toLowerCase() + '. Nhập chỉ tiêu ở phần thiết lập bên dưới.</span>';
+      else if (pct >= 100) status = `<span class="text-emerald-400 font-semibold"><i class="fa-solid fa-trophy mr-1"></i>Đã vượt KPI ${formatMoney(st.rev - kpi)} đ</span>`;
+      else if (isCur) status = `<span class="${onTrack ? 'text-amber-300' : 'text-red-400'} font-semibold"><i class="fa-solid ${onTrack ? 'fa-gauge-high' : 'fa-triangle-exclamation'} mr-1"></i>${onTrack ? 'Đúng tiến độ' : 'Chậm tiến độ'}</span> <span class="text-gray-400">· còn ${daysLeft} ngày · cần thêm <b class="text-white">${formatMoney(kpi - st.rev)} đ</b> ≈ <b class="text-white">${formatMoney(needPerDay)} đ/ngày</b></span>`;
+      else if (isFuture) status = '<span class="text-sky-300"><i class="fa-solid fa-calendar mr-1"></i>Tháng kế hoạch, chưa phát sinh doanh thu.</span>';
+      else status = `<span class="text-red-400 font-semibold"><i class="fa-solid fa-circle-xmark mr-1"></i>Không đạt KPI, thiếu ${formatMoney(kpi - st.rev)} đ</span>`;
+
+      const card = (label, value, sub, color, icon) => `
+        <div class="bg-gray-800/70 border border-gray-700/70 rounded-xl p-3">
+          <p class="text-[10px] text-gray-400 uppercase font-bold flex items-center gap-1.5"><i class="fa-solid ${icon}"></i>${label}</p>
+          <p class="text-base sm:text-xl font-black font-mono ${color} mt-0.5">${value}</p>
+          <p class="text-[10px] text-gray-500 mt-0.5">${sub}</p>
+        </div>`;
+
+      const flow = (label, value, sub, color, sign) => `
+        <div class="bg-gray-900/70 border border-gray-800 rounded-xl p-2.5 text-center">
+          <p class="text-[10px] text-gray-400 uppercase font-bold">${label}</p>
+          <p class="text-sm sm:text-base font-black font-mono ${color}">${sign}${formatMoney(Math.abs(value))} đ</p>
+          <p class="text-[9px] text-gray-500">${sub}</p>
+        </div>`;
+
+      // Cơ cấu chi phí
+      const exps = finDraft.expenses.filter(e => (+e.amount || 0) > 0).slice().sort((a, b) => b.amount - a.amount);
+      const breakdown = exps.length ? `
+        <div class="flex h-3 rounded-full overflow-hidden bg-gray-800">${exps.map((e, i) => `<div class="${FIN_PALETTE[i % FIN_PALETTE.length]}" style="width:${(e.amount * 100 / expTotal).toFixed(2)}%" title="${escAttr(e.name)}"></div>`).join('')}</div>
+        <div class="space-y-1.5 mt-3">${exps.map((e, i) => `
+          <div class="flex items-center justify-between gap-2 text-xs">
+            <span class="flex items-center gap-2 min-w-0"><span class="w-2.5 h-2.5 rounded-full shrink-0 ${FIN_PALETTE[i % FIN_PALETTE.length]}"></span><span class="truncate text-gray-200">${highlightMatch(e.name || 'Khoản chi', [])}</span></span>
+            <span class="shrink-0 font-mono"><b class="text-white">${formatMoney(e.amount)} đ</b> <span class="text-gray-500">· ${Math.round(e.amount * 100 / expTotal)}%${st.rev ? ' CP · ' + (Math.round(e.amount * 1000 / st.rev) / 10) + '% DT' : ''}</span></span>
+          </div>`).join('')}</div>`
+        : '<p class="text-xs text-gray-500 italic text-center py-6">Chưa nhập chi phí cho tháng này.</p>';
+
+      // Xu hướng 6 tháng
+      const trend = [];
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(y, m - 1 - i, 1), k = monthKey(d);
+        const s = finMonthStats(k, costMap), e = finExpTotal(k);
+        trend.push({ k: k, lbl: (d.getMonth() + 1) + '/' + String(d.getFullYear()).slice(2), rev: s.rev, cost: s.cogs + e, net: s.rev - s.cogs - e, kpi: finKpi(k), has: !!financeData[k] || k === finMonth });
+      }
+      const tmax = Math.max(1, ...trend.map(t => Math.max(t.rev, t.cost, t.kpi)));
+      const H = 110, hh = v => v > 0 ? Math.max(3, Math.round(v * H / tmax)) : 0;
+      const trendHtml = `
+        <div class="flex items-end justify-between gap-2 overflow-x-auto no-scrollbar pb-1">${trend.map(t => `
+          <div class="flex flex-col items-center shrink-0 rounded-lg px-1 py-1 ${t.k === finMonth ? 'bg-gray-800/80 ring-1 ring-orange-500/40' : ''}" style="min-width:52px" title="${t.lbl}: DT ${formatMoney(t.rev)} đ · Tổng CP ${formatMoney(t.cost)} đ · LN ${formatMoney(t.net)} đ${t.kpi ? ' · KPI ' + formatMoney(t.kpi) + ' đ' : ''}">
+            <div class="relative flex items-end gap-1" style="height:${H}px">
+              ${t.kpi ? `<div class="absolute -left-1 -right-1 border-t-2 border-dashed border-sky-400" style="bottom:${hh(t.kpi)}px"></div>` : ''}
+              <div class="w-3.5 rounded-t bg-gradient-to-t from-orange-600 to-amber-400" style="height:${hh(t.rev)}px"></div>
+              <div class="w-3.5 rounded-t bg-gradient-to-t from-rose-800 to-rose-500" style="height:${hh(t.cost)}px"></div>
+            </div>
+            <span class="text-[10px] text-gray-400 mt-1">${t.lbl}</span>
+            <span class="text-[10px] font-mono font-bold ${!t.has ? 'text-gray-500' : (t.net >= 0 ? 'text-emerald-400' : 'text-red-400')}">${t.has ? shortMoney(t.net) : '--'}</span>
+          </div>`).join('')}</div>
+        <div class="flex items-center justify-center gap-3 flex-wrap text-[10px] text-gray-400 mt-2">
+          <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-amber-500"></span>Doanh thu</span>
+          <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-rose-600"></span>Giá vốn + chi phí</span>
+          <span class="flex items-center gap-1"><span class="w-4 border-t-2 border-dashed border-sky-400"></span>KPI</span>
+          <span>Số dưới cột = lợi nhuận ròng</span>
+        </div>`;
+
+      el.innerHTML = `
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <h3 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-bullseye text-orange-400"></i>KPI & Chi Phí Vận Hành</h3>
+          <select id="fin-month-select" onchange="setFinMonth(this.value)" class="bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500">
+            ${finMonthOptions().map(k => `<option value="${k}"${k === finMonth ? ' selected' : ''}>${monthLabel(k)}${k === monthKey(now) ? ' (hiện tại)' : ''}</option>`).join('')}
+          </select>
+        </div>
+
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
+          ${card('Doanh thu tháng', formatMoney(st.rev) + ' đ', st.n + ' hóa đơn', 'text-orange-400', 'fa-sack-dollar')}
+          ${card('Chỉ tiêu KPI', kpi ? formatMoney(kpi) + ' đ' : 'Chưa đặt', kpi ? 'Đạt ' + pct + '%' : 'Đặt ở phần thiết lập', 'text-sky-400', 'fa-bullseye')}
+          ${isCur
+            ? card('Dự báo cuối tháng', formatMoney(forecast) + ' đ', kpi ? (forecast >= kpi ? 'Dự kiến đạt KPI' : 'Dự kiến thiếu ' + formatMoney(kpi - forecast) + ' đ') : 'Theo tốc độ hiện tại', forecast >= kpi && kpi ? 'text-emerald-400' : 'text-amber-400', 'fa-chart-line')
+            : card('Tổng chi phí vận hành', formatMoney(expTotal) + ' đ', exps.length + ' khoản chi', 'text-rose-400', 'fa-money-bill-trend-up')}
+          ${card('Lợi nhuận ròng', (net < 0 ? '-' : '') + formatMoney(Math.abs(net)) + ' đ', 'Biên lợi nhuận ' + String(margin).replace('.', ',') + '%', net >= 0 ? 'text-emerald-400' : 'text-red-400', net >= 0 ? 'fa-arrow-trend-up' : 'fa-arrow-trend-down')}
+        </div>
+
+        <div class="bg-gray-800/40 border border-gray-800 rounded-xl p-3 space-y-2">
+          <div class="flex items-center justify-between gap-2 text-xs">
+            <span class="font-bold text-gray-300 uppercase tracking-wider text-[11px]">Tiến độ KPI doanh thu</span>
+            <span class="font-mono font-black ${pct >= 100 ? 'text-emerald-400' : 'text-white'}">${kpi ? pct + '%' : '--'}</span>
+          </div>
+          <div class="relative h-4 rounded-full bg-gray-800 overflow-visible">
+            <div class="h-full rounded-full bg-gradient-to-r ${barColor} transition-all" style="width:${Math.min(100, pct)}%"></div>
+            ${isCur && kpi ? `<div class="absolute -top-1 -bottom-1 w-0.5 bg-white/80" style="left:${pace}%" title="Tiến độ thời gian ${pace}%"></div>` : ''}
+          </div>
+          <div class="flex items-center justify-between gap-2 text-[11px] flex-wrap">
+            <div>${status}</div>
+            ${isCur && kpi ? `<span class="text-[10px] text-gray-500"><span class="inline-block w-0.5 h-2.5 bg-white/80 align-middle mr-1"></span>Vạch trắng = ${pace}% thời gian tháng đã qua</span>` : ''}
+          </div>
+        </div>
+
+        <div class="bg-gray-800/40 border border-gray-800 rounded-xl p-3 space-y-2">
+          <p class="text-[11px] font-bold text-gray-300 uppercase tracking-wider">Lãi lỗ ${monthLabel(finMonth).toLowerCase()}</p>
+          <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            ${flow('Doanh thu', st.rev, 'Tổng tiền hóa đơn', 'text-orange-400', '')}
+            ${flow('Giá vốn hàng', st.cogs, 'Phụ tùng đã bán', 'text-rose-300', '−')}
+            ${flow('Lãi gộp', gross, st.rev ? 'Biên ' + Math.round(grossRatio * 100) + '%' : '---', gross >= 0 ? 'text-amber-300' : 'text-red-400', gross < 0 ? '−' : '')}
+            ${flow('Chi phí vận hành', expTotal, 'Lương, mặt bằng...', 'text-rose-400', '−')}
+            <div class="col-span-2 sm:col-span-1 rounded-xl p-2.5 text-center border ${net >= 0 ? 'bg-emerald-950/40 border-emerald-500/40' : 'bg-red-950/40 border-red-500/40'}">
+              <p class="text-[10px] uppercase font-bold ${net >= 0 ? 'text-emerald-400' : 'text-red-400'}">${net >= 0 ? 'Lợi nhuận ròng' : 'Đang lỗ'}</p>
+              <p class="text-sm sm:text-base font-black font-mono ${net >= 0 ? 'text-emerald-400' : 'text-red-400'}">${net < 0 ? '−' : ''}${formatMoney(Math.abs(net))} đ</p>
+              <p class="text-[9px] text-gray-400">Biên ${String(margin).replace('.', ',')}%</p>
+            </div>
+          </div>
+          <div class="text-[11px] text-gray-400 flex flex-wrap gap-x-4 gap-y-1 pt-1">
+            ${expTotal > 0 && breakeven ? `<span><i class="fa-solid fa-scale-balanced text-sky-400 mr-1"></i>Điểm hòa vốn: cần doanh thu ≥ <b class="text-white">${formatMoney(breakeven)} đ</b>/tháng${st.rev >= breakeven ? ' <span class="text-emerald-400">(đã vượt)</span>' : ' <span class="text-red-400">(còn thiếu ' + formatMoney(breakeven - st.rev) + ' đ)</span>'}</span>` : ''}
+            <span><i class="fa-solid fa-circle-info mr-1"></i>Giá vốn ước tính theo giá nhập hiện tại trong kho. Tiền công: ${formatMoney(st.labor)} đ · Phụ tùng: ${formatMoney(st.parts)} đ</span>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div class="bg-gray-800/40 border border-gray-800 rounded-xl p-3">
+            <div class="flex items-center justify-between mb-2"><p class="text-[11px] font-bold text-gray-300 uppercase tracking-wider">Cơ cấu chi phí vận hành</p><span class="text-xs font-mono font-black text-rose-400">${formatMoney(expTotal)} đ</span></div>
+            ${breakdown}
+          </div>
+          <div class="bg-gray-800/40 border border-gray-800 rounded-xl p-3">
+            <p class="text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-2">Xu hướng 6 tháng</p>
+            ${trendHtml}
+          </div>
+        </div>`;
+    }
+
+    function renderFinanceEditor() {
+      const el = document.getElementById('fin-editor');
+      if (!el) return;
+      if (!finDraft) loadFinDraft();
+      const open = finEditorOpen !== null ? finEditorOpen : !financeData[finMonth];
+      const rows = finDraft.expenses.map((e, i) => `
+        <div class="flex items-center gap-2">
+          <input type="text" value="${escAttr(e.name)}" oninput="finSetExpName(${i}, this.value)" placeholder="Tên khoản chi"
+            class="flex-1 min-w-0 bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-red-500">
+          <input type="text" inputmode="numeric" value="${formatMoney(e.amount)}" autocomplete="off" onfocus="handleMoneyFocus(this)" oninput="finSetExpAmount(${i}, this)" onblur="handleMoneyBlur(this)"
+            class="w-28 sm:w-40 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 text-right font-mono text-xs text-rose-300 font-bold focus:outline-none focus:border-red-500">
+          <button type="button" onclick="finRemoveExp(${i})" title="Xóa khoản chi" class="w-7 h-7 shrink-0 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-950/40 flex items-center justify-center"><i class="fa-solid fa-trash-can text-xs"></i></button>
+        </div>`).join('');
+      el.innerHTML = `
+        <details ${open ? 'open' : ''} ontoggle="finEditorOpen = this.open" class="group bg-gray-800/40 border border-gray-800 rounded-xl overflow-hidden">
+          <summary class="cursor-pointer list-none [&::-webkit-details-marker]:hidden px-3 py-2.5 flex items-center justify-between gap-2 hover:bg-gray-800/60">
+            <span class="text-xs font-bold text-orange-400 uppercase tracking-wider flex items-center gap-2"><i class="fa-solid fa-sliders"></i>Thiết lập KPI & chi phí · ${monthLabel(finMonth)}</span>
+            <span class="flex items-center gap-2">
+              <span id="fin-dirty" class="${finDirty ? '' : 'hidden'} text-[10px] px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-500/40 font-bold">Chưa lưu</span>
+              <i class="fa-solid fa-chevron-down text-gray-400 text-xs transition-transform group-open:rotate-180"></i>
+            </span>
+          </summary>
+          <div class="px-3 pb-3 space-y-3 text-xs">
+            <div class="flex items-center justify-between gap-2 bg-sky-950/30 border border-sky-500/30 rounded-xl p-2.5">
+              <label class="font-bold text-sky-300 flex items-center gap-1.5"><i class="fa-solid fa-bullseye"></i>KPI doanh thu tháng (đ)</label>
+              <input type="text" inputmode="numeric" value="${formatMoney(finDraft.kpi)}" autocomplete="off" onfocus="handleMoneyFocus(this)" oninput="finSetKpi(this)" onblur="handleMoneyBlur(this)"
+                class="w-36 sm:w-44 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 text-right font-mono text-sm text-sky-300 font-black focus:outline-none focus:border-sky-500">
+            </div>
+            <div>
+              <p class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Chi phí vận hành trong tháng</p>
+              <div class="space-y-2">${rows || '<p class="text-gray-500 italic">Chưa có khoản chi nào.</p>'}</div>
+              <div class="flex items-center justify-between mt-2 pt-2 border-t border-gray-700/60">
+                <span class="font-semibold text-gray-300">Tổng chi phí:</span>
+                <span id="fin-exp-total" class="font-mono font-black text-rose-400 text-sm">${formatMoney(finExpTotal(finMonth))} đ</span>
+              </div>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <button type="button" onclick="finAddExp()" class="py-2 px-2 bg-gray-800 hover:bg-gray-700 active:scale-95 border border-gray-700 rounded-xl font-semibold text-amber-300 flex items-center justify-center gap-1.5"><i class="fa-solid fa-plus"></i>Thêm khoản chi</button>
+              <button type="button" onclick="copyFinPrevMonth()" class="py-2 px-2 bg-gray-800 hover:bg-gray-700 active:scale-95 border border-gray-700 rounded-xl font-semibold text-sky-300 flex items-center justify-center gap-1.5"><i class="fa-solid fa-copy"></i>Chép tháng trước</button>
+              <button type="button" onclick="saveFinanceMonth()" class="col-span-2 sm:col-span-1 py-2 px-2 bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 active:scale-95 rounded-xl font-bold text-white shadow flex items-center justify-center gap-1.5"><i class="fa-solid fa-floppy-disk"></i>Lưu tháng này</button>
+            </div>
+            <p class="text-[10px] text-gray-500"><i class="fa-solid fa-cloud mr-1"></i>Số liệu lưu lên đám mây, mọi máy đăng nhập Chủ Xưởng đều xem được. Dashboard phía trên cập nhật ngay khi bạn gõ.</p>
+          </div>
+        </details>`;
+    }
+
+    function finMark() {
+      finDirty = true;
+      const b = document.getElementById('fin-dirty'); if (b) b.classList.remove('hidden');
+      const t = document.getElementById('fin-exp-total'); if (t) t.textContent = formatMoney(finExpTotal(finMonth)) + ' đ';
+      renderFinanceDash();
+    }
+    function finSetKpi(input) { finDraft.kpi = formatLiveCurrency(input); finMark(); }
+    function finSetExpName(i, v) { if (finDraft.expenses[i]) { finDraft.expenses[i].name = v; finMark(); } }
+    function finSetExpAmount(i, input) { if (finDraft.expenses[i]) { finDraft.expenses[i].amount = formatLiveCurrency(input); finMark(); } }
+    function finAddExp() {
+      finDraft.expenses.push({ name: '', amount: 0 });
+      finEditorOpen = true;
+      finMark();
+      renderFinanceEditor();
+      const inputs = document.querySelectorAll('#fin-editor input[placeholder="Tên khoản chi"]');
+      if (inputs.length) inputs[inputs.length - 1].focus();
+    }
+    function finRemoveExp(i) { finDraft.expenses.splice(i, 1); finMark(); renderFinanceEditor(); }
+
+    function copyFinPrevMonth() {
+      const p = finMonth.split('-').map(Number);
+      const pk = monthKey(new Date(p[0], p[1] - 2, 1));
+      const src = financeData[pk];
+      if (!src) { showNotification('Chưa có dữ liệu ' + monthLabel(pk).toLowerCase() + ' để sao chép!', 'warning'); return; }
+      finDraft = { kpi: +src.kpi || 0, expenses: convertToArray(src.expenses, []).map(e => ({ name: e.name || '', amount: +e.amount || 0 })) };
+      finEditorOpen = true;
+      finMark();
+      renderFinanceEditor();
+      showNotification('Đã chép KPI & chi phí từ ' + monthLabel(pk).toLowerCase() + '. Nhớ bấm Lưu!', 'info');
+    }
+
+    function saveFinanceMonth() {
+      if (!currentLoggedInUser || currentLoggedInUser.role !== 'admin') { showNotification('Chỉ Chủ Xưởng mới được sửa KPI & chi phí!', 'warning'); return; }
+      if (firebaseDb && !financeReady) { showNotification('Đang tải dữ liệu từ đám mây, vui lòng đợi vài giây rồi lưu lại!', 'warning'); return; }
+      const data = {
+        kpi: finDraft.kpi || 0,
+        expenses: finDraft.expenses.filter(e => String(e.name).trim() || e.amount).map(e => ({ name: String(e.name).trim() || 'Khoản chi', amount: +e.amount || 0 })),
+        updatedBy: currentLoggedInUser.name,
+        updatedAt: Date.now()
+      };
+      financeData[finMonth] = data;
+      setStoredData('drshock_finance', financeData);
+      const done = () => {
+        loadFinDraft();
+        renderFinanceEditor();
+        renderFinanceDash();
+        showNotification('Đã lưu KPI & chi phí ' + monthLabel(finMonth).toLowerCase() + '!', 'success');
+      };
+      if (firebaseDb) {
+        firebaseDb.ref('garage/finance/' + finMonth).set(data).then(done).catch(() => showNotification('Không lưu được lên đám mây, vui lòng thử lại!', 'error'));
+      } else done();
+    }
+
+    function setFinMonth(v) {
+      const go = () => { finMonth = v; finEditorOpen = null; loadFinDraft(); renderFinanceEditor(); renderFinanceDash(); };
+      if (finDirty) {
+        const sel = document.getElementById('fin-month-select'); if (sel) sel.value = finMonth;
+        showConfirmModal('Chưa Lưu Thay Đổi', 'KPI / chi phí ' + monthLabel(finMonth).toLowerCase() + ' chưa được lưu. Chuyển tháng sẽ bỏ các thay đổi này?', go);
+      } else go();
     }
 
     // ===== ẢNH AVATAR / LOGO (tự dò file ảnh có thật trong thư mục web) =====
