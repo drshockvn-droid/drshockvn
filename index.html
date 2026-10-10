@@ -28,6 +28,8 @@
   <!-- Firebase SDK Realtime Database -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-check-compat.js"></script>
   
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
@@ -97,30 +99,27 @@
         </div>
       </div>
 
-      <div class="space-y-4">
+      <form id="login-form" class="space-y-4" onsubmit="handleLoginSubmit(); return false;" autocomplete="on">
         <div>
-          <label class="block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Chọn Tài Khoản Làm Việc</label>
-          <div id="login-user-list" class="grid grid-cols-1 gap-2">
-            <!-- Render động danh sách nhân viên từ JavaScript -->
-          </div>
+          <label class="block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Email Nhân Viên</label>
+          <input type="email" id="login-email-input" name="email" autocomplete="username" placeholder="ten@email.com"
+            class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm font-semibold text-white focus:outline-none focus:border-red-500 shadow-inner">
         </div>
-
         <div>
-          <label class="block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Mã PIN Bảo Mật</label>
-          <div class="relative">
-            <input type="password" id="login-pin-input" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="Nhập mã PIN..." onkeydown="if(event.key==='Enter') handleLoginSubmit()"
-              class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-center text-xl font-bold tracking-widest text-white focus:outline-none focus:border-red-500 shadow-inner">
-          </div>
+          <label class="block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Mật Khẩu</label>
+          <input type="password" id="login-pass-input" name="password" autocomplete="current-password" placeholder="Nhập mật khẩu..."
+            class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm font-semibold text-white focus:outline-none focus:border-red-500 shadow-inner">
           <div id="login-error-msg" class="text-xs font-semibold text-red-400 mt-2 text-center hidden flex items-center justify-center gap-1">
-            <i class="fa-solid fa-circle-exclamation"></i> <span id="login-error-text">Mã PIN không chính xác!</span>
+            <i class="fa-solid fa-circle-exclamation"></i> <span id="login-error-text">Sai email hoặc mật khẩu!</span>
           </div>
         </div>
 
-        <button onclick="handleLoginSubmit()" 
+        <button type="submit" id="login-submit-btn"
           class="w-full py-3.5 bg-gradient-to-r from-red-600 via-orange-600 to-amber-600 hover:from-red-500 hover:to-orange-500 active:scale-[0.98] text-white font-bold rounded-xl shadow-lg transition duration-150 flex items-center justify-center gap-2">
           <i class="fa-solid fa-right-to-bracket text-sm"></i>Đăng Nhập Làm Việc
         </button>
-      </div>
+        <button type="button" onclick="handleForgotPassword()" class="w-full text-center text-[11px] text-gray-400 hover:text-amber-400 underline">Quên mật khẩu? Gửi email đặt lại</button>
+      </form>
     </div>
   </div>
 
@@ -628,7 +627,7 @@
               <h2 class="text-sm sm:text-base font-bold text-white flex items-center">
                 <i class="fa-solid fa-id-card-clip mr-2 text-orange-400"></i>Quản Lý Nhân Sự & Phân Quyền
               </h2>
-              <p class="text-xs text-gray-400 mt-0.5">Quản lý mã PIN đăng nhập và quyền hạn hệ thống của xưởng.</p>
+              <p class="text-xs text-gray-400 mt-0.5">Quản lý tài khoản email đăng nhập và quyền hạn hệ thống của xưởng.</p>
             </div>
             <button onclick="openModalAddStaff()" class="px-3 py-1.5 bg-red-600 hover:bg-red-500 active:scale-95 text-white text-xs font-bold rounded-xl shadow flex items-center gap-1.5 transition">
               <i class="fa-solid fa-user-plus text-xs"></i><span>+ Thêm Nhân Viên</span>
@@ -1137,9 +1136,14 @@
           </select>
         </div>
         <div>
-          <label class="block text-[10px] font-bold uppercase text-gray-400 mb-1">Mã PIN Đăng Nhập (4-6 số) *</label>
-          <input type="text" id="staff-modal-pin" maxlength="6" inputmode="numeric" placeholder="VD: 1234" 
-            class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-center text-lg font-mono font-bold text-amber-400 tracking-widest focus:border-red-500">
+          <label class="block text-[10px] font-bold uppercase text-gray-400 mb-1">Email Đăng Nhập *</label>
+          <input type="email" id="staff-modal-email" placeholder="nhanvien@email.com" autocomplete="off"
+            class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-white font-semibold focus:border-red-500">
+        </div>
+        <div id="staff-modal-pass-wrap">
+          <label class="block text-[10px] font-bold uppercase text-gray-400 mb-1">Mật Khẩu Ban Đầu (tối thiểu 8 ký tự) *</label>
+          <input type="text" id="staff-modal-pass" placeholder="Nhân viên nên đổi lại qua email đặt lại" autocomplete="off"
+            class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-amber-400 font-mono font-bold focus:border-red-500">
         </div>
       </div>
 
@@ -1224,11 +1228,8 @@
 
   <!-- ================= KỊCH BẢN JAVASCRIPT ================= -->
   <script>
-    const DEFAULT_STAFF = [
-      { id: 'admin', name: 'Chủ Xưởng', role: 'admin', roleTitle: 'Chủ Xưởng (Admin)', pin: '9999' },
-      { id: 'tech', name: 'Kỹ Thuật Viên', role: 'tech', roleTitle: 'Kỹ Thuật Viên Tiếp Nhận', pin: '1111' },
-      { id: 'stock', name: 'Quản Lý Kho', role: 'stock', roleTitle: 'Quản Lý Phụ Tùng & Kho', pin: '2222' }
-    ];
+    // Danh sách nhân viên (tên + vai trò) lấy từ đám mây sau khi đăng nhập. Không còn lưu mã PIN / mật khẩu trong code hay database.
+    const DEFAULT_STAFF = [];
 
     const DEFAULT_INVENTORY = [
       { id: 'P01', name: 'Bộ Phuộc Tein Street Advance Z', cat: 'PHUOC', unit: 'Bộ', stock: 5, costPrice: 21500000, price: 26500000 },
@@ -1281,8 +1282,11 @@
     const MASTER_FIREBASE_CONFIG = {
       databaseURL: 'https://drshockvn-75287-default-rtdb.asia-southeast1.firebasedatabase.app',
       projectId: 'drshockvn-75287',
-      apiKey: 'AIzaSyD8iJcVdRJ3XD2_YaWz8aSljJFKn7D5SKU'
+      apiKey: 'AIzaSyD8iJcVdRJ3XD2_YaWz8aSljJFKn7D5SKU',
+      authDomain: 'drshockvn-75287.firebaseapp.com'
     };
+    // Khóa reCAPTCHA v3 của Firebase App Check (tạo trong Firebase Console > App Check). Để trống = chưa bật App Check.
+    const APP_CHECK_SITE_KEY = '';
 
     function getStoredData(key, fallback) {
       try {
@@ -1311,14 +1315,16 @@
     }
 
     let currentLoggedInUser = null;
-    let selectedLoginUserId = 'admin';
     let currentQuoteItems = [];
     let currentViewingInvoice = null;
     let currentStockLogFilter = 'ALL';
     let currentEditingInvoiceItems = [];
     let currentCustomerFilter = 'ALL';
 
-    let staffList = convertToArray(getStoredData('drshock_staff_list', DEFAULT_STAFF), DEFAULT_STAFF);
+    // Dọn mã PIN cũ (nếu còn) khỏi bộ nhớ máy này
+    try { localStorage.removeItem('drshock_staff_list_safety_copy'); } catch (e) {}
+    let staffList = convertToArray(getStoredData('drshock_staff_list', DEFAULT_STAFF), DEFAULT_STAFF).map(u => { const c = Object.assign({}, u); delete c.pin; return c; });
+    try { localStorage.setItem('drshock_staff_list', JSON.stringify(staffList)); } catch (e) {}
     let inventoryList = convertToArray(getStoredData('drshock_inventory', DEFAULT_INVENTORY), DEFAULT_INVENTORY);
     let invoiceList = convertToArray(getStoredData('drshock_invoices', DEFAULT_INVOICES), DEFAULT_INVOICES);
     let stockLogList = convertToArray(getStoredData('drshock_stock_logs', DEFAULT_STOCK_LOGS), DEFAULT_STOCK_LOGS);
@@ -1525,23 +1531,29 @@
     }
 
     // KHỞI TẠO FIREBASE
+    let firebaseAuth = null;
+
+    // Bước 1 (khi mở app): khởi tạo Firebase + Auth. Chưa đọc/ghi dữ liệu nào cho tới khi nhân viên đăng nhập.
     function initFirebaseConnection() {
-      if (firebaseDb) return; // đã kết nối rồi, không khởi tạo / gắn listener lần 2
-      if (typeof firebase === 'undefined') {
+      if (firebaseAuth) return;
+      if (typeof firebase === 'undefined' || !firebase.auth) {
         updateCloudStatus(false, 'Không tải được Firebase');
-        showNotification('Máy này không tải được thư viện Firebase (gstatic.com bị chặn hoặc mất mạng). Dữ liệu sẽ KHÔNG đồng bộ!', 'error');
+        showNotification('Máy này không tải được thư viện Firebase (gstatic.com bị chặn hoặc mất mạng). Không thể đăng nhập!', 'error');
         return;
       }
       const cfg = firebaseConfig || MASTER_FIREBASE_CONFIG;
       if (!cfg || !cfg.databaseURL) return;
-
       try {
         if (!firebase.apps.length) {
           firebase.initializeApp({
             databaseURL: cfg.databaseURL,
-            projectId: cfg.projectId || 'drshockvn-75287',
-            apiKey: cfg.apiKey || 'AIzaSyD8iJcVdRJ3XD2_YaWz8aSljJFKn7D5SKU'
+            projectId: cfg.projectId || MASTER_FIREBASE_CONFIG.projectId,
+            apiKey: cfg.apiKey || MASTER_FIREBASE_CONFIG.apiKey,
+            authDomain: cfg.authDomain || MASTER_FIREBASE_CONFIG.authDomain
           });
+        }
+        if (APP_CHECK_SITE_KEY && firebase.appCheck) {
+          try { firebase.appCheck().activate(APP_CHECK_SITE_KEY, true); } catch (e) { console.warn('App Check lỗi:', e); }
         }
         // Chế độ kết nối dự phòng (long-polling) cho máy bị chặn WebSocket (diệt virus, tường lửa, proxy công ty...)
         const longPollMode = (function() { try { return localStorage.getItem('drshock_fb_longpoll') === '1'; } catch (e) { return false; } })();
@@ -1549,6 +1561,21 @@
           firebase.database.INTERNAL.forceLongPolling();
           console.info('Đang dùng chế độ kết nối dự phòng (long-polling).');
         }
+        firebaseAuth = firebase.auth();
+        updateCloudStatus(false, 'Chưa đăng nhập');
+        firebaseAuth.onAuthStateChanged(onAuthChanged);
+      } catch (err) {
+        console.error('Lỗi khởi tạo Firebase:', err);
+        updateCloudStatus(false, 'Ngoại tuyến (Offline)');
+        showNotification('Lỗi khởi tạo kết nối đám mây: ' + (err && err.message ? err.message : err), 'error');
+      }
+    }
+
+    // Bước 2: sau khi đăng nhập thành công và có quyền -> mới kết nối đồng bộ dữ liệu.
+    function startCloudSync() {
+      if (firebaseDb) return; // đã kết nối rồi, không gắn listener lần 2
+      const longPollMode = (function() { try { return localStorage.getItem('drshock_fb_longpoll') === '1'; } catch (e) { return false; } })();
+      try {
         firebaseDb = firebase.database();
         (function guardCloudWrites() {
           const rawRef = firebaseDb.ref.bind(firebaseDb);
@@ -1639,7 +1666,8 @@
       if (!firebaseDb) return;
       setupReceiptListeners();
 
-      firebaseDb.ref('garage/finance').on('value', snapshot => {
+      // Dữ liệu tài chính chỉ Chủ Xưởng được đọc (quy tắc database cũng chặn các vai trò khác)
+      if (isAdminUser()) firebaseDb.ref('garage/finance').on('value', snapshot => {
         const val = snapshot.val();
         financeReady = true;
         if (val && typeof val === 'object') {
@@ -1673,12 +1701,13 @@
         });
       };
       listenAppVersion();
+      listenAiCloudConfig();
       listenProductImages();
       listenGarageProfile();
       bindList('garage/inventory', true, () => { renderInventoryTable(); populateInventorySelector('ALL'); migrateInlineImages(); });
       bindList('garage/invoices', true, () => { renderInvoiceList(); renderCustomerAndReports(); });
       bindList('garage/stockLogs', true, () => { renderStockLogs(); updateInventoryOverviewStats(); });
-      bindList('garage/staff', false, () => { renderLoginUserList(); renderStaffCards(); populateAdvisorSelect(); });
+      bindList('garage/staff', false, () => { renderStaffCards(); populateAdvisorSelect(); syncCurrentUserFromRoster(); });
     }
 
     function syncAllToCloudForce() {
@@ -1694,8 +1723,7 @@
           Promise.all([
             firebaseDb.ref('garage/inventory').set(inventoryList),
             firebaseDb.ref('garage/invoices').set(invoiceList),
-            firebaseDb.ref('garage/stockLogs').set(stockLogList),
-            firebaseDb.ref('garage/staff').set(staffList)
+            firebaseDb.ref('garage/stockLogs').set(stockLogList)
           ]).then(() => showNotification('Đã đồng bộ toàn bộ dữ liệu xưởng lên đám mây!', 'success'))
             .catch(() => showNotification('Lỗi đồng bộ lên đám mây!', 'error'));
         }
@@ -1722,144 +1750,128 @@
       setTimeout(() => location.reload(), 900);
     }
 
-    // ĐĂNG NHẬP
-    function renderLoginUserList() {
-      const container = document.getElementById('login-user-list');
-      if (!container) return;
+    // ĐĂNG NHẬP (Firebase Authentication: email + mật khẩu)
+    const ROLE_TITLES = { admin: 'Chủ Xưởng (Admin)', stock: 'Quản Lý Phụ Tùng & Kho', tech: 'Kỹ Thuật Viên Tiếp Nhận' };
 
-      if (!selectedLoginUserId) selectedLoginUserId = 'admin';
+    function renderLoginUserList() { /* không còn danh sách chọn tài khoản: đăng nhập bằng email */ }
 
-      container.innerHTML = staffList.map(s => {
-        const isSelected = (s.id === selectedLoginUserId);
-        let icon = 'fa-user';
-        let iconColor = 'text-gray-400';
-        let borderClass = isSelected ? 'bg-red-950/40 border-red-500' : 'bg-gray-800/60 border-gray-700 hover:border-gray-600';
-        
-        if (s.role === 'admin') {
-          icon = 'fa-user-shield';
-          iconColor = 'text-red-400';
-        } else if (s.role === 'tech') {
-          icon = 'fa-wrench';
-          iconColor = 'text-sky-400';
-        } else if (s.role === 'stock') {
-          icon = 'fa-boxes-stacked';
-          iconColor = 'text-emerald-400';
-        }
-
-        return `
-          <div id="card-user-${s.id}" onclick="selectUserLogin('${s.id}')" 
-            class="user-card cursor-pointer p-2.5 sm:p-3 rounded-xl border flex items-center justify-between transition ${borderClass} active:scale-[0.99]">
-            <div class="flex items-center space-x-2.5">
-              <div class="w-9 h-9 rounded-xl bg-gray-800/80 border border-gray-700 flex items-center justify-center font-bold text-sm ${iconColor}">
-                <i class="fa-solid ${icon}"></i>
-              </div>
-              <div>
-                <p class="text-sm font-bold text-white leading-tight">${esc(s.name)}</p>
-                <p class="text-[11px] text-orange-400 font-medium">${esc(s.roleTitle || s.name)}</p>
-              </div>
-            </div>
-            <i id="check-user-${s.id}" class="fa-solid fa-circle-check text-red-500 text-base ${isSelected ? '' : 'hidden'}"></i>
-          </div>
-        `;
-      }).join('');
+    function showLoginError(msg) {
+      const errBox = document.getElementById('login-error-msg');
+      const errText = document.getElementById('login-error-text');
+      if (errBox && errText) { errText.textContent = msg; errBox.classList.remove('hidden'); }
     }
 
-    function selectUserLogin(id) {
-      selectedLoginUserId = id;
-      staffList.forEach(u => {
-        const card = document.getElementById('card-user-' + u.id);
-        const check = document.getElementById('check-user-' + u.id);
-        if (card && check) {
-          if (u.id === id) {
-            card.className = "user-card cursor-pointer p-2.5 sm:p-3 rounded-xl border flex items-center justify-between transition bg-red-950/40 border-red-500 active:scale-[0.99]";
-            check.classList.remove('hidden');
-          } else {
-            card.className = "user-card cursor-pointer p-2.5 sm:p-3 rounded-xl border flex items-center justify-between transition bg-gray-800/60 border-gray-700 hover:border-gray-600 active:scale-[0.99]";
-            check.classList.add('hidden');
-          }
-        }
-      });
-
-      const errBox = document.getElementById('login-error-msg');
-      if (errBox) errBox.classList.add('hidden');
-      const pinInput = document.getElementById('login-pin-input');
-      if (pinInput) {
-        pinInput.value = '';
-        pinInput.focus();
-      }
+    function authErrorMessage(err) {
+      const c = (err && err.code) || '';
+      if (c === 'auth/invalid-credential' || c === 'auth/user-not-found' || c === 'auth/wrong-password' || c === 'auth/invalid-login-credentials') return 'Sai email hoặc mật khẩu!';
+      if (c === 'auth/invalid-email') return 'Email không hợp lệ!';
+      if (c === 'auth/user-disabled') return 'Tài khoản này đã bị khóa. Liên hệ Chủ Xưởng.';
+      if (c === 'auth/too-many-requests') return 'Thử sai quá nhiều lần. Vui lòng đợi vài phút rồi thử lại.';
+      if (c === 'auth/network-request-failed') return 'Mất kết nối mạng. Kiểm tra internet rồi thử lại.';
+      if (c === 'auth/operation-not-allowed') return 'Chưa bật đăng nhập Email/Mật khẩu trong Firebase Console.';
+      return 'Lỗi đăng nhập: ' + ((err && (err.code || err.message)) || 'không rõ');
     }
 
     function handleLoginSubmit() {
       const errBox = document.getElementById('login-error-msg');
-      const errText = document.getElementById('login-error-text');
-      const pinInput = document.getElementById('login-pin-input');
-      const pin = pinInput ? pinInput.value.trim() : '';
-
-      const user = staffList.find(u => u.id === selectedLoginUserId) || DEFAULT_STAFF.find(u => u.id === selectedLoginUserId);
-      if (!user) {
-        if (errBox && errText) {
-          errText.textContent = 'Vui lòng chọn 1 tài khoản!';
-          errBox.classList.remove('hidden');
-        }
-        return;
-      }
-
-      if (!pin) {
-        if (errBox && errText) {
-          errText.textContent = 'Vui lòng nhập mã PIN!';
-          errBox.classList.remove('hidden');
-        }
-        pinInput.focus();
-        return;
-      }
-
-      if (String(user.pin).trim() !== String(pin).trim()) {
-        if (errBox && errText) {
-          errText.textContent = 'Mã PIN không chính xác!';
-          errBox.classList.remove('hidden');
-        }
-        pinInput.value = '';
-        pinInput.focus();
-        return;
-      }
-
       if (errBox) errBox.classList.add('hidden');
+      if (!firebaseAuth) { showLoginError('Chưa kết nối được Firebase. Kiểm tra mạng rồi tải lại trang.'); return; }
+      const email = (document.getElementById('login-email-input').value || '').trim();
+      const pass = document.getElementById('login-pass-input').value || '';
+      if (!email || !pass) { showLoginError('Vui lòng nhập email và mật khẩu!'); return; }
+      const btn = document.getElementById('login-submit-btn');
+      if (btn) btn.disabled = true;
+      firebaseAuth.signInWithEmailAndPassword(email, pass)
+        .catch(err => { showLoginError(authErrorMessage(err)); document.getElementById('login-pass-input').value = ''; })
+        .then(() => { if (btn) btn.disabled = false; });
+    }
+
+    function handleForgotPassword() {
+      if (!firebaseAuth) return;
+      const email = (document.getElementById('login-email-input').value || '').trim();
+      if (!email) { showLoginError('Nhập email của bạn vào ô Email rồi bấm lại "Quên mật khẩu".'); return; }
+      firebaseAuth.sendPasswordResetEmail(email)
+        .then(() => showNotification('Nếu email này có tài khoản, một thư đặt lại mật khẩu đã được gửi.', 'success'))
+        .catch(err => showLoginError(authErrorMessage(err)));
+    }
+
+    // Được gọi mỗi khi trạng thái đăng nhập thay đổi (kể cả tự đăng nhập lại khi mở app)
+    async function onAuthChanged(fbUser) {
+      if (!fbUser) {
+        if (currentLoggedInUser) { location.reload(); return; } // vừa đăng xuất: tải lại để xóa sạch dữ liệu/listener
+        document.getElementById('main-app').classList.add('hidden');
+        document.getElementById('login-screen').classList.remove('hidden');
+        return;
+      }
+      try {
+        const snap = await firebase.database().ref('roles/' + fbUser.uid).once('value');
+        const role = snap.val();
+        if (!ROLE_TITLES[role]) {
+          showLoginError('Tài khoản chưa được cấp quyền sử dụng. Vui lòng liên hệ Chủ Xưởng.');
+          await firebaseAuth.signOut();
+          return;
+        }
+        enterApp({ id: fbUser.uid, email: fbUser.email || '', name: (fbUser.email || '').split('@')[0], role: role, roleTitle: ROLE_TITLES[role] });
+      } catch (err) {
+        console.error('Không đọc được quyền:', err);
+        showLoginError('Không đọc được quyền tài khoản (' + ((err && err.code) || 'lỗi mạng') + '). Thử lại hoặc liên hệ Chủ Xưởng.');
+        try { await firebaseAuth.signOut(); } catch (e) {}
+      }
+    }
+
+    function enterApp(user) {
       currentLoggedInUser = user;
-      try { sessionStorage.setItem('drshock_session_uid', user.id); } catch (e) {}
+      const pass = document.getElementById('login-pass-input'); if (pass) pass.value = '';
+      document.getElementById('login-error-msg').classList.add('hidden');
       document.getElementById('login-screen').classList.add('hidden');
       document.getElementById('main-app').classList.remove('hidden');
-
-      document.getElementById('current-user-name').textContent = user.name;
-      document.getElementById('current-user-role').textContent = user.roleTitle || user.name;
-
-      const adminTabs = document.querySelectorAll('.admin-only');
-      if (user.role === 'admin') {
-        adminTabs.forEach(el => el.classList.remove('hidden'));
-      } else {
-        adminTabs.forEach(el => el.classList.add('hidden'));
-      }
-
-      const isStockManager = (user.role === 'admin' || user.role === 'stock');
-      const stockControls = document.querySelectorAll('.stock-manage-only');
-      stockControls.forEach(el => {
-        if (isStockManager) el.classList.remove('hidden');
-        else el.classList.add('hidden');
-      });
-      
-      showNotification(`Xin chào ${user.name}!`, 'success');
+      startCloudSync();
+      applyCurrentUserUi();
+      showNotification(`Xin chào ${currentLoggedInUser.name}!`, 'success');
       renderInvoiceList();
       renderInventoryTable();
       switchTab('tab-quote');
     }
 
+    function applyCurrentUserHeader() {
+      const user = currentLoggedInUser;
+      if (!user) return;
+      document.getElementById('current-user-name').textContent = user.name;
+      document.getElementById('current-user-role').textContent = user.roleTitle || user.name;
+    }
+
+    function applyCurrentUserUi() {
+      const user = currentLoggedInUser;
+      if (!user) return;
+      applyCurrentUserHeader();
+      document.querySelectorAll('.admin-only').forEach(el => el.classList.toggle('hidden', user.role !== 'admin'));
+      const isStockManager = (user.role === 'admin' || user.role === 'stock');
+      document.querySelectorAll('.stock-manage-only').forEach(el => el.classList.toggle('hidden', !isStockManager));
+    }
+
+    // Khi danh sách nhân viên tải xong: lấy tên hiển thị, tự thêm hồ sơ cho chủ xưởng đầu tiên, dọn mã PIN cũ còn sót trên đám mây
+    let _staffMaintained = false;
+    function syncCurrentUserFromRoster() {
+      const me = currentLoggedInUser;
+      if (!me) return;
+      const entry = staffList.find(u => u.id === me.id);
+      if (entry && entry.name && entry.name !== me.name) { me.name = entry.name; applyCurrentUserHeader(); }
+      if (_staffMaintained || me.role !== 'admin' || !cloudReady['garage/staff']) return;
+      const needsProfile = !entry;
+      const hasPin = staffList.some(u => u && u.pin != null);
+      if (!needsProfile && !hasPin) { _staffMaintained = true; return; }
+      _staffMaintained = true;
+      cloudUpdateList('garage/staff', list => {
+        list = list.map(u => { const c = Object.assign({}, u); delete c.pin; return c; });
+        if (!list.some(u => u.id === me.id)) list.push({ id: me.id, name: me.name, role: me.role, roleTitle: me.roleTitle, email: me.email });
+        return list;
+      });
+    }
+
     function handleLogout() {
-      currentLoggedInUser = null;
       try { sessionStorage.removeItem('drshock_session_uid'); } catch (e) {}
-      const pinInput = document.getElementById('login-pin-input');
-      if (pinInput) pinInput.value = '';
-      document.getElementById('main-app').classList.add('hidden');
-      document.getElementById('login-screen').classList.remove('hidden');
-      selectUserLogin('admin');
+      if (firebaseAuth) firebaseAuth.signOut().then(() => location.reload()).catch(() => location.reload());
+      else location.reload();
     }
 
     function switchTab(tabId) {
@@ -4191,28 +4203,30 @@
     function renderStaffCards() {
       const container = document.getElementById('staff-cards-container');
       if (!container) return;
-      container.innerHTML = staffList.map((s, idx) => {
-        const isMasterAdmin = (s.id === 'admin');
+      const myId = currentLoggedInUser && currentLoggedInUser.id;
+      container.innerHTML = staffList.map(s => {
+        const isSelf = (s.id === myId);
+        const hasAccount = !!s.email;
         return `
           <div class="bg-gray-800/60 border border-gray-700/60 rounded-xl p-3 flex items-center justify-between gap-2.5">
             <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-2">
-                <p class="text-xs sm:text-sm font-bold text-white">${esc(s.name)}</p>
-                <span class="text-[10px] px-1.5 py-0.2 rounded bg-orange-950/60 text-orange-400 border border-orange-500/30 font-semibold">${s.roleTitle || s.name}</span>
+              <div class="flex items-center gap-2 flex-wrap">
+                <p class="text-xs sm:text-sm font-bold text-white">${esc(s.name)}${isSelf ? ' (bạn)' : ''}</p>
+                <span class="text-[10px] px-1.5 py-0.2 rounded bg-orange-950/60 text-orange-400 border border-orange-500/30 font-semibold">${esc(s.roleTitle || s.name)}</span>
               </div>
-              <p class="text-[10px] text-gray-400 mt-1">${s.role === 'admin' ? 'Toàn quyền 1-8' : (s.role === 'stock' ? 'Quyền Lập Bill, Quản Lý Kho & Sửa Hóa Đơn' : 'Tiếp nhận xe, lập bill & in hóa đơn')}</p>
+              <p class="text-[10px] mt-1 ${hasAccount ? 'text-sky-300' : 'text-red-400'} truncate">${hasAccount ? esc(s.email) : 'Hồ sơ cũ, không có tài khoản email - hãy tạo tài khoản mới rồi xóa hồ sơ này'}</p>
+              <p class="text-[10px] text-gray-400 mt-0.5">${s.role === 'admin' ? 'Toàn quyền 1-8' : (s.role === 'stock' ? 'Quyền Lập Bill, Quản Lý Kho & Sửa Hóa Đơn' : 'Tiếp nhận xe, lập bill & in hóa đơn')}</p>
             </div>
             <div class="flex items-center gap-2 shrink-0">
-              <div class="text-right">
-                <span class="text-[10px] text-gray-400 block font-semibold mb-0.5">Mã PIN</span>
-                <input type="text" value="${esc(s.pin)}" maxlength="6" inputmode="numeric" onchange="updateStaffPin('${esc(s.id)}', this.value)" 
-                  class="w-16 bg-gray-900 border border-gray-700 rounded-lg px-1.5 py-1 text-center font-mono text-xs font-bold text-amber-400 focus:border-red-500">
-              </div>
-              ${!isMasterAdmin ? `
-                <button onclick="openModalEditStaff('${s.id}')" title="Sửa nhân viên" class="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-amber-300 text-xs">
-                  <i class="fa-solid fa-pen"></i>
-                </button>
-                <button onclick="deleteStaff('${s.id}')" title="Xóa nhân viên" class="p-2 bg-gray-800 hover:bg-red-950/60 text-gray-500 hover:text-red-400 rounded-lg text-xs">
+              ${hasAccount ? `
+                <button onclick="sendStaffPasswordReset('${esc(s.email)}')" title="Gửi email đặt lại mật khẩu" class="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sky-300 text-xs">
+                  <i class="fa-solid fa-key"></i>
+                </button>` : ''}
+              <button onclick="openModalEditStaff('${esc(s.id)}')" title="Sửa nhân viên" class="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-amber-300 text-xs">
+                <i class="fa-solid fa-pen"></i>
+              </button>
+              ${!isSelf ? `
+                <button onclick="deleteStaff('${esc(s.id)}')" title="Xóa nhân viên" class="p-2 bg-gray-800 hover:bg-red-950/60 text-gray-500 hover:text-red-400 rounded-lg text-xs">
                   <i class="fa-solid fa-trash-can"></i>
                 </button>
               ` : ''}
@@ -4227,7 +4241,9 @@
       document.getElementById('staff-modal-id').value = '';
       document.getElementById('staff-modal-name').value = '';
       document.getElementById('staff-modal-role').value = 'tech';
-      document.getElementById('staff-modal-pin').value = '';
+      const em = document.getElementById('staff-modal-email'); em.value = ''; em.disabled = false;
+      document.getElementById('staff-modal-pass').value = '';
+      document.getElementById('staff-modal-pass-wrap').classList.remove('hidden');
       document.getElementById('staff-modal').classList.remove('hidden');
     }
 
@@ -4238,7 +4254,8 @@
       document.getElementById('staff-modal-id').value = s.id;
       document.getElementById('staff-modal-name').value = s.name;
       document.getElementById('staff-modal-role').value = s.role;
-      document.getElementById('staff-modal-pin').value = s.pin;
+      const em = document.getElementById('staff-modal-email'); em.value = s.email || ''; em.disabled = true;
+      document.getElementById('staff-modal-pass-wrap').classList.add('hidden');
       document.getElementById('staff-modal').classList.remove('hidden');
     }
 
@@ -4246,83 +4263,103 @@
       document.getElementById('staff-modal').classList.add('hidden');
     }
 
-    function handleSaveStaffModal() {
+    // Tạo tài khoản đăng nhập bằng 1 app Firebase phụ để Chủ Xưởng không bị đăng xuất
+    async function createAuthAccount(email, password) {
+      const cfg = MASTER_FIREBASE_CONFIG;
+      let sec = firebase.apps.find(a => a.name === 'secondary');
+      if (!sec) sec = firebase.initializeApp({ apiKey: cfg.apiKey, authDomain: cfg.authDomain, projectId: cfg.projectId, databaseURL: cfg.databaseURL }, 'secondary');
+      const cred = await sec.auth().createUserWithEmailAndPassword(email, password);
+      const uid = cred.user.uid;
+      await sec.auth().signOut();
+      return uid;
+    }
+
+    async function handleSaveStaffModal() {
+      if (!isAdminUser()) { showNotification('Chỉ Chủ Xưởng mới được quản lý nhân viên!', 'warning'); return; }
       const id = document.getElementById('staff-modal-id').value.trim();
       const name = document.getElementById('staff-modal-name').value.trim();
       const role = document.getElementById('staff-modal-role').value;
-      const pin = document.getElementById('staff-modal-pin').value.trim();
+      const email = document.getElementById('staff-modal-email').value.trim().toLowerCase();
+      const pass = document.getElementById('staff-modal-pass').value;
 
-      if (!name) {
-        showNotification('Vui lòng nhập tên nhân viên!', 'warning');
-        return;
-      }
-      if (!pin) {
-        showNotification('Vui lòng nhập mã PIN!', 'warning');
-        return;
+      if (!name) { showNotification('Vui lòng nhập tên nhân viên!', 'warning'); return; }
+      if (!ROLE_TITLES[role]) { showNotification('Vai trò không hợp lệ!', 'warning'); return; }
+      if (!id) {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showNotification('Vui lòng nhập email hợp lệ!', 'warning'); return; }
+        if (pass.length < 8) { showNotification('Mật khẩu ban đầu phải từ 8 ký tự trở lên!', 'warning'); return; }
       }
       if (!cloudWritable(['garage/staff'])) return;
 
-      const roleTitles = {
-        admin: 'Chủ Xưởng (Admin)',
-        stock: 'Quản Lý Phụ Tùng & Kho',
-        tech: 'Kỹ Thuật Viên Tiếp Nhận'
-      };
-
-      // Ghi bằng transaction trên bản mới nhất ở đám mây (trước đây ghi đè cả danh sách nhân viên từ bản trên máy)
-      const newId = 'user_' + Date.now().toString(36);
-      cloudUpdateList('garage/staff', list => {
-        if (!list.length) list = cleanJson(staffList);
+      try {
+        let uid = id;
         if (id) {
-          const s = list.find(u => u.id === id);
-          if (s) Object.assign(s, { name: name, role: role, roleTitle: roleTitles[role] || name, pin: pin });
+          if (id === currentLoggedInUser.id && role !== 'admin') { showNotification('Không thể tự hạ quyền của chính mình!', 'warning'); return; }
+          // Hồ sơ cũ chưa có tài khoản email thì không có quyền trong database -> không ghi roles
+          const cur = staffList.find(u => u.id === id);
+          if (cur && cur.email) await firebaseDb.ref('roles/' + id).set(role);
         } else {
-          list.push({ id: newId, name: name, role: role, roleTitle: roleTitles[role] || name, pin: pin });
+          uid = await createAuthAccount(email, pass);
+          await firebaseDb.ref('roles/' + uid).set(role);
         }
-        return list;
-      }).then(res => {
+        const res = await cloudUpdateList('garage/staff', list => {
+          if (id) {
+            const s = list.find(u => u.id === id);
+            if (s) Object.assign(s, { name: name, role: role, roleTitle: ROLE_TITLES[role] });
+          } else {
+            list.push({ id: uid, name: name, role: role, roleTitle: ROLE_TITLES[role], email: email });
+          }
+          return list;
+        });
         if (res === false) return;
-        showNotification(id ? `Đã cập nhật nhân viên ${name}!` : `Đã thêm nhân viên ${name}!`, 'success');
+        showNotification(id ? `Đã cập nhật nhân viên ${name}!` : `Đã tạo tài khoản cho ${name}. Hãy gửi email + mật khẩu ban đầu cho nhân viên.`, 'success');
         renderStaffCards();
-        renderLoginUserList();
         populateAdvisorSelect();
-      });
-      closeStaffModal();
+        closeStaffModal();
+      } catch (err) {
+        const c = (err && err.code) || '';
+        const msg = c === 'auth/email-already-in-use' ? 'Email này đã có tài khoản!'
+          : c === 'auth/weak-password' ? 'Mật khẩu quá yếu!'
+          : c === 'auth/invalid-email' ? 'Email không hợp lệ!'
+          : c === 'auth/operation-not-allowed' ? 'Chưa bật đăng nhập Email/Mật khẩu trong Firebase Console!'
+          : 'Không lưu được nhân viên: ' + (c || (err && err.message) || 'lỗi không rõ');
+        showNotification(msg, 'error');
+      }
+    }
+
+    function sendStaffPasswordReset(email) {
+      if (!firebaseAuth || !email) return;
+      firebaseAuth.sendPasswordResetEmail(email)
+        .then(() => showNotification('Đã gửi email đặt lại mật khẩu tới ' + email, 'success'))
+        .catch(err => showNotification('Không gửi được email: ' + ((err && err.code) || 'lỗi'), 'error'));
     }
 
     function deleteStaff(id) {
-      if (id === 'admin') {
-        showNotification('Không thể xóa tài khoản Chủ Xưởng gốc!', 'warning');
+      if (!isAdminUser()) { showNotification('Chỉ Chủ Xưởng mới được xóa nhân viên!', 'warning'); return; }
+      if (currentLoggedInUser && id === currentLoggedInUser.id) {
+        showNotification('Không thể xóa tài khoản của chính mình!', 'warning');
         return;
       }
       showConfirmModal(
         'Xác Nhận Xóa Nhân Viên',
-        'Bạn có chắc chắn muốn xóa nhân viên này khỏi hệ thống?',
-        () => {
+        'Nhân viên sẽ mất quyền truy cập dữ liệu ngay lập tức. (Nên xóa luôn tài khoản trong Firebase Console > Authentication.) Tiếp tục?',
+        async () => {
           if (!cloudWritable(['garage/staff'])) return;
-          cloudUpdateList('garage/staff', list => {
-            const next = list.filter(u => u.id !== id);
-            return next.length ? next : list; // không bao giờ xóa trống danh sách nhân viên
-          }).then(res => {
+          try {
+            const cur = staffList.find(u => u.id === id);
+            if (cur && cur.email) await firebaseDb.ref('roles/' + id).remove(); // thu hồi quyền trước
+            const res = await cloudUpdateList('garage/staff', list => {
+              const next = list.filter(u => u.id !== id);
+              return next.length ? next : list; // không bao giờ xóa trống danh sách nhân viên
+            });
             if (res === false) return;
             renderStaffCards();
-            renderLoginUserList();
             populateAdvisorSelect();
-            showNotification('Đã xóa nhân viên thành công!', 'info');
-          });
+            showNotification('Đã xóa nhân viên và thu hồi quyền truy cập!', 'info');
+          } catch (err) {
+            showNotification('Không xóa được nhân viên: ' + ((err && err.code) || 'lỗi'), 'error');
+          }
         }
       );
-    }
-
-    // Nhận mã nhân viên thay vì vị trí trong danh sách (vị trí có thể đã đổi nếu máy khác vừa thêm/xóa nhân viên)
-    function updateStaffPin(staffId, newPin) {
-      if (!newPin.trim()) return;
-      if (!cloudWritable(['garage/staff'])) { renderStaffCards(); return; }
-      if (typeof staffId === 'number') staffId = staffList[staffId] && staffList[staffId].id;
-      cloudUpdateList('garage/staff', list => {
-        const s = list.find(u => u.id === staffId);
-        if (s) s.pin = newPin.trim();
-        return list;
-      }).then(res => { if (res !== false) showNotification('Đã lưu mã PIN mới!', 'success'); });
     }
 
     // ==========================================
@@ -4522,19 +4559,16 @@
                 inventoryList = parsed.inventory || [];
                 invoiceList = parsed.invoices || [];
                 stockLogList = parsed.stockLogs || [];
-                if (parsed.staff && parsed.staff.length) staffList = parsed.staff;
 
                 setStoredData('drshock_inventory', inventoryList);
                 setStoredData('drshock_invoices', invoiceList);
                 setStoredData('drshock_stock_logs', stockLogList);
-                setStoredData('drshock_staff_list', staffList);
 
                 if (firebaseDb) {
                   Promise.all([
                     firebaseDb.ref('garage/inventory').set(inventoryList),
                     firebaseDb.ref('garage/invoices').set(invoiceList),
                     firebaseDb.ref('garage/stockLogs').set(stockLogList),
-                    firebaseDb.ref('garage/staff').set(staffList),
                     (parsed.productImages && typeof parsed.productImages === 'object') ? firebaseDb.ref('garage/productImages').update(parsed.productImages) : null,
                     (parsed.profile && typeof parsed.profile === 'object') ? firebaseDb.ref('garage/profile').set(parsed.profile) : null
                   ]).then(() => migrateInlineImages())
@@ -6348,19 +6382,7 @@
     }
 
     initAiAssistant();
-    listenAiCloudConfig();
 
-    // Tự đăng nhập lại sau khi trang tải lại (Kết nối lại / chuyển chế độ dự phòng) - chỉ trong cùng tab đang mở
-    (function restoreSession() {
-      let uid = '';
-      try { uid = sessionStorage.getItem('drshock_session_uid') || ''; } catch (e) {}
-      const u = uid && staffList.find(x => x.id === uid);
-      if (!u) return;
-      selectedLoginUserId = u.id;
-      const pin = document.getElementById('login-pin-input');
-      if (pin) pin.value = u.pin;
-      handleLoginSubmit();
-    })();
   </script>
 </body>
 </html>

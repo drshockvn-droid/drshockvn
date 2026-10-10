@@ -1,0 +1,63 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "roles": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('roles').child(auth.uid).val() === 'admin')",
+        ".write": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'",
+        ".validate": "newData.isString() && (newData.val() === 'admin' || newData.val() === 'stock' || newData.val() === 'tech')"
+      }
+    },
+    "garage": {
+      "inventory": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).exists()",
+        ".write": "auth != null && root.child('roles').child(auth.uid).exists()"
+      },
+      "invoices": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).exists()",
+        ".write": "auth != null && root.child('roles').child(auth.uid).exists()"
+      },
+      "stockLogs": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).exists()",
+        ".write": "auth != null && root.child('roles').child(auth.uid).exists()"
+      },
+      "meta": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).exists()",
+        ".write": "auth != null && root.child('roles').child(auth.uid).exists()"
+      },
+      "staff": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).exists()",
+        ".write": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'"
+      },
+      "profile": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).exists()",
+        ".write": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'"
+      },
+      "aiConfig": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).exists()",
+        ".write": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'"
+      },
+      "finance": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'",
+        ".write": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'"
+      },
+      "productImages": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).exists()",
+        ".write": "auth != null && (root.child('roles').child(auth.uid).val() === 'admin' || root.child('roles').child(auth.uid).val() === 'stock')"
+      },
+      "receipts": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).exists()",
+        ".write": "auth != null && (root.child('roles').child(auth.uid).val() === 'admin' || root.child('roles').child(auth.uid).val() === 'stock')"
+      },
+      "receiptPhotos": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).exists()",
+        ".write": "auth != null && (root.child('roles').child(auth.uid).val() === 'admin' || root.child('roles').child(auth.uid).val() === 'stock')"
+      },
+      "notifications": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).exists()",
+        ".write": "auth != null && (root.child('roles').child(auth.uid).val() === 'admin' || root.child('roles').child(auth.uid).val() === 'stock')"
+      }
+    }
+  }
+}
