@@ -1377,10 +1377,13 @@
       }
       return new Promise(resolve => {
         let finished = false;
+        pendingCloudWrites++;
+        refreshPendingBadge();
         const timer = setTimeout(() => {
           if (finished) return;
           finished = true;
-          showNotification('Mạng chậm: dữ liệu đã lưu tạm trên máy, sẽ tự đồng bộ khi kết nối ổn định.', 'warning');
+          // Lệnh ghi vẫn đang chờ gửi lên đám mây (KHÔNG được lưu lại nếu tắt/tải lại trang)
+          showNotification('Mạng chậm: đang chờ gửi dữ liệu lên đám mây. ĐỪNG tắt hoặc tải lại app cho tới khi huy hiệu hết báo "đang gửi".', 'warning');
           resolve(null);
         }, 12000);
         firebaseDb.ref(path).transaction(cur => {
@@ -1388,12 +1391,18 @@
           catch (e) { console.error('Lỗi cập nhật ' + path, e); return undefined; }
         }, (err, committed, snap) => {
           clearTimeout(timer);
-          if (finished) return;
+          pendingCloudWrites = Math.max(0, pendingCloudWrites - 1);
+          refreshPendingBadge();
+          if (finished) {
+            if (err || !committed) showNotification('Lệnh ghi chậm lên đám mây (' + path + ') đã thất bại: ' + ((err && (err.code || err.message)) || 'bị từ chối') + '. Vui lòng kiểm tra lại dữ liệu vừa nhập!', 'error');
+            else showNotification('Đã gửi xong dữ liệu chờ lên đám mây.', 'success');
+            return;
+          }
           finished = true;
           if (err || !committed) {
             console.error('Không ghi được ' + path, err);
             showNotification('Không lưu được lên đám mây (' + ((err && (err.code || err.message)) || 'bị từ chối') + '). Kiểm tra mạng / quyền truy cập Firebase!', 'error');
-            resolve(null);
+            resolve(false); // false = thất bại hẳn; null = còn đang chờ (mạng chậm)
           } else {
             resolve(convertToArray(snap.val(), []));
           }
@@ -1401,16 +1410,39 @@
       });
     }
 
-    function applyStockDeltas(list, deltas, costs) {
+    // trace (không bắt buộc): ghi lại tồn TRƯỚC/SAU tính trên bản mới nhất ở đám mây,
+    // để nhật ký kho đúng kể cả khi máy khác vừa thay đổi tồn kho (trước đây lấy từ bản trên máy, có thể đã cũ)
+    function applyStockDeltas(list, deltas, costs, trace) {
+      if (trace) Object.keys(trace).forEach(k => delete trace[k]); // transaction có thể chạy lại nhiều lần
       list.forEach(p => {
-        if (deltas[p.id] != null) p.stock = Math.max(0, Math.round(((parseFloat(p.stock) || 0) + deltas[p.id]) * 10) / 10);
+        if (deltas[p.id] != null) {
+          const before = parseFloat(p.stock) || 0;
+          p.stock = Math.max(0, Math.round((before + deltas[p.id]) * 10) / 10);
+          if (trace) trace[p.id] = { id: p.id, name: p.name, unit: p.unit || 'Cái', before: before, after: p.stock };
+        }
         if (costs && costs[p.id] > 0) p.costPrice = costs[p.id];
       });
       return list;
     }
 
+    function traceToLogs(trace, type, note) {
+      return Object.values(trace).map(t => [typeof type === 'function' ? type(t) : type, t.id, t.name, t.unit, t.before, t.after, typeof note === 'function' ? note(t) : note]);
+    }
+
+    // ===== ĐẾM LỆNH GHI ĐANG CHỜ GỬI LÊN ĐÁM MÂY =====
+    // Transaction của Firebase KHÔNG được lưu lại khi tắt/tải lại trang -> cảnh báo trước khi rời trang.
+    let pendingCloudWrites = 0;
+    function refreshPendingBadge() { refreshCloudBadge(); }
+    window.addEventListener('beforeunload', e => {
+      if (pendingCloudWrites > 0) { e.preventDefault(); e.returnValue = 'Dữ liệu chưa gửi xong lên đám mây!'; return e.returnValue; }
+    });
+
     // Trước khi dữ liệu đám mây thay thế dữ liệu trên máy: giữ lại 1 bản dự phòng trên máy
+    // (chỉ chụp 1 lần mỗi lần mở app, tránh nhân đôi dung lượng localStorage sau mỗi lần cập nhật)
+    const _safetyCopied = {};
     function keepLocalSafetyCopy(nodePath) {
+      if (_safetyCopied[nodePath]) return;
+      _safetyCopied[nodePath] = true;
       try {
         const lsKey = CLOUD_LOCAL_KEYS[nodePath];
         if (!lsKey) return;
@@ -1429,7 +1461,8 @@
       if (!firebaseDb) return;
       const keys = Object.keys(CLOUD_LOCAL_KEYS);
       const ready = keys.filter(k => cloudReady[k]).length;
-      if (Object.keys(cloudErrors).length) updateCloudStatus(false, 'Lỗi đám mây');
+      if (pendingCloudWrites > 0) updateCloudStatus(false, 'Đang gửi ' + pendingCloudWrites + ' thay đổi...' + (cloudState.connected ? '' : ' (mất mạng)'));
+      else if (Object.keys(cloudErrors).length) updateCloudStatus(false, 'Lỗi đám mây');
       else if (ready === keys.length) updateCloudStatus(cloudState.connected, cloudState.connected ? ('Đám mây: Trực tuyến' + (cloudState.longPoll ? ' (dự phòng)' : '')) : 'Mất kết nối đám mây');
       else if (!cloudState.connected) updateCloudStatus(false, cloudState.everConnected ? 'Mất kết nối đám mây' : (cloudState.timedOut ? 'Chưa đồng bộ' : 'Đang kết nối...'));
       else updateCloudStatus(false, (cloudState.timedOut ? 'Chưa đồng bộ' : 'Đang tải dữ liệu') + ' (' + ready + '/' + keys.length + ')');
@@ -1617,22 +1650,27 @@
       const bindList = (path, canBeEmpty, afterUpdate) => {
         firebaseDb.ref(path).on('value', snapshot => {
           const val = snapshot.val();
-          const wasReady = cloudReady[path];
           cloudReady[path] = true;
           const meta = CLOUD_LISTS[path];
           if (val) {
             keepLocalSafetyCopy(path);
             meta.set(convertToArray(val, meta.get()));
-          } else if (wasReady && canBeEmpty) {
+          } else if (canBeEmpty) {
+            // Đám mây trống = dữ liệu thật là trống. Trước đây lần tải đầu bỏ qua -> máy này cứ hiện
+            // dữ liệu mẫu/cũ (tồn kho, hóa đơn) khác với các máy khác. Bản cũ vẫn được giữ ở *_safety_copy.
+            keepLocalSafetyCopy(path);
             meta.set([]);
           } else {
+            afterUpdate();
             return;
           }
           setStoredData(meta.key, meta.get());
           afterUpdate();
         });
       };
-      bindList('garage/inventory', true, () => { renderInventoryTable(); populateInventorySelector('ALL'); });
+      listenProductImages();
+      listenGarageProfile();
+      bindList('garage/inventory', true, () => { renderInventoryTable(); populateInventorySelector('ALL'); migrateInlineImages(); });
       bindList('garage/invoices', true, () => { renderInvoiceList(); renderCustomerAndReports(); });
       bindList('garage/stockLogs', true, () => { renderStockLogs(); updateInventoryOverviewStats(); });
       bindList('garage/staff', false, () => { renderLoginUserList(); renderStaffCards(); populateAdvisorSelect(); });
@@ -1991,12 +2029,15 @@
       }
     }
 
-    function logStockEvent(type, itemId, itemName, unit, beforeQty, afterQty, note) {
+    let _logSeq = 0;
+    function makeStockLog(type, itemId, itemName, unit, beforeQty, afterQty, note) {
       const diff = Math.round((afterQty - beforeQty) * 10) / 10;
       const userName = (currentLoggedInUser && currentLoggedInUser.name) ? currentLoggedInUser.name : 'Chủ Xưởng';
-      const newLog = {
-        id: 'LOG-' + Date.now().toString().slice(-6),
-        time: new Date().toLocaleDateString('vi-VN') + ' ' + new Date().toLocaleTimeString('vi-VN'),
+      const now = new Date();
+      return {
+        // Mã cũ chỉ lấy 6 số cuối của mili-giây -> nhiều dòng log cùng lúc bị trùng mã
+        id: 'LOG-' + now.getTime().toString(36).toUpperCase() + '-' + (++_logSeq) + Math.random().toString(36).slice(2, 4).toUpperCase(),
+        time: now.toLocaleDateString('vi-VN') + ' ' + now.toLocaleTimeString('vi-VN'),
         type: type,
         itemId: itemId || '---',
         itemName: itemName || 'Phụ tùng',
@@ -2007,11 +2048,22 @@
         user: userName,
         note: note || ''
       };
-      cloudUpdateList('garage/stockLogs', list => {
-        list.unshift(newLog);
+    }
+
+    // Ghi NHIỀU dòng nhật ký trong 1 lần (trước đây mỗi món hàng tạo 1 transaction riêng gửi cả
+    // danh sách 1000 dòng -> nhiều máy/nhiều món cùng lúc bị tranh chấp, chậm và dễ thất bại)
+    function logStockEvents(entries) {
+      const logs = (entries || []).map(e => makeStockLog.apply(null, e));
+      if (!logs.length) return Promise.resolve();
+      return cloudUpdateList('garage/stockLogs', list => {
+        list.unshift.apply(list, logs.slice().reverse());
         if (list.length > 1000) list.length = 1000;
         return list;
       }).then(() => renderStockLogs());
+    }
+
+    function logStockEvent(type, itemId, itemName, unit, beforeQty, afterQty, note) {
+      return logStockEvents([[type, itemId, itemName, unit, beforeQty, afterQty, note]]);
     }
 
     // ===== SẮP XẾP THEO THỜI GIAN =====
@@ -2610,33 +2662,30 @@
           total: finalTotal
         };
 
-        // Số lượng trừ kho (tính theo tồn hiện có để ghi nhật ký), cộng dồn nếu 1 mã xuất hiện nhiều dòng
+        // Số lượng trừ kho, cộng dồn nếu 1 mã xuất hiện nhiều dòng
         const deltas = {};
-        const running = {};
-        const logs = [];
         currentQuoteItems.forEach(item => {
           const prod = inventoryList.find(p => p.id === item.id || p.name.trim().toLowerCase() === item.name.trim().toLowerCase());
           if (!prod) return;
-          const used = parseFloat(item.qty) || 1;
-          const prev = running[prod.id] != null ? running[prod.id] : (parseFloat(prod.stock) || 0);
-          const next = Math.max(0, Math.round((prev - used) * 10) / 10);
-          running[prod.id] = next;
-          deltas[prod.id] = (deltas[prod.id] || 0) - used;
-          logs.push([prod, item, prev, next]);
+          deltas[prod.id] = (deltas[prod.id] || 0) - (parseFloat(item.qty) || 1);
         });
 
         // Mã hóa đơn được cấp ngay trên bản mới nhất ở đám mây -> 2 máy lập bill cùng lúc không bao giờ trùng mã / đè bill của nhau
         let newInv = null;
-        await cloudUpdateList('garage/invoices', list => {
+        const invRes = await cloudUpdateList('garage/invoices', list => {
           const id = 'INV-' + (Math.max(100, ...list.map(i => invSeq(i))) + 1);
           newInv = Object.assign({ id: id }, base);
           list.unshift(newInv);
           return list;
         });
-        if (!newInv) { showNotification('Chưa lưu được hóa đơn, vui lòng thử lại!', 'error'); return; }
+        // Trước đây chỉ kiểm tra newInv (luôn có giá trị dù đám mây TỪ CHỐI ghi) -> vẫn in bill & trừ kho dù hóa đơn không được lưu
+        if (invRes === false || !newInv) { showNotification('Chưa lưu được hóa đơn, kho chưa bị trừ. Vui lòng thử lại!', 'error'); return; }
 
-        if (Object.keys(deltas).length) await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas));
-        logs.forEach(l => logStockEvent('XUAT', l[0].id, l[0].name, l[0].unit || l[1].unit || 'Cái', l[2], l[3], `Xuất theo hóa đơn ${newInv.id} cho xe ${newInv.plate} (${newInv.serviceType} - ${newInv.customerType})`));
+        if (Object.keys(deltas).length) {
+          const trace = {};
+          await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas, null, trace));
+          logStockEvents(traceToLogs(trace, 'XUAT', `Xuất theo hóa đơn ${newInv.id} cho xe ${newInv.plate} (${newInv.serviceType} - ${newInv.customerType})`));
+        }
 
         renderInventoryTable();
         populateInventorySelector('ALL');
@@ -2940,51 +2989,45 @@
 
       const { subtotal, discount, total } = calculateEditInvoiceTotal();
 
-      const oldItemsMap = {};
-      (inv.items || []).forEach(it => {
-        oldItemsMap[it.id] = (oldItemsMap[it.id] || 0) + (parseFloat(it.qty) || 0);
-      });
-
-      const newItemsMap = {};
-      currentEditingInvoiceItems.forEach(it => {
-        newItemsMap[it.id] = (newItemsMap[it.id] || 0) + (parseFloat(it.qty) || 0);
-      });
-
-      const allProductIds = Array.from(new Set([...Object.keys(oldItemsMap), ...Object.keys(newItemsMap)]));
-      const deltas = {};
-      const logs = [];
-
-      allProductIds.forEach(pId => {
-        const prod = inventoryList.find(p => p.id === pId);
-        if (!prod) return;
-        const diff = Math.round(((newItemsMap[pId] || 0) - (oldItemsMap[pId] || 0)) * 10) / 10;
-        if (diff === 0) return;
-        const prevStock = parseFloat(prod.stock) || 0;
-        const nextStock = Math.max(0, Math.round((prevStock - diff) * 10) / 10);
-        deltas[pId] = -diff;
-        const noteStr = diff > 0
-          ? `Xuất thêm ${diff} ${prod.unit || 'Cái'} do sửa HĐ ${inv.id}`
-          : `Hoàn trả ${Math.abs(diff)} ${prod.unit || 'Cái'} vào kho do sửa HĐ ${inv.id}`;
-        logs.push([diff > 0 ? 'XUAT' : 'NHAP', prod.id, prod.name, prod.unit || 'Cái', prevStock, nextStock, noteStr]);
-      });
-
+      const qtyMap = items => {
+        const m = {};
+        (items || []).forEach(it => { m[it.id] = (m[it.id] || 0) + (parseFloat(it.qty) || 0); });
+        return m;
+      };
       const newItems = JSON.parse(JSON.stringify(currentEditingInvoiceItems));
+      const newItemsMap = qtyMap(newItems);
+
+      // Chênh lệch số lượng được tính so với bản hóa đơn MỚI NHẤT trên đám mây (ngay trong transaction),
+      // không phải bản đang mở trên máy -> 2 máy cùng sửa 1 hóa đơn không làm kho bị trừ/cộng sai.
+      let deltas = {};
       let missing = false;
-      await cloudUpdateList('garage/invoices', list => {
+      const res = await cloudUpdateList('garage/invoices', list => {
         const target = list.find(i => i.id === invId);
         missing = !target;
+        deltas = {};
         if (target) {
+          const oldItemsMap = qtyMap(target.items);
+          new Set([...Object.keys(oldItemsMap), ...Object.keys(newItemsMap)]).forEach(pId => {
+            const diff = Math.round(((newItemsMap[pId] || 0) - (oldItemsMap[pId] || 0)) * 10) / 10;
+            if (diff !== 0) deltas[pId] = -diff;
+          });
           Object.assign(target, { plate: plate, name: name, phone: phone, car: car, odo: odo, note: note, serviceType: serviceType, customerType: customerType, items: JSON.parse(JSON.stringify(newItems)), subtotal: subtotal, discount: discount, total: total });
         }
         return list;
       });
+      if (res === false) return;
       if (missing) {
         showNotification(`Hóa đơn ${invId} đã bị xóa trên máy khác, không thể lưu!`, 'error');
         closeEditInvoiceModal();
         return;
       }
-      if (Object.keys(deltas).length) await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas));
-      logs.forEach(l => logStockEvent.apply(null, l));
+      if (Object.keys(deltas).length) {
+        const trace = {};
+        await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas, null, trace));
+        logStockEvents(traceToLogs(trace,
+          t => deltas[t.id] < 0 ? 'XUAT' : 'NHAP',
+          t => (deltas[t.id] < 0 ? 'Xuất thêm ' : 'Hoàn trả ') + formatStockQty(Math.abs(deltas[t.id])) + ' ' + t.unit + (deltas[t.id] < 0 ? '' : ' vào kho') + ' do sửa HĐ ' + invId));
+      }
 
       renderInvoiceList();
       renderInventoryTable();
@@ -3004,29 +3047,26 @@
         `Bạn có chắc chắn muốn xóa hóa đơn ${inv.id} (Xe ${inv.plate})? Toàn bộ phụ tùng trong hóa đơn sẽ được hoàn trả lại vào kho.`,
         async () => {
           if (!cloudWritable(['garage/invoices', 'garage/inventory', 'garage/stockLogs'])) return;
-          const deltas = {};
-          const running = {};
-          const logs = [];
-          (inv.items || []).forEach(item => {
-            const prod = inventoryList.find(p => p.id === item.id || p.name.trim().toLowerCase() === item.name.trim().toLowerCase());
-            if (!prod) return;
-            const returnQty = parseFloat(item.qty) || 1;
-            const prev = running[prod.id] != null ? running[prod.id] : (parseFloat(prod.stock) || 0);
-            const next = Math.round((prev + returnQty) * 10) / 10;
-            running[prod.id] = next;
-            deltas[prod.id] = (deltas[prod.id] || 0) + returnQty;
-            logs.push(['NHAP', prod.id, prod.name, prod.unit || item.unit || 'Cái', prev, next, `Hoàn trả vào kho do xóa hóa đơn ${inv.id} (Xe ${inv.plate})`]);
-          });
-
-          // Chỉ hoàn kho nếu hóa đơn còn tồn tại trên đám mây (tránh cộng kho 2 lần khi 2 máy cùng xóa)
+          // Chỉ hoàn kho nếu hóa đơn còn tồn tại trên đám mây (tránh cộng kho 2 lần khi 2 máy cùng xóa),
+          // và hoàn theo đúng hạng mục của bản trên đám mây (có thể vừa được máy khác sửa)
           let existed = false;
-          await cloudUpdateList('garage/invoices', list => {
-            existed = list.some(i => i.id === id);
+          let deltas = {};
+          const res = await cloudUpdateList('garage/invoices', list => {
+            const target = list.find(i => i.id === id);
+            existed = !!target;
+            deltas = {};
+            ((target && target.items) || []).forEach(item => {
+              const prod = inventoryList.find(p => p.id === item.id || p.name.trim().toLowerCase() === String(item.name || '').trim().toLowerCase());
+              if (!prod) return;
+              deltas[prod.id] = (deltas[prod.id] || 0) + (parseFloat(item.qty) || 1);
+            });
             return list.filter(i => i.id !== id);
           });
+          if (res === false) return;
           if (existed && Object.keys(deltas).length) {
-            await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas));
-            logs.forEach(l => logStockEvent.apply(null, l));
+            const trace = {};
+            await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas, null, trace));
+            logStockEvents(traceToLogs(trace, 'NHAP', `Hoàn trả vào kho do xóa hóa đơn ${inv.id} (Xe ${inv.plate})`));
           }
 
           renderInvoiceList();
@@ -3320,34 +3360,89 @@
       }
     }
 
-    function quickUpdateStock(id, delta) {
+    // (Không còn nút gọi tới; giữ lại nhưng dùng transaction thay vì ghi đè cả danh sách kho từ bản trên máy)
+    async function quickUpdateStock(id, delta) {
       if (!checkStockManagePermission()) return;
-      const p = inventoryList.find(i => i.id === id);
-      if (p) {
-        const prev = parseFloat(p.stock) || 0;
-        p.stock = Math.max(0, Math.round((prev + delta) * 10) / 10);
-        setStoredData('drshock_inventory', inventoryList);
-        if (firebaseDb) firebaseDb.ref('garage/inventory').set(inventoryList);
-
-        renderInventoryTable();
-        populateInventorySelector('ALL');
-
-        const logType = delta > 0 ? 'NHAP' : 'DIEUCHINH';
-        const actionStr = delta > 0 ? `Nhập nhanh +${delta}` : `Giảm nhanh ${delta}`;
-        logStockEvent(logType, p.id, p.name, p.unit || 'Cái', prev, p.stock, actionStr);
-
-        showNotification(`${p.name}: tồn ${formatStockQty(p.stock)} ${p.unit || 'Cái'}`, 'info');
-      }
+      if (!cloudWritable(['garage/inventory', 'garage/stockLogs'])) return;
+      const trace = {};
+      const res = await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, { [id]: delta }, null, trace));
+      if (res === false || !trace[id]) return;
+      const t = trace[id];
+      renderInventoryTable();
+      populateInventorySelector('ALL');
+      logStockEvent(delta > 0 ? 'NHAP' : 'DIEUCHINH', t.id, t.name, t.unit, t.before, t.after, delta > 0 ? `Nhập nhanh +${delta}` : `Giảm nhanh ${delta}`);
+      showNotification(`${t.name}: tồn ${formatStockQty(t.after)} ${t.unit}`, 'info');
     }
 
     // ===== HÌNH ẢNH SẢN PHẨM =====
     let currentInvImageData = '';
     let currentInvImageChanged = false;
 
+    // ===== ẢNH SẢN PHẨM LƯU RIÊNG TRÊN ĐÁM MÂY =====
+    // Trước đây ảnh (base64, ~30-80KB/ảnh) nằm ngay trong danh sách kho garage/inventory, nên MỖI lần
+    // bán hàng / nhập hàng / sửa giá, máy phải gửi lên và mọi máy phải tải lại TOÀN BỘ ảnh của cả kho.
+    // Kho càng nhiều ảnh -> transaction càng nặng, dễ quá thời gian, máy mạng yếu bị kẹt "Đang tải dữ liệu".
+    // Nay ảnh nằm ở garage/productImages/{mã hàng}, mỗi ảnh chỉ tải 1 lần và chỉ tải lại khi ảnh đó đổi.
+    const PRODUCT_IMG_FIELDS = ['image', 'img', 'imageUrl', 'imgUrl', 'hinhAnh', 'photo'];
+    let productImageMap = {};
+    let productImagesReady = false;
+    let _imgMigrating = false;
+    function imgKey(id) { return String(id == null ? '' : id).replace(/[.#$\[\]\/]/g, '_') || '_'; }
+    function inlineProductImage(p) {
+      if (!p) return '';
+      const f = PRODUCT_IMG_FIELDS.find(k => typeof p[k] === 'string' && p[k]);
+      return f ? p[f] : '';
+    }
+    const debImageRerender = debounce(() => { renderInventoryTable(); }, 250);
+
+    function listenProductImages() {
+      if (!firebaseDb) return;
+      const ref = firebaseDb.ref('garage/productImages');
+      const onSet = s => { productImageMap[s.key] = s.val(); debImageRerender(); };
+      ref.on('child_added', onSet);
+      ref.on('child_changed', onSet);
+      ref.on('child_removed', s => { delete productImageMap[s.key]; debImageRerender(); });
+      ref.once('value').then(() => { productImagesReady = true; migrateInlineImages(); })
+        .catch(err => console.warn('Không đọc được ảnh sản phẩm:', err && err.code));
+    }
+
+    // Chuyển ảnh còn nằm trong danh sách kho (dữ liệu cũ, hoặc do máy còn chạy bản app cũ ghi vào) sang nhánh riêng
+    async function migrateInlineImages() {
+      if (_imgMigrating || !firebaseDb || !productImagesReady || !cloudReady['garage/inventory']) return;
+      const withImg = inventoryList.filter(p => inlineProductImage(p));
+      if (!withImg.length) return;
+      _imgMigrating = true;
+      try {
+        const upd = {};
+        withImg.forEach(p => { upd[imgKey(p.id)] = inlineProductImage(p); });
+        await firebaseDb.ref('garage/productImages').update(upd);
+        Object.assign(productImageMap, upd);
+        await cloudUpdateList('garage/inventory', list => {
+          list.forEach(p => { if (upd[imgKey(p.id)] || productImageMap[imgKey(p.id)]) PRODUCT_IMG_FIELDS.forEach(f => delete p[f]); });
+          return list;
+        });
+        console.info('Đã chuyển ' + withImg.length + ' ảnh sản phẩm sang nhánh garage/productImages.');
+      } catch (e) {
+        console.warn('Chưa chuyển được ảnh sản phẩm, sẽ thử lại lần sau:', e);
+      } finally {
+        _imgMigrating = false;
+      }
+    }
+
+    function saveProductImage(id, data) {
+      if (!firebaseDb) return Promise.resolve(false);
+      const k = imgKey(id);
+      if (data) productImageMap[k] = data; else delete productImageMap[k];
+      return firebaseDb.ref('garage/productImages/' + k).set(data || null).then(() => true).catch(err => {
+        showNotification('Không lưu được ảnh sản phẩm lên đám mây (' + ((err && err.code) || 'lỗi mạng') + ')!', 'error');
+        return false;
+      });
+    }
+
     // Tương thích dữ liệu cũ: chấp nhận nhiều tên trường ảnh có thể đã từng dùng
     function getProductImage(p) {
       if (!p) return '';
-      const v = p.image || p.img || p.imageUrl || p.imgUrl || p.hinhAnh || p.photo || '';
+      const v = productImageMap[imgKey(p.id)] || inlineProductImage(p) || '';
       return (typeof v === 'string') ? v.replace(/"/g, '%22').replace(/</g, '%3C') : '';
     }
 
@@ -3540,29 +3635,40 @@
         const afterStock = factor ? Math.round(prevStock * factor * 10) / 10 : prevStock;
 
         let gone = false;
-        await cloudUpdateList('garage/inventory', list => {
+        const useImgBranch = !!firebaseDb;
+        const res = await cloudUpdateList('garage/inventory', list => {
           const t = list.find(i => i.id === editId);
           gone = !t;
           if (!t) return list;
           t.name = name; t.cat = cat; t.unit = unit; t.costPrice = costPrice; t.price = price;
           if (factor) t.stock = Math.round((parseFloat(t.stock) || 0) * factor * 10) / 10;
-          if (imgChanged) { if (imgData) t.image = imgData; else delete t.image; }
+          if (useImgBranch) {
+            // Ảnh lưu ở nhánh riêng; nếu sản phẩm còn ảnh cũ trong danh sách thì giữ nó lại ở nhánh riêng trước khi gỡ
+            if (!imgChanged && inlineProductImage(t) && !productImageMap[imgKey(t.id)]) saveProductImage(t.id, inlineProductImage(t));
+            PRODUCT_IMG_FIELDS.forEach(f => delete t[f]);
+          } else if (imgChanged) { PRODUCT_IMG_FIELDS.forEach(f => delete t[f]); if (imgData) t.image = imgData; }
           return list;
         });
+        if (res === false) return;
         if (gone) { showNotification('Phụ tùng này đã bị xóa từ máy khác!', 'error'); closeInventoryModal(); return; }
+        if (useImgBranch && imgChanged) await saveProductImage(editId, imgData);
         if (factor) logStockEvent('DIEUCHINH', p.id, name, unit, prevStock, afterStock, 'Quy đổi đơn vị ' + oldUnit + ' → ' + unit + ' (×' + factor + '): ' + formatStockQty(prevStock) + ' ' + oldUnit + ' = ' + formatStockQty(afterStock) + ' ' + unit);
         if (noteDetails.length || !factor) logStockEvent('DIEUCHINH', p.id, name, unit, afterStock, afterStock, noteDetails.join(', ') || 'Cập nhật thông tin phụ tùng');
         showNotification(`Đã lưu "${name}" (${unit})!`, 'success');
       } else {
         const newCode = code || ('P' + Date.now().toString().slice(-4));
-        const item = { id: newCode, name: name, cat: cat, unit: unit, costPrice: costPrice, price: price, stock: 0, image: currentInvImageData || '' };
+        const newImg = currentInvImageData || '';
+        const item = { id: newCode, name: name, cat: cat, unit: unit, costPrice: costPrice, price: price, stock: 0 };
+        if (!firebaseDb && newImg) item.image = newImg; // không có đám mây: giữ cách lưu cũ
         let dup = false;
-        await cloudUpdateList('garage/inventory', list => {
+        const res = await cloudUpdateList('garage/inventory', list => {
           dup = list.some(i => i.id === newCode);
           if (!dup) list.unshift(item);
           return list;
         });
+        if (res === false) return;
         if (dup) { showNotification(`Mã hàng "${newCode}" đã tồn tại, vui lòng dùng mã khác!`, 'error'); return; }
+        if (firebaseDb && newImg) await saveProductImage(newCode, newImg);
         logStockEvent('NHAP', newCode, name, unit, 0, 0, `Thêm mới mặt hàng vào kho (Tồn: 0, Giá vốn: ${formatMoney(costPrice)} đ, Bán: ${formatMoney(price)} đ)`);
         showNotification(`Đã thêm mới "${name}" (${unit}) vào kho!`, 'success');
       }
@@ -3581,8 +3687,14 @@
         `Bạn có chắc chắn muốn xóa "${p.name}" (${p.id}) khỏi kho?`,
         async () => {
           if (!cloudWritable(['garage/inventory', 'garage/stockLogs'])) return;
-          logStockEvent('DIEUCHINH', p.id, p.name, p.unit || 'Cái', p.stock, 0, `Xóa phụ tùng khỏi hệ thống kho`);
-          await cloudUpdateList('garage/inventory', list => list.filter(i => i.id !== id));
+          let removed = null;
+          const res = await cloudUpdateList('garage/inventory', list => {
+            removed = list.find(i => i.id === id) || null;
+            return list.filter(i => i.id !== id);
+          });
+          if (res === false) return;
+          if (removed) logStockEvent('DIEUCHINH', p.id, p.name, p.unit || 'Cái', parseFloat(removed.stock) || 0, 0, `Xóa phụ tùng khỏi hệ thống kho`);
+          if (firebaseDb && productImageMap[imgKey(id)]) saveProductImage(id, '');
           renderInventoryTable();
           populateInventorySelector('ALL');
           showNotification(`Đã xóa phụ tùng "${p.name}"!`, 'info');
@@ -3957,7 +4069,7 @@
             <div class="flex items-center gap-2 shrink-0">
               <div class="text-right">
                 <span class="text-[10px] text-gray-400 block font-semibold mb-0.5">Mã PIN</span>
-                <input type="text" value="${esc(s.pin)}" maxlength="6" inputmode="numeric" onchange="updateStaffPin(${idx}, this.value)" 
+                <input type="text" value="${esc(s.pin)}" maxlength="6" inputmode="numeric" onchange="updateStaffPin('${esc(s.id)}', this.value)" 
                   class="w-16 bg-gray-900 border border-gray-700 rounded-lg px-1.5 py-1 text-center font-mono text-xs font-bold text-amber-400 focus:border-red-500">
               </div>
               ${!isMasterAdmin ? `
@@ -4020,33 +4132,24 @@
         tech: 'Kỹ Thuật Viên Tiếp Nhận'
       };
 
-      if (id) {
-        const s = staffList.find(u => u.id === id);
-        if (s) {
-          s.name = name;
-          s.role = role;
-          s.roleTitle = roleTitles[role] || name;
-          s.pin = pin;
-          showNotification(`Đã cập nhật nhân viên ${name}!`, 'success');
+      // Ghi bằng transaction trên bản mới nhất ở đám mây (trước đây ghi đè cả danh sách nhân viên từ bản trên máy)
+      const newId = 'user_' + Date.now().toString(36);
+      cloudUpdateList('garage/staff', list => {
+        if (!list.length) list = cleanJson(staffList);
+        if (id) {
+          const s = list.find(u => u.id === id);
+          if (s) Object.assign(s, { name: name, role: role, roleTitle: roleTitles[role] || name, pin: pin });
+        } else {
+          list.push({ id: newId, name: name, role: role, roleTitle: roleTitles[role] || name, pin: pin });
         }
-      } else {
-        const newId = 'user_' + Date.now().toString().slice(-4);
-        staffList.push({
-          id: newId,
-          name: name,
-          role: role,
-          roleTitle: roleTitles[role] || name,
-          pin: pin
-        });
-        showNotification(`Đã thêm nhân viên ${name}!`, 'success');
-      }
-
-      setStoredData('drshock_staff_list', staffList);
-      if (firebaseDb) firebaseDb.ref('garage/staff').set(staffList);
-
-      renderStaffCards();
-      renderLoginUserList();
-      populateAdvisorSelect();
+        return list;
+      }).then(res => {
+        if (res === false) return;
+        showNotification(id ? `Đã cập nhật nhân viên ${name}!` : `Đã thêm nhân viên ${name}!`, 'success');
+        renderStaffCards();
+        renderLoginUserList();
+        populateAdvisorSelect();
+      });
       closeStaffModal();
     }
 
@@ -4060,25 +4163,30 @@
         'Bạn có chắc chắn muốn xóa nhân viên này khỏi hệ thống?',
         () => {
           if (!cloudWritable(['garage/staff'])) return;
-          staffList = staffList.filter(u => u.id !== id);
-          setStoredData('drshock_staff_list', staffList);
-          if (firebaseDb) firebaseDb.ref('garage/staff').set(staffList);
-
-          renderStaffCards();
-          renderLoginUserList();
-          populateAdvisorSelect();
-          showNotification('Đã xóa nhân viên thành công!', 'info');
+          cloudUpdateList('garage/staff', list => {
+            const next = list.filter(u => u.id !== id);
+            return next.length ? next : list; // không bao giờ xóa trống danh sách nhân viên
+          }).then(res => {
+            if (res === false) return;
+            renderStaffCards();
+            renderLoginUserList();
+            populateAdvisorSelect();
+            showNotification('Đã xóa nhân viên thành công!', 'info');
+          });
         }
       );
     }
 
-    function updateStaffPin(idx, newPin) {
+    // Nhận mã nhân viên thay vì vị trí trong danh sách (vị trí có thể đã đổi nếu máy khác vừa thêm/xóa nhân viên)
+    function updateStaffPin(staffId, newPin) {
       if (!newPin.trim()) return;
       if (!cloudWritable(['garage/staff'])) { renderStaffCards(); return; }
-      staffList[idx].pin = newPin.trim();
-      setStoredData('drshock_staff_list', staffList);
-      if (firebaseDb) firebaseDb.ref('garage/staff').set(staffList);
-      showNotification('Đã lưu mã PIN mới!', 'success');
+      if (typeof staffId === 'number') staffId = staffList[staffId] && staffList[staffId].id;
+      cloudUpdateList('garage/staff', list => {
+        const s = list.find(u => u.id === staffId);
+        if (s) s.pin = newPin.trim();
+        return list;
+      }).then(res => { if (res !== false) showNotification('Đã lưu mã PIN mới!', 'success'); });
     }
 
     // ==========================================
@@ -4190,19 +4298,49 @@
       );
     }
 
+    // ===== HỒ SƠ GARAGE (đồng bộ đám mây) =====
+    // Trước đây nút "Lưu Hồ Sơ Garage" chỉ đổi chữ trên phiếu in của máy đang mở: không lưu vào máy,
+    // không lưu lên đám mây -> tải lại trang là mất, các máy khác in phiếu vẫn thông tin cũ.
+    let garageProfile = getStoredData('drshock_profile', null);
+    const PROFILE_FIELDS = { company: 'prof-company-name', mst: 'prof-mst', hotline: 'prof-hotline', address: 'prof-address', warranty: 'prof-warranty' };
+
+    function applyGarageProfile(p) {
+      if (!p || typeof p !== 'object') return;
+      Object.keys(PROFILE_FIELDS).forEach(k => { const el = document.getElementById(PROFILE_FIELDS[k]); if (el && p[k] != null) el.value = p[k]; });
+      const set = (id, v) => { const el = document.getElementById(id); if (el && v != null && v !== '') el.textContent = v; };
+      set('inv-print-address', p.address);
+      set('inv-print-hotline', p.hotline);
+      set('inv-print-mst', p.mst);
+      if (p.warranty) set('inv-print-warranty-text', '* Cam kết: ' + p.warranty);
+      const title = document.querySelector('#printable-invoice h1');
+      if (title && p.company) title.textContent = p.company;
+    }
+
+    function listenGarageProfile() {
+      if (!firebaseDb) return;
+      firebaseDb.ref('garage/profile').on('value', s => {
+        const v = s.val();
+        if (v && typeof v === 'object') {
+          garageProfile = v;
+          setStoredData('drshock_profile', v);
+          applyGarageProfile(v);
+        }
+      });
+    }
+
     function saveGarageProfile() {
-      const comp = document.getElementById('prof-company-name').value;
-      const mst = document.getElementById('prof-mst').value;
-      const phone = document.getElementById('prof-hotline').value;
-      const addr = document.getElementById('prof-address').value;
-      const war = document.getElementById('prof-warranty').value;
-
-      document.getElementById('inv-print-address').textContent = addr;
-      document.getElementById('inv-print-hotline').textContent = phone;
-      document.getElementById('inv-print-mst').textContent = mst;
-      document.getElementById('inv-print-warranty-text').textContent = '* Cam kết: ' + war;
-
-      showNotification('Đã lưu hồ sơ Garage!', 'success');
+      if (!currentLoggedInUser || currentLoggedInUser.role !== 'admin') { showNotification('Chỉ Chủ Xưởng mới được sửa hồ sơ garage!', 'warning'); return; }
+      const data = {};
+      Object.keys(PROFILE_FIELDS).forEach(k => { data[k] = document.getElementById(PROFILE_FIELDS[k]).value.trim(); });
+      data.updatedBy = currentLoggedInUser.name;
+      data.updatedAt = Date.now();
+      garageProfile = data;
+      setStoredData('drshock_profile', data);
+      applyGarageProfile(data);
+      if (!firebaseDb) { showNotification('Đã lưu hồ sơ Garage trên máy này (chưa kết nối đám mây)!', 'warning'); return; }
+      firebaseDb.ref('garage/profile').set(data)
+        .then(() => showNotification('Đã lưu hồ sơ Garage cho mọi máy!', 'success'))
+        .catch(err => showNotification('Không lưu được hồ sơ lên đám mây (' + ((err && err.code) || 'lỗi mạng') + ')!', 'error'));
     }
 
     function exportBackupJson() {
@@ -4213,16 +4351,21 @@
         stockLogs: stockLogList,
         staff: staffList,
         receipts: receiptList,
-        finance: financeData
+        finance: financeData,
+        productImages: productImageMap,
+        profile: garageProfile
       };
 
-      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData, null, 2));
+      // Dùng Blob thay cho link data: (file sao lưu lớn - nhiều ảnh - có thể bị trình duyệt cắt/không tải được)
+      const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
       const downloadAnchor = document.createElement('a');
-      downloadAnchor.setAttribute("href", dataStr);
-      downloadAnchor.setAttribute("download", `DrShockVN_Backup_${getFormattedTimestamp()}.json`);
+      downloadAnchor.href = url;
+      downloadAnchor.download = `DrShockVN_Backup_${getFormattedTimestamp()}.json`;
       document.body.appendChild(downloadAnchor);
       downloadAnchor.click();
       downloadAnchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
       showNotification('Đã tải file sao lưu JSON an toàn về máy!', 'success');
     }
 
@@ -4251,10 +4394,19 @@
                 setStoredData('drshock_staff_list', staffList);
 
                 if (firebaseDb) {
-                  firebaseDb.ref('garage/inventory').set(inventoryList);
-                  firebaseDb.ref('garage/invoices').set(invoiceList);
-                  firebaseDb.ref('garage/stockLogs').set(stockLogList);
-                  firebaseDb.ref('garage/staff').set(staffList);
+                  Promise.all([
+                    firebaseDb.ref('garage/inventory').set(inventoryList),
+                    firebaseDb.ref('garage/invoices').set(invoiceList),
+                    firebaseDb.ref('garage/stockLogs').set(stockLogList),
+                    firebaseDb.ref('garage/staff').set(staffList),
+                    (parsed.productImages && typeof parsed.productImages === 'object') ? firebaseDb.ref('garage/productImages').update(parsed.productImages) : null,
+                    (parsed.profile && typeof parsed.profile === 'object') ? firebaseDb.ref('garage/profile').set(parsed.profile) : null
+                  ]).then(() => migrateInlineImages())
+                    .catch(err => showNotification('Khôi phục lên đám mây bị lỗi (' + ((err && err.code) || 'lỗi mạng') + '). Dữ liệu các máy có thể chưa giống nhau, hãy thử lại!', 'error'));
+                } else if (parsed.profile) {
+                  garageProfile = parsed.profile;
+                  setStoredData('drshock_profile', garageProfile);
+                  applyGarageProfile(garageProfile);
                 }
 
                 if (parsed.finance && typeof parsed.finance === 'object' && !Array.isArray(parsed.finance)) {
@@ -4463,6 +4615,7 @@
       renderQuoteItems();
       renderStockLogs();
       updateInventoryOverviewStats();
+      applyGarageProfile(garageProfile);
       initFirebaseConnection();
     }
 
@@ -4592,19 +4745,18 @@
       try { await firebaseDb.ref().update(upd); }
       catch (e) { btn.disabled = false; showNotification('Không lưu được phiếu lên đám mây, kho chưa bị thay đổi. Vui lòng thử lại!', 'error'); return; }
 
-      const deltas = {}, costs = {}, running = {}, logs = [];
+      const deltas = {}, costs = {}, trace = {};
       items.forEach(it => {
-        const p = inventoryList.find(x => x.id === it.id);
-        if (!p) return;
-        const prev = running[p.id] != null ? running[p.id] : (parseFloat(p.stock) || 0);
-        const next = Math.round((prev + it.qty) * 10) / 10;
-        running[p.id] = next;
-        deltas[p.id] = (deltas[p.id] || 0) + it.qty;
-        if (it.cost > 0) costs[p.id] = it.cost;
-        logs.push(['NHAP', p.id, p.name, p.unit || 'Cái', prev, next, `Nhập theo phiếu ${id}` + (supplier ? ` - ${supplier}` : '')]);
+        deltas[it.id] = (deltas[it.id] || 0) + it.qty;
+        if (it.cost > 0) costs[it.id] = it.cost;
       });
-      await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas, costs));
-      logs.forEach(l => logStockEvent.apply(null, l));
+      const invRes = await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas, costs, trace));
+      if (invRes === false) {
+        btn.disabled = false;
+        showNotification(`Phiếu ${id} đã lưu nhưng CHƯA cộng được tồn kho. Báo Chủ Xưởng kiểm tra lại tồn kho các mặt hàng trong phiếu!`, 'error');
+        return;
+      }
+      logStockEvents(traceToLogs(trace, 'NHAP', `Nhập theo phiếu ${id}` + (supplier ? ` - ${supplier}` : '')));
       btn.disabled = false;
       renderInventoryTable();
       populateInventorySelector('ALL');
@@ -4682,7 +4834,8 @@
         setStoredData('drshock_receipts', receiptList);
         renderReceiptList();
       });
-      firebaseDb.ref('garage/notifications').on('value', snap => {
+      // Chỉ tải 30 thông báo mới nhất (khóa 'N'+thời gian nên sắp theo khóa = theo thời gian)
+      firebaseDb.ref('garage/notifications').orderByKey().limitToLast(30).on('value', snap => {
         const list = convertToArray(snap.val(), []).sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 30);
         const knownMax = notifList.length ? notifList[0].ts : 0;
         if (notifFirstLoad) {
@@ -4696,7 +4849,7 @@
         }
         notifList = list;
         renderNotifBell();
-      });
+      }, err => console.warn('Không đọc được thông báo:', err && err.code));
     }
 
     function unreadNotifCount() { return notifList.filter(n => n.ts > notifReadTs && n.device !== DEVICE_ID).length; }
