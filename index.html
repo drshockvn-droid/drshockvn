@@ -976,14 +976,16 @@
 
         <div>
           <label class="block text-[10px] font-bold uppercase tracking-wider text-sky-400 mb-1">
-            <i class="fa-solid fa-boxes-stacked mr-0.5"></i>Tồn Kho Hiện Tại <span class="normal-case text-gray-500 font-normal">(chỉ đổi qua Phiếu Nhập / Bán Bill)</span>
+            <i class="fa-solid fa-boxes-stacked mr-0.5"></i>Tồn Kho Hiện Tại <span id="inv-stock-hint" class="normal-case text-gray-500 font-normal">(chỉ đổi qua Phiếu Nhập / Bán Bill)</span>
           </label>
           <div class="flex items-center gap-2">
-            
-            <input type="number" step="0.5" id="inv-edit-stock" min="0" value="0" readonly tabindex="-1" 
+            <button type="button" id="inv-stock-minus" onclick="adjustEditStock(-0.5)" class="hidden w-10 h-9 shrink-0 bg-gray-700 hover:bg-gray-600 rounded-xl text-red-400 font-bold text-xs">-0.5</button>
+            <input type="number" step="0.5" id="inv-edit-stock" min="0" value="0" readonly tabindex="-1" oninput="onEditStockInput()"
               class="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-center text-sm font-bold text-white focus:outline-none focus:border-red-500">
-            
+            <button type="button" id="inv-stock-plus" onclick="adjustEditStock(0.5)" class="hidden w-10 h-9 shrink-0 bg-gray-700 hover:bg-gray-600 rounded-xl text-emerald-400 font-bold text-xs">+0.5</button>
           </div>
+          <input type="text" id="inv-stock-reason" placeholder="Lý do điều chỉnh tồn (VD: kiểm kê, hàng lỗi, nhập sai...)"
+            class="hidden mt-2 w-full bg-gray-800 border border-amber-500/40 rounded-xl px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500">
         </div>
       </div>
 
@@ -1154,7 +1156,7 @@
   <div id="receipt-modal" class="fixed inset-0 z-50 bg-black/85 hidden flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
     <div class="bg-gray-900 border border-gray-700 text-gray-100 rounded-t-3xl sm:rounded-2xl w-full max-w-xl p-4 sm:p-5 shadow-2xl max-h-[92vh] overflow-y-auto custom-scrollbar">
       <div class="flex items-center justify-between border-b border-gray-800 pb-2.5 mb-3">
-        <h3 class="text-sm sm:text-base font-bold text-orange-400 flex items-center gap-2"><i class="fa-solid fa-truck-ramp-box"></i>Lập Phiếu Nhập Hàng</h3>
+        <h3 id="rc-modal-title" class="text-sm sm:text-base font-bold text-orange-400 flex items-center gap-2"><i class="fa-solid fa-truck-ramp-box"></i>Lập Phiếu Nhập Hàng</h3>
         <button onclick="closeReceiptModal()" class="w-8 h-8 rounded-full bg-gray-800 text-gray-400 hover:text-white flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="space-y-3 text-xs">
@@ -3389,7 +3391,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.10-2';
+    const APP_VERSION = '2026.10.10-3';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -3636,7 +3638,7 @@
       document.getElementById('inv-edit-unit').value = 'Bộ';
       document.getElementById('inv-edit-cost').value = '';
       document.getElementById('inv-edit-price').value = '';
-      document.getElementById('inv-edit-stock').value = '0';
+      setupStockField(0);
       currentInvImageData = '';
       currentInvImageChanged = false;
       setInvImagePreview('');
@@ -3657,18 +3659,44 @@
       document.getElementById('inv-edit-unit').value = p.unit || 'Cái';
       document.getElementById('inv-edit-cost').value = p.costPrice ? formatMoney(p.costPrice) : '';
       document.getElementById('inv-edit-price').value = p.price ? formatMoney(p.price) : '';
-      document.getElementById('inv-edit-stock').value = p.stock || 0;
+      setupStockField(p.stock || 0);
       currentInvImageData = getProductImage(p);
       currentInvImageChanged = false;
       setInvImagePreview(currentInvImageData);
       document.getElementById('inventory-modal').classList.remove('hidden');
     }
 
+    // ===== CHỦ XƯỞNG ĐIỀU CHỈNH TỒN KHO TRỰC TIẾP =====
+    let invEditOpenedStock = 0;   // tồn kho lúc mở cửa sổ, để tính phần chênh lệch Chủ Xưởng muốn đổi
+    function isAdminUser() { return !!currentLoggedInUser && currentLoggedInUser.role === 'admin'; }
+    function setupStockField(stock) {
+      const admin = isAdminUser();
+      invEditOpenedStock = parseFloat(stock) || 0;
+      const input = document.getElementById('inv-edit-stock');
+      input.value = invEditOpenedStock;
+      input.readOnly = !admin;
+      input.tabIndex = admin ? 0 : -1;
+      input.classList.toggle('border-amber-500', admin);
+      ['inv-stock-minus', 'inv-stock-plus'].forEach(id => document.getElementById(id).classList.toggle('hidden', !admin));
+      const reason = document.getElementById('inv-stock-reason');
+      reason.value = '';
+      reason.classList.add('hidden');
+      document.getElementById('inv-stock-hint').textContent = admin
+        ? '(Chủ Xưởng được sửa trực tiếp, có ghi nhật ký)'
+        : '(chỉ đổi qua Phiếu Nhập / Bán Bill)';
+    }
+    function onEditStockInput() {
+      const v = parseFloat(document.getElementById('inv-edit-stock').value);
+      const changed = isAdminUser() && !isNaN(v) && Math.round(v * 10) !== Math.round(invEditOpenedStock * 10);
+      document.getElementById('inv-stock-reason').classList.toggle('hidden', !changed);
+    }
     function adjustEditStock(delta) {
+      if (!isAdminUser()) return;
       const input = document.getElementById('inv-edit-stock');
       if (!input) return;
       let val = (parseFloat(input.value) || 0) + delta;
       input.value = Math.max(0, Math.round(val * 10) / 10);
+      onEditStockInput();
     }
 
     function closeInventoryModal() {
@@ -3692,13 +3720,23 @@
       }
       if (!cloudWritable(['garage/inventory', 'garage/stockLogs'])) return;
 
+      // Chủ Xưởng sửa tồn kho: lấy PHẦN CHÊNH LỆCH so với lúc mở cửa sổ rồi cộng vào số tồn mới nhất trên đám mây,
+      // nên nếu máy khác vừa bán hàng trong lúc đang sửa thì số bán đó vẫn được giữ đúng.
+      let stockDelta = 0;
+      if (isAdminUser()) {
+        const v = parseFloat(String(document.getElementById('inv-edit-stock').value).replace(',', '.'));
+        if (isNaN(v) || v < 0) { showNotification('Số tồn kho không hợp lệ!', 'warning'); return; }
+        stockDelta = Math.round((Math.round(v * 10) / 10 - invEditOpenedStock) * 10) / 10;
+      }
+      const stockReason = (document.getElementById('inv-stock-reason').value || '').trim() || 'Chủ Xưởng điều chỉnh tồn kho';
+
       if (editId) {
         const p = inventoryList.find(i => i.id === editId);
         if (!p) { showNotification('Phụ tùng này không còn trong kho (đã bị xóa từ máy khác)!', 'error'); closeInventoryModal(); return; }
         const oldUnit = p.unit || 'Cái';
         const prevStock = parseFloat(p.stock) || 0;
         let factor = 0;
-        if (oldUnit !== unit && prevStock > 0) {
+        if (oldUnit !== unit && prevStock > 0 && !stockDelta) {
           const ans = window.prompt('Đổi đơn vị từ "' + oldUnit + '" sang "' + unit + '".\nTồn kho hiện là ' + formatStockQty(prevStock) + ' ' + oldUnit + '.\n\n1 ' + oldUnit + ' = bao nhiêu ' + unit + '? (VD: 4)\nNhập số để quy đổi tồn kho. Bỏ trống hoặc Hủy = giữ nguyên số tồn.\nLưu ý: nhập Giá nhập / Giá bán theo ' + unit + '.', '');
           const f = parseFloat(String(ans || '').replace(',', '.'));
           if (f > 0 && isFinite(f)) factor = f;
@@ -3723,12 +3761,19 @@
         }
 
         let gone = false;
+        let adj = null;
         const res = await cloudUpdateList('garage/inventory', list => {
           const t = list.find(i => i.id === editId);
           gone = !t;
+          adj = null;
           if (!t) return list;
           t.name = name; t.cat = cat; t.unit = unit; t.costPrice = costPrice; t.price = price;
           if (factor) t.stock = Math.round((parseFloat(t.stock) || 0) * factor * 10) / 10;
+          if (stockDelta) {
+            const before = parseFloat(t.stock) || 0;
+            t.stock = Math.max(0, Math.round((before + stockDelta) * 10) / 10);
+            adj = { before: before, after: t.stock };
+          }
           if (imgChanged) {
             PRODUCT_IMG_FIELDS.forEach(f => delete t[f]);
             if (!imgInBranch && imgData) t.image = imgData;
@@ -3741,12 +3786,14 @@
         if (gone) { showNotification('Phụ tùng này đã bị xóa từ máy khác!', 'error'); closeInventoryModal(); return; }
         if (imgChanged && !imgData && !imgInBranch && productImageMap[imgKey(editId)]) delete productImageMap[imgKey(editId)];
         if (factor) logStockEvent('DIEUCHINH', p.id, name, unit, prevStock, afterStock, 'Quy đổi đơn vị ' + oldUnit + ' → ' + unit + ' (×' + factor + '): ' + formatStockQty(prevStock) + ' ' + oldUnit + ' = ' + formatStockQty(afterStock) + ' ' + unit);
-        if (noteDetails.length || !factor) logStockEvent('DIEUCHINH', p.id, name, unit, afterStock, afterStock, noteDetails.join(', ') || 'Cập nhật thông tin phụ tùng');
-        showNotification(`Đã lưu "${name}" (${unit})!`, 'success');
+        if (adj) logStockEvent('DIEUCHINH', p.id, name, unit, adj.before, adj.after, `Chủ Xưởng sửa tồn ${stockDelta > 0 ? '+' : ''}${formatStockQty(stockDelta)} ${unit}: ${stockReason}`);
+        if (noteDetails.length || (!factor && !adj)) logStockEvent('DIEUCHINH', p.id, name, unit, afterStock, afterStock, noteDetails.join(', ') || 'Cập nhật thông tin phụ tùng');
+        showNotification(`Đã lưu "${name}" (${unit})${adj ? ` · tồn kho: ${formatStockQty(adj.after)} ${unit}` : ''}!`, 'success');
       } else {
         const newCode = code || ('P' + Date.now().toString().slice(-4));
         const newImg = currentInvImageData || '';
-        const item = { id: newCode, name: name, cat: cat, unit: unit, costPrice: costPrice, price: price, stock: 0 };
+        const openingStock = Math.max(0, stockDelta); // chỉ Chủ Xưởng mới có stockDelta khác 0
+        const item = { id: newCode, name: name, cat: cat, unit: unit, costPrice: costPrice, price: price, stock: openingStock };
         if (newImg && inventoryList.some(i => i.id === newCode)) { showNotification(`Mã hàng "${newCode}" đã tồn tại, vui lòng dùng mã khác!`, 'error'); return; }
         // Lưu ảnh vào nhánh riêng trước; không được thì lưu kiểu cũ trong danh sách kho
         if (newImg && !(await saveProductImage(newCode, newImg))) item.image = newImg;
@@ -3758,7 +3805,7 @@
         });
         if (res === false) return;
         if (dup) { showNotification(`Mã hàng "${newCode}" đã tồn tại, vui lòng dùng mã khác!`, 'error'); return; }
-        logStockEvent('NHAP', newCode, name, unit, 0, 0, `Thêm mới mặt hàng vào kho (Tồn: 0, Giá vốn: ${formatMoney(costPrice)} đ, Bán: ${formatMoney(price)} đ)`);
+        logStockEvent(openingStock ? 'DIEUCHINH' : 'NHAP', newCode, name, unit, 0, openingStock, `Thêm mới mặt hàng vào kho (Tồn đầu: ${formatStockQty(openingStock)}${openingStock ? ' - ' + stockReason : ''}, Giá vốn: ${formatMoney(costPrice)} đ, Bán: ${formatMoney(price)} đ)`);
         showNotification(`Đã thêm mới "${name}" (${unit}) vào kho!`, 'success');
       }
 
@@ -4746,17 +4793,176 @@
     function handleReceiptPhoto(input) {
       const f = input.files && input.files[0];
       if (!f) return;
-      compressImageFile(f, 1000, 0.72, data => { receiptDraft.photo = data; setReceiptPhotoPreview(data); input.value = ''; });
+      compressImageFile(f, 1000, 0.72, data => { receiptDraft.photo = data; receiptDraft.photoChanged = true; setReceiptPhotoPreview(data); input.value = ''; });
+    }
+
+    function setReceiptModalMode(editId) {
+      document.getElementById('rc-modal-title').innerHTML = editId
+        ? `<i class="fa-solid fa-pen-to-square"></i>Sửa Phiếu Nhập <span class="font-mono text-amber-400">${esc(editId)}</span>`
+        : '<i class="fa-solid fa-truck-ramp-box"></i>Lập Phiếu Nhập Hàng';
+      document.getElementById('rc-save-btn').innerHTML = editId
+        ? '<i class="fa-solid fa-floppy-disk"></i>Lưu Sửa Phiếu & Cập Nhật Kho'
+        : '<i class="fa-solid fa-floppy-disk"></i>Lưu Phiếu & Nhập Kho';
     }
 
     function openReceiptModal() {
       if (!checkStockManagePermission()) return;
-      receiptDraft = { items: [], photo: '' };
+      receiptDraft = { items: [], photo: '', editId: null, photoChanged: false };
       ['rc-supplier', 'rc-note', 'rc-search'].forEach(id => { document.getElementById(id).value = ''; });
       setReceiptPhotoPreview('');
+      setReceiptModalMode(null);
       renderReceiptItems();
       renderReceiptPicker();
       document.getElementById('receipt-modal').classList.remove('hidden');
+    }
+
+    // ===== CHỦ XƯỞNG SỬA / XÓA PHIẾU NHẬP =====
+    function checkAdminPermission(what) {
+      if (isAdminUser()) return true;
+      showNotification('Chỉ Chủ Xưởng mới được ' + (what || 'thực hiện thao tác này') + '!', 'warning');
+      return false;
+    }
+
+    // Transaction trên 1 nút bất kỳ (không phải danh sách). false = thất bại, null = còn chờ, còn lại = giá trị đã lưu.
+    function cloudTxNode(path, apply) {
+      return new Promise(resolve => {
+        let finished = false;
+        pendingCloudWrites++; refreshPendingBadge();
+        const timer = setTimeout(() => {
+          if (finished) return; finished = true;
+          showNotification('Mạng chậm: đang chờ gửi dữ liệu lên đám mây. ĐỪNG tắt app.', 'warning');
+          resolve(null);
+        }, 12000);
+        firebaseDb.ref(path).transaction(cur => {
+          try { const out = apply(cur == null ? null : cleanJson(cur)); return out === undefined ? undefined : (out == null ? null : cleanJson(out)); }
+          catch (e) { console.error('Lỗi cập nhật ' + path, e); return undefined; }
+        }, (err, committed, snap) => {
+          clearTimeout(timer);
+          pendingCloudWrites = Math.max(0, pendingCloudWrites - 1); refreshPendingBadge();
+          if (finished) return; finished = true;
+          if (err || !committed) {
+            showNotification('Không lưu được lên đám mây (' + ((err && (err.code || err.message)) || 'bị từ chối') + ')!', 'error');
+            resolve(false);
+          } else resolve(snap ? (snap.val() == null ? {} : snap.val()) : {});
+        });
+      });
+    }
+
+    function receiptQtyMap(items) {
+      const m = {};
+      (items || []).forEach(i => { m[i.id] = Math.round(((m[i.id] || 0) + (parseFloat(i.qty) || 0)) * 10) / 10; });
+      return m;
+    }
+
+    function openReceiptEdit(id) {
+      if (!checkAdminPermission('sửa phiếu nhập')) return;
+      const r = receiptList.find(x => x.id === id);
+      if (!r) { showNotification('Không tìm thấy phiếu ' + id + ' (có thể vừa bị xóa từ máy khác)!', 'error'); return; }
+      document.getElementById('receipt-detail-modal').classList.add('hidden');
+      receiptDraft = {
+        editId: r.id, photoChanged: false, photo: '',
+        items: (r.items || []).map(i => ({ id: i.id, name: i.name, unit: i.unit || 'Cái', qty: parseFloat(i.qty) || 0, cost: parseCurrencyNumber(i.cost) || 0 }))
+      };
+      document.getElementById('rc-supplier').value = r.supplier || '';
+      document.getElementById('rc-note').value = r.note || '';
+      document.getElementById('rc-search').value = '';
+      setReceiptPhotoPreview('');
+      setReceiptModalMode(r.id);
+      renderReceiptItems();
+      renderReceiptPicker();
+      document.getElementById('receipt-modal').classList.remove('hidden');
+      if (firebaseDb) firebaseDb.ref('garage/receiptPhotos/' + r.id).once('value').then(s => {
+        if (receiptDraft.editId === r.id && !receiptDraft.photoChanged && s.val()) { receiptDraft.photo = s.val(); setReceiptPhotoPreview(s.val()); }
+      }).catch(() => {});
+    }
+
+    async function saveReceiptEdit() {
+      if (!checkAdminPermission('sửa phiếu nhập')) return;
+      const id = receiptDraft.editId;
+      const items = receiptDraft.items.filter(i => i.qty > 0);
+      if (!items.length) { showNotification('Phiếu phải còn ít nhất 1 mặt hàng. Muốn bỏ cả phiếu thì dùng nút Xóa phiếu.', 'warning'); return; }
+      if (!firebaseDb || !cloudReady['garage/inventory'] || !cloudReady['garage/stockLogs']) { showNotification('Chưa kết nối xong đám mây, vui lòng đợi vài giây!', 'warning'); return; }
+      const btn = document.getElementById('rc-save-btn'); btn.disabled = true;
+      try {
+        const supplier = document.getElementById('rc-supplier').value.trim();
+        const note = document.getElementById('rc-note').value.trim();
+        const newItems = items.map(i => ({ id: i.id, name: i.name, unit: i.unit, qty: i.qty, cost: i.cost }));
+        const newMap = receiptQtyMap(newItems);
+        const editor = currentLoggedInUser ? currentLoggedInUser.name : 'Chủ Xưởng';
+
+        // Chênh lệch số lượng tính so với bản phiếu MỚI NHẤT trên đám mây
+        let deltas = {}, costs = {}, missing = false;
+        const res = await cloudTxNode('garage/receipts/' + id, cur => {
+          deltas = {}; costs = {};
+          if (!cur) { missing = true; return null; }
+          missing = false;
+          const oldMap = receiptQtyMap(cur.items);
+          const oldCost = {};
+          (cur.items || []).forEach(i => { oldCost[i.id] = parseCurrencyNumber(i.cost) || 0; });
+          new Set([...Object.keys(oldMap), ...Object.keys(newMap)]).forEach(pid => {
+            const d = Math.round(((newMap[pid] || 0) - (oldMap[pid] || 0)) * 10) / 10;
+            if (d) deltas[pid] = d;
+          });
+          newItems.forEach(i => { if (i.cost > 0 && i.cost !== oldCost[i.id]) costs[i.id] = i.cost; });
+          return Object.assign({}, cur, {
+            supplier: supplier, note: note, items: newItems,
+            totalQty: newItems.reduce((s, i) => s + i.qty, 0),
+            totalCost: newItems.reduce((s, i) => s + i.qty * i.cost, 0),
+            editedBy: editor, editedAt: Date.now()
+          });
+        });
+        if (res === false) return;
+        if (missing) { showNotification('Phiếu ' + id + ' đã bị xóa từ máy khác, không thể sửa!', 'error'); closeReceiptModal(); return; }
+        if (receiptDraft.photoChanged && receiptDraft.photo) {
+          firebaseDb.ref('garage/receiptPhotos/' + id).set(receiptDraft.photo).catch(() => showNotification('Không lưu được ảnh phiếu mới!', 'error'));
+        }
+        if (Object.keys(deltas).length || Object.keys(costs).length) {
+          const trace = {};
+          const invRes = await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas, costs, trace));
+          if (invRes === false) { showNotification(`Phiếu ${id} đã sửa nhưng CHƯA cập nhật được tồn kho. Kiểm tra lại tồn kho!`, 'error'); return; }
+          logStockEvents(traceToLogs(trace, 'DIEUCHINH', t => `Chủ Xưởng sửa phiếu ${id}: ${deltas[t.id] > 0 ? '+' : ''}${formatStockQty(deltas[t.id])} ${t.unit}`));
+        }
+        renderInventoryTable();
+        populateInventorySelector('ALL');
+        closeReceiptModal();
+        showNotification(`Đã sửa phiếu ${id} và cập nhật tồn kho!`, 'success');
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    function deleteReceipt(id) {
+      if (!checkAdminPermission('xóa phiếu nhập')) return;
+      const r = receiptList.find(x => x.id === id);
+      if (!r) return;
+      showConfirmModal('Xóa Phiếu Nhập ' + id,
+        'Xóa phiếu này sẽ TRỪ lại khỏi tồn kho toàn bộ số lượng đã nhập theo phiếu (' + (r.items || []).length + ' mặt hàng). Tiếp tục?',
+        async () => {
+          if (!firebaseDb || !cloudWritable(['garage/inventory', 'garage/stockLogs'])) return;
+          let deltas = {}, existed = false;
+          // Xóa bằng transaction: 2 máy cùng xóa thì chỉ trừ kho 1 lần
+          const res = await cloudTxNode('garage/receipts/' + id, cur => {
+            deltas = {};
+            existed = !!cur;
+            if (!cur) return null;
+            const m = receiptQtyMap(cur.items);
+            Object.keys(m).forEach(pid => { if (m[pid]) deltas[pid] = -m[pid]; });
+            return null;
+          });
+          if (res === false) return;
+          document.getElementById('receipt-detail-modal').classList.add('hidden');
+          if (!existed) { showNotification('Phiếu ' + id + ' đã được xóa từ máy khác.', 'info'); return; }
+          firebaseDb.ref('garage/receiptPhotos/' + id).set(null).catch(() => {});
+          if (Object.keys(deltas).length) {
+            const trace = {};
+            const invRes = await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas, null, trace));
+            if (invRes === false) { showNotification(`Đã xóa phiếu ${id} nhưng CHƯA trừ được tồn kho. Kiểm tra lại tồn kho!`, 'error'); return; }
+            logStockEvents(traceToLogs(trace, 'DIEUCHINH', t => `Chủ Xưởng xóa phiếu nhập ${id}: ${formatStockQty(deltas[t.id])} ${t.unit}`));
+          }
+          renderInventoryTable();
+          populateInventorySelector('ALL');
+          showNotification(`Đã xóa phiếu ${id} và trừ lại tồn kho!`, 'success');
+        });
     }
     function closeReceiptModal() { document.getElementById('receipt-modal').classList.add('hidden'); }
 
@@ -4807,6 +5013,7 @@
     }
 
     async function saveReceipt() {
+      if (receiptDraft.editId) return saveReceiptEdit();
       if (!checkStockManagePermission()) return;
       const items = receiptDraft.items.filter(i => i.qty > 0);
       if (!items.length) { showNotification('Phiếu nhập chưa có hàng nào!', 'warning'); return; }
@@ -4881,7 +5088,7 @@
       c.innerHTML = receiptList.slice(0, 10).map(r => `
         <div class="flex items-center justify-between gap-2 bg-gray-800/60 border border-gray-700/60 rounded-xl p-2.5">
           <div class="min-w-0">
-            <div class="flex items-center gap-1.5 flex-wrap"><span class="text-xs font-bold text-amber-400 font-mono">${r.id}</span><span class="text-[10px] text-gray-400">${r.date}</span></div>
+            <div class="flex items-center gap-1.5 flex-wrap"><span class="text-xs font-bold text-amber-400 font-mono">${r.id}</span><span class="text-[10px] text-gray-400">${r.date}</span>${r.editedBy ? '<span class="text-[10px] px-1.5 rounded bg-amber-950/70 text-amber-300 border border-amber-500/30 font-semibold">Đã sửa</span>' : ''}</div>
             <p class="text-[11px] text-gray-300 truncate mt-0.5">${(r.items || []).length} mặt hàng · ${formatStockQty(r.totalQty)} món${r.supplier ? ' · ' + highlightMatch(r.supplier, []) : ''} · <span class="text-orange-400">${highlightMatch(r.user || '', [])}</span></p>
           </div>
           <div class="text-right shrink-0">
@@ -4905,6 +5112,11 @@
           <div class="flex items-center justify-between gap-2 p-2"><span class="truncate"><b class="text-amber-400 font-mono">${i.id}</b> ${highlightMatch(i.name, [])}</span>
           <span class="shrink-0 font-mono">${formatStockQty(i.qty)} ${i.unit} × ${formatMoney(i.cost)} = <b class="text-emerald-400">${formatMoney(i.qty * i.cost)} đ</b></span></div>`).join('')}</div>
         <div class="text-right font-black text-emerald-400 font-mono">Tổng: ${formatMoney(r.totalCost || 0)} đ</div>
+        ${r.editedBy ? `<div class="text-[11px] text-amber-300"><i class="fa-solid fa-pen mr-1"></i>Đã sửa bởi ${esc(r.editedBy)}${r.editedAt ? ' lúc ' + new Date(r.editedAt).toLocaleString('vi-VN') : ''}</div>` : ''}
+        ${isAdminUser() ? `<div class="grid grid-cols-2 gap-2">
+          <button onclick="openReceiptEdit('${esc(r.id)}')" class="py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-xl font-bold"><i class="fa-solid fa-pen-to-square mr-1"></i>Sửa phiếu</button>
+          <button onclick="deleteReceipt('${esc(r.id)}')" class="py-2 bg-gray-800 hover:bg-red-950/60 text-gray-300 hover:text-red-400 border border-gray-700 rounded-xl font-bold"><i class="fa-solid fa-trash-can mr-1"></i>Xóa phiếu</button>
+        </div>` : ''}
         <div id="rd-photo" class="text-center text-gray-500 italic p-4 bg-gray-800/30 rounded-xl">Đang tải ảnh phiếu...</div>`;
       document.getElementById('receipt-detail-modal').classList.remove('hidden');
       if (!firebaseDb) { document.getElementById('rd-photo').textContent = 'Cần kết nối đám mây để xem ảnh phiếu.'; return; }
