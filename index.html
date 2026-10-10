@@ -1494,6 +1494,8 @@
             <div class="flex justify-between"><span class="text-gray-400">Kết nối máy chủ:</span><b class="${cloudState.connected ? 'text-emerald-400' : 'text-red-400'}">${cloudState.connected ? 'Đã kết nối' : (cloudState.everConnected ? 'Mất kết nối' : 'Chưa kết nối được')}</b></div>
             <div class="flex justify-between"><span class="text-gray-400">Chế độ:</span><b class="text-white">${cloudState.longPoll ? 'Dự phòng (long-polling)' : 'Thường (WebSocket)'}</b></div>
             <div class="flex justify-between"><span class="text-gray-400">Thời gian từ lúc mở app:</span><b class="text-white">${secs} giây</b></div>
+            <div class="flex justify-between"><span class="text-gray-400">Phiên bản app máy này:</span><b class="${isAppVersionCurrent() ? 'text-emerald-400' : 'text-red-400'}">${APP_VERSION}${isAppVersionCurrent() ? '' : ' (cũ, mới nhất: ' + esc(cloudAppVersion) + ')'}</b></div>
+            <div class="flex justify-between"><span class="text-gray-400">Lưu ảnh sản phẩm:</span><b class="text-white">${imgBranchUsable() ? 'Nhánh riêng (nhẹ)' : (imgBranchBlocked ? 'Kiểu cũ (database chặn nhánh ảnh)' : 'Đang kiểm tra...')}</b></div>
           </div>
           <div>${rowsHtml}</div>
           <p class="text-[11px] text-gray-400">${!cloudState.everConnected ? 'Máy này <b class="text-red-400">chưa kết nối được máy chủ</b>: kết nối đang bị chặn (phần mềm diệt virus, tường lửa, DNS). Xem trang kiểm tra để biết chỗ bị chặn.' : (Object.keys(CLOUD_LOCAL_KEYS).every(k => cloudReady[k]) ? 'Mọi dữ liệu đã đồng bộ.' : 'Đã kết nối nhưng dữ liệu tải chậm. Nếu đứng yên lâu, phần mềm diệt virus có thể đang quét làm nghẽn kết nối.')}</p>
@@ -1668,6 +1670,7 @@
           afterUpdate();
         });
       };
+      listenAppVersion();
       listenProductImages();
       listenGarageProfile();
       bindList('garage/inventory', true, () => { renderInventoryTable(); populateInventorySelector('ALL'); migrateInlineImages(); });
@@ -3383,10 +3386,63 @@
     // bán hàng / nhập hàng / sửa giá, máy phải gửi lên và mọi máy phải tải lại TOÀN BỘ ảnh của cả kho.
     // Kho càng nhiều ảnh -> transaction càng nặng, dễ quá thời gian, máy mạng yếu bị kẹt "Đang tải dữ liệu".
     // Nay ảnh nằm ở garage/productImages/{mã hàng}, mỗi ảnh chỉ tải 1 lần và chỉ tải lại khi ảnh đó đổi.
+    // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
+    // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
+    // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
+    const APP_VERSION = '2026.10.10-2';
+    let cloudAppVersion = null;
+    function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
+    function anyModalOpen() {
+      return ['inventory-modal', 'edit-invoice-modal', 'receipt-modal', 'staff-modal', 'confirm-modal']
+        .some(id => { const el = document.getElementById(id); return el && !el.classList.contains('hidden'); });
+    }
+    function reloadToVersion(v) {
+      try { sessionStorage.setItem('drshock_reload_for', v); } catch (e) {}
+      const u = location.pathname + '?v=' + encodeURIComponent(v) + (location.hash || '');
+      location.replace(u);
+    }
+    function showUpdateBanner(v) {
+      if (document.getElementById('update-banner')) return;
+      const b = document.createElement('div');
+      b.id = 'update-banner';
+      b.className = 'fixed bottom-20 left-3 right-3 sm:left-auto sm:right-4 sm:w-96 z-[90] bg-amber-600 text-white rounded-2xl shadow-2xl p-3 text-xs font-semibold flex items-center gap-2';
+      b.innerHTML = '<i class="fa-solid fa-circle-arrow-up text-lg"></i><span class="flex-1">Đã có phiên bản app mới. Cập nhật để dữ liệu đồng bộ đúng giữa các máy.</span>' +
+        '<button id="update-banner-btn" class="px-3 py-1.5 bg-white text-amber-700 rounded-lg font-black shrink-0">Cập nhật</button>';
+      document.body.appendChild(b);
+      document.getElementById('update-banner-btn').onclick = () => {
+        if (pendingCloudWrites > 0) { showNotification('Đang gửi dữ liệu lên đám mây, đợi vài giây rồi bấm lại!', 'warning'); return; }
+        reloadToVersion(v);
+      };
+    }
+    function listenAppVersion() {
+      if (!firebaseDb) return;
+      const ref = firebaseDb.ref('garage/meta/appVersion');
+      ref.on('value', s => {
+        const v = s.val();
+        cloudAppVersion = (typeof v === 'string') ? v : null;
+        if (!cloudAppVersion || cloudAppVersion < APP_VERSION) {
+          ref.set(APP_VERSION).catch(() => {});
+        } else if (cloudAppVersion > APP_VERSION) {
+          let tried = '';
+          try { tried = sessionStorage.getItem('drshock_reload_for') || ''; } catch (e) {}
+          // Tự tải lại 1 lần nếu đang rảnh tay; nếu đã thử mà vẫn là bản cũ (bộ nhớ đệm) thì hiện nút để bấm
+          if (tried !== cloudAppVersion && pendingCloudWrites === 0 && !anyModalOpen()) {
+            showNotification('Đang cập nhật app lên phiên bản mới...', 'info');
+            setTimeout(() => reloadToVersion(cloudAppVersion), 1500);
+          } else {
+            showUpdateBanner(cloudAppVersion);
+          }
+        }
+      }, err => console.warn('Không đọc được phiên bản app trên đám mây:', err && err.code));
+    }
+
     const PRODUCT_IMG_FIELDS = ['image', 'img', 'imageUrl', 'imgUrl', 'hinhAnh', 'photo'];
     let productImageMap = {};
     let productImagesReady = false;
+    let imgBranchBlocked = false;   // database không cho đọc/ghi nhánh ảnh riêng -> quay về lưu ảnh kiểu cũ
     let _imgMigrating = false;
+    // Chỉ dùng nhánh ảnh riêng khi đã ĐỌC được nó và chưa từng bị từ chối ghi
+    function imgBranchUsable() { return !!firebaseDb && productImagesReady && !imgBranchBlocked; }
     function imgKey(id) { return String(id == null ? '' : id).replace(/[.#$\[\]\/]/g, '_') || '_'; }
     function inlineProductImage(p) {
       if (!p) return '';
@@ -3399,26 +3455,40 @@
       if (!firebaseDb) return;
       const ref = firebaseDb.ref('garage/productImages');
       const onSet = s => { productImageMap[s.key] = s.val(); debImageRerender(); };
-      ref.on('child_added', onSet);
-      ref.on('child_changed', onSet);
-      ref.on('child_removed', s => { delete productImageMap[s.key]; debImageRerender(); });
+      // Bị chặn đọc nhánh ảnh thì chỉ chuyển sang lưu ảnh kiểu cũ, không báo "Lỗi đám mây" cho cả app
+      const onDenied = err => { imgBranchBlocked = true; console.warn('Nhánh ảnh sản phẩm bị chặn:', err && err.code); };
+      ref.on('child_added', onSet, onDenied);
+      ref.on('child_changed', onSet, onDenied);
+      ref.on('child_removed', s => { delete productImageMap[s.key]; debImageRerender(); }, onDenied);
       ref.once('value').then(() => { productImagesReady = true; migrateInlineImages(); })
-        .catch(err => console.warn('Không đọc được ảnh sản phẩm:', err && err.code));
+        .catch(err => { imgBranchBlocked = true; console.warn('Không đọc được nhánh ảnh sản phẩm, dùng cách lưu ảnh cũ:', err && err.code); });
     }
 
     // Chuyển ảnh còn nằm trong danh sách kho (dữ liệu cũ, hoặc do máy còn chạy bản app cũ ghi vào) sang nhánh riêng
+    // Chỉ gỡ ảnh khỏi danh sách kho SAU KHI đám mây xác nhận đã lưu ảnh ở nhánh riêng, và chỉ gỡ
+    // đúng ảnh đã chuyển (nếu trong lúc đó có máy ghi ảnh khác vào thì giữ lại để lần sau chuyển tiếp).
     async function migrateInlineImages() {
-      if (_imgMigrating || !firebaseDb || !productImagesReady || !cloudReady['garage/inventory']) return;
+      if (_imgMigrating || !imgBranchUsable() || !cloudReady['garage/inventory']) return;
+      if (!isAppVersionCurrent()) return; // còn máy chạy bản mới hơn/khác -> không động vào dữ liệu
       const withImg = inventoryList.filter(p => inlineProductImage(p));
       if (!withImg.length) return;
       _imgMigrating = true;
       try {
         const upd = {};
         withImg.forEach(p => { upd[imgKey(p.id)] = inlineProductImage(p); });
-        await firebaseDb.ref('garage/productImages').update(upd);
+        try {
+          await firebaseDb.ref('garage/productImages').update(upd);
+        } catch (err) {
+          imgBranchBlocked = true;
+          console.warn('Database không cho ghi nhánh ảnh riêng, giữ ảnh trong danh sách kho:', err && err.code);
+          return;
+        }
         Object.assign(productImageMap, upd);
         await cloudUpdateList('garage/inventory', list => {
-          list.forEach(p => { if (upd[imgKey(p.id)] || productImageMap[imgKey(p.id)]) PRODUCT_IMG_FIELDS.forEach(f => delete p[f]); });
+          list.forEach(p => {
+            const moved = upd[imgKey(p.id)];
+            if (moved && inlineProductImage(p) === moved) PRODUCT_IMG_FIELDS.forEach(f => delete p[f]);
+          });
           return list;
         });
         console.info('Đã chuyển ' + withImg.length + ' ảnh sản phẩm sang nhánh garage/productImages.');
@@ -3429,20 +3499,27 @@
       }
     }
 
+    // Trả về true khi đám mây ĐÃ XÁC NHẬN lưu. Lỗi -> trả lại ảnh cũ trong bộ nhớ, không làm mất gì.
     function saveProductImage(id, data) {
-      if (!firebaseDb) return Promise.resolve(false);
+      if (!imgBranchUsable()) return Promise.resolve(false);
       const k = imgKey(id);
-      if (data) productImageMap[k] = data; else delete productImageMap[k];
-      return firebaseDb.ref('garage/productImages/' + k).set(data || null).then(() => true).catch(err => {
-        showNotification('Không lưu được ảnh sản phẩm lên đám mây (' + ((err && err.code) || 'lỗi mạng') + ')!', 'error');
+      const prev = productImageMap[k];
+      return firebaseDb.ref('garage/productImages/' + k).set(data || null).then(() => {
+        if (data) productImageMap[k] = data; else delete productImageMap[k];
+        return true;
+      }).catch(err => {
+        if (prev) productImageMap[k] = prev; else delete productImageMap[k];
+        if (err && /PERMISSION_DENIED/i.test(err.code || err.message || '')) imgBranchBlocked = true;
+        console.warn('Không lưu được ảnh vào nhánh riêng:', err && err.code);
         return false;
       });
     }
 
-    // Tương thích dữ liệu cũ: chấp nhận nhiều tên trường ảnh có thể đã từng dùng
+    // Ảnh nằm trong danh sách kho chỉ có khi vừa được ghi (bản app cũ, hoặc chế độ dự phòng) nên là ảnh MỚI NHẤT
+    // -> ưu tiên nó trước ảnh ở nhánh riêng (trước đây ưu tiên ngược lại nên ảnh mới bị ảnh cũ che mất).
     function getProductImage(p) {
       if (!p) return '';
-      const v = productImageMap[imgKey(p.id)] || inlineProductImage(p) || '';
+      const v = inlineProductImage(p) || productImageMap[imgKey(p.id)] || '';
       return (typeof v === 'string') ? v.replace(/"/g, '%22').replace(/</g, '%3C') : '';
     }
 
@@ -3634,24 +3711,35 @@
         const imgChanged = currentInvImageChanged, imgData = currentInvImageData;
         const afterStock = factor ? Math.round(prevStock * factor * 10) / 10 : prevStock;
 
+        // ẢNH: lưu vào nhánh riêng TRƯỚC và chờ đám mây xác nhận. Lưu được -> gỡ ảnh khỏi danh sách kho.
+        // Không lưu được (database chặn / mạng) -> lưu ảnh kiểu cũ ngay trong danh sách kho, KHÔNG làm mất ảnh.
+        let imgInBranch = false;
+        if (imgChanged) {
+          imgInBranch = await saveProductImage(editId, imgData);
+        } else {
+          const cur = inventoryList.find(i => i.id === editId);
+          const inl = inlineProductImage(cur);
+          imgInBranch = inl ? await saveProductImage(editId, inl) : true;
+        }
+
         let gone = false;
-        const useImgBranch = !!firebaseDb;
         const res = await cloudUpdateList('garage/inventory', list => {
           const t = list.find(i => i.id === editId);
           gone = !t;
           if (!t) return list;
           t.name = name; t.cat = cat; t.unit = unit; t.costPrice = costPrice; t.price = price;
           if (factor) t.stock = Math.round((parseFloat(t.stock) || 0) * factor * 10) / 10;
-          if (useImgBranch) {
-            // Ảnh lưu ở nhánh riêng; nếu sản phẩm còn ảnh cũ trong danh sách thì giữ nó lại ở nhánh riêng trước khi gỡ
-            if (!imgChanged && inlineProductImage(t) && !productImageMap[imgKey(t.id)]) saveProductImage(t.id, inlineProductImage(t));
+          if (imgChanged) {
             PRODUCT_IMG_FIELDS.forEach(f => delete t[f]);
-          } else if (imgChanged) { PRODUCT_IMG_FIELDS.forEach(f => delete t[f]); if (imgData) t.image = imgData; }
+            if (!imgInBranch && imgData) t.image = imgData;
+          } else if (imgInBranch) {
+            PRODUCT_IMG_FIELDS.forEach(f => delete t[f]);
+          }
           return list;
         });
         if (res === false) return;
         if (gone) { showNotification('Phụ tùng này đã bị xóa từ máy khác!', 'error'); closeInventoryModal(); return; }
-        if (useImgBranch && imgChanged) await saveProductImage(editId, imgData);
+        if (imgChanged && !imgData && !imgInBranch && productImageMap[imgKey(editId)]) delete productImageMap[imgKey(editId)];
         if (factor) logStockEvent('DIEUCHINH', p.id, name, unit, prevStock, afterStock, 'Quy đổi đơn vị ' + oldUnit + ' → ' + unit + ' (×' + factor + '): ' + formatStockQty(prevStock) + ' ' + oldUnit + ' = ' + formatStockQty(afterStock) + ' ' + unit);
         if (noteDetails.length || !factor) logStockEvent('DIEUCHINH', p.id, name, unit, afterStock, afterStock, noteDetails.join(', ') || 'Cập nhật thông tin phụ tùng');
         showNotification(`Đã lưu "${name}" (${unit})!`, 'success');
@@ -3659,7 +3747,9 @@
         const newCode = code || ('P' + Date.now().toString().slice(-4));
         const newImg = currentInvImageData || '';
         const item = { id: newCode, name: name, cat: cat, unit: unit, costPrice: costPrice, price: price, stock: 0 };
-        if (!firebaseDb && newImg) item.image = newImg; // không có đám mây: giữ cách lưu cũ
+        if (newImg && inventoryList.some(i => i.id === newCode)) { showNotification(`Mã hàng "${newCode}" đã tồn tại, vui lòng dùng mã khác!`, 'error'); return; }
+        // Lưu ảnh vào nhánh riêng trước; không được thì lưu kiểu cũ trong danh sách kho
+        if (newImg && !(await saveProductImage(newCode, newImg))) item.image = newImg;
         let dup = false;
         const res = await cloudUpdateList('garage/inventory', list => {
           dup = list.some(i => i.id === newCode);
@@ -3668,7 +3758,6 @@
         });
         if (res === false) return;
         if (dup) { showNotification(`Mã hàng "${newCode}" đã tồn tại, vui lòng dùng mã khác!`, 'error'); return; }
-        if (firebaseDb && newImg) await saveProductImage(newCode, newImg);
         logStockEvent('NHAP', newCode, name, unit, 0, 0, `Thêm mới mặt hàng vào kho (Tồn: 0, Giá vốn: ${formatMoney(costPrice)} đ, Bán: ${formatMoney(price)} đ)`);
         showNotification(`Đã thêm mới "${name}" (${unit}) vào kho!`, 'success');
       }
