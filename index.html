@@ -136,7 +136,7 @@
               CÔNG TY TNHH DR.SHOCK VN
             </h1>
             <!-- Huy hiệu trạng thái đám mây Firebase -->
-            <div id="cloud-status-badge" class="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950/80 text-emerald-400 border border-emerald-500/40" title="Dữ liệu đồng bộ tức thì thời gian thực">
+            <div id="cloud-status-badge" onclick="showCloudPanel()" style="cursor:pointer" class="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950/80 text-emerald-400 border border-emerald-500/40" title="Dữ liệu đồng bộ tức thì thời gian thực">
               <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
               <span id="cloud-status-text">Đám mây: Trực tuyến</span>
             </div>
@@ -1320,7 +1320,18 @@
     let inventoryList = convertToArray(getStoredData('drshock_inventory', DEFAULT_INVENTORY), DEFAULT_INVENTORY);
     let invoiceList = convertToArray(getStoredData('drshock_invoices', DEFAULT_INVOICES), DEFAULT_INVOICES);
     let stockLogList = convertToArray(getStoredData('drshock_stock_logs', DEFAULT_STOCK_LOGS), DEFAULT_STOCK_LOGS);
-    let firebaseConfig = getStoredData('drshock_firebase_config', MASTER_FIREBASE_CONFIG);
+    // Luôn dùng cấu hình đám mây gốc. Cấu hình cũ/sai lưu riêng trên 1 máy (VD máy tính) sẽ bị xóa,
+    // tránh tình trạng máy đó kết nối nhầm database trong khi các máy khác vẫn bình thường.
+    let firebaseConfig = MASTER_FIREBASE_CONFIG;
+    try {
+      const _oldCfg = getStoredData('drshock_firebase_config', null);
+      if (_oldCfg) {
+        if (_oldCfg.databaseURL !== MASTER_FIREBASE_CONFIG.databaseURL || _oldCfg.apiKey !== MASTER_FIREBASE_CONFIG.apiKey) {
+          console.warn('Đã bỏ cấu hình Firebase cũ lưu trên máy này:', _oldCfg);
+        }
+        localStorage.removeItem('drshock_firebase_config');
+      }
+    } catch (e) {}
 
     let firebaseDb = null;
 
@@ -1335,6 +1346,69 @@
       'garage/staff': 'drshock_staff_list'
     };
 
+    // ===== GHI DỮ LIỆU AN TOÀN KHI NHIỀU MÁY CÙNG DÙNG =====
+    // Mỗi thao tác chỉ thay đổi đúng phần của nó trên bản mới nhất ở đám mây (transaction),
+    // không ghi đè cả danh sách từ bản có thể đã cũ trên máy -> không mất dữ liệu khi 2 máy cùng nhập.
+    const CLOUD_LISTS = {
+      'garage/inventory': { key: 'drshock_inventory', get: () => inventoryList, set: v => { inventoryList = v; } },
+      'garage/invoices': { key: 'drshock_invoices', get: () => invoiceList, set: v => { invoiceList = v; } },
+      'garage/stockLogs': { key: 'drshock_stock_logs', get: () => stockLogList, set: v => { stockLogList = v; } },
+      'garage/staff': { key: 'drshock_staff_list', get: () => staffList, set: v => { staffList = v; } }
+    };
+
+    function cleanJson(v) { return JSON.parse(JSON.stringify(v)); }
+
+    // Chỉ cho sửa dữ liệu khi máy này đã tải xong dữ liệu đám mây (tránh sửa trên bản cũ rồi bị ghi đè mất)
+    function cloudWritable(paths) {
+      if (!firebaseDb) return true;
+      const waiting = paths.filter(p => !cloudReady[p]);
+      if (!waiting.length) return true;
+      showNotification('Máy đang tải dữ liệu từ đám mây. Vui lòng đợi vài giây rồi thao tác lại để dữ liệu không bị lệch giữa các máy!', 'warning');
+      return false;
+    }
+
+    function cloudUpdateList(path, apply) {
+      const meta = CLOUD_LISTS[path];
+      if (!firebaseDb) {
+        const next = cleanJson(apply(cleanJson(meta.get())));
+        meta.set(next);
+        setStoredData(meta.key, next);
+        return Promise.resolve(next);
+      }
+      return new Promise(resolve => {
+        let finished = false;
+        const timer = setTimeout(() => {
+          if (finished) return;
+          finished = true;
+          showNotification('Mạng chậm: dữ liệu đã lưu tạm trên máy, sẽ tự đồng bộ khi kết nối ổn định.', 'warning');
+          resolve(null);
+        }, 12000);
+        firebaseDb.ref(path).transaction(cur => {
+          try { return cleanJson(apply(convertToArray(cur, []))); }
+          catch (e) { console.error('Lỗi cập nhật ' + path, e); return undefined; }
+        }, (err, committed, snap) => {
+          clearTimeout(timer);
+          if (finished) return;
+          finished = true;
+          if (err || !committed) {
+            console.error('Không ghi được ' + path, err);
+            showNotification('Không lưu được lên đám mây (' + ((err && (err.code || err.message)) || 'bị từ chối') + '). Kiểm tra mạng / quyền truy cập Firebase!', 'error');
+            resolve(null);
+          } else {
+            resolve(convertToArray(snap.val(), []));
+          }
+        });
+      });
+    }
+
+    function applyStockDeltas(list, deltas, costs) {
+      list.forEach(p => {
+        if (deltas[p.id] != null) p.stock = Math.max(0, Math.round(((parseFloat(p.stock) || 0) + deltas[p.id]) * 10) / 10);
+        if (costs && costs[p.id] > 0) p.costPrice = costs[p.id];
+      });
+      return list;
+    }
+
     // Trước khi dữ liệu đám mây thay thế dữ liệu trên máy: giữ lại 1 bản dự phòng trên máy
     function keepLocalSafetyCopy(nodePath) {
       try {
@@ -1345,9 +1419,82 @@
       } catch (e) {}
     }
 
+    // Báo lỗi rõ ràng khi máy này không đọc được 1 nhánh dữ liệu (sai quyền, bị chặn, sai URL...)
+    const cloudErrors = {};
+    const cloudState = { connected: false, everConnected: false, longPoll: false, startedAt: Date.now(), timedOut: false, readyAt: {}, sizeKB: {} };
+    const CLOUD_LABELS = { 'garage/inventory': 'Kho phụ tùng', 'garage/invoices': 'Hóa đơn', 'garage/stockLogs': 'Lịch sử kho', 'garage/staff': 'Nhân viên' };
+
+    // Tính lại huy hiệu từ trạng thái thật (tự chuyển về "Trực tuyến" khi dữ liệu tải xong, dù chậm)
+    function refreshCloudBadge() {
+      if (!firebaseDb) return;
+      const keys = Object.keys(CLOUD_LOCAL_KEYS);
+      const ready = keys.filter(k => cloudReady[k]).length;
+      if (Object.keys(cloudErrors).length) updateCloudStatus(false, 'Lỗi đám mây');
+      else if (ready === keys.length) updateCloudStatus(cloudState.connected, cloudState.connected ? ('Đám mây: Trực tuyến' + (cloudState.longPoll ? ' (dự phòng)' : '')) : 'Mất kết nối đám mây');
+      else if (!cloudState.connected) updateCloudStatus(false, cloudState.everConnected ? 'Mất kết nối đám mây' : (cloudState.timedOut ? 'Chưa đồng bộ' : 'Đang kết nối...'));
+      else updateCloudStatus(false, (cloudState.timedOut ? 'Chưa đồng bộ' : 'Đang tải dữ liệu') + ' (' + ready + '/' + keys.length + ')');
+    }
+
+    // Bấm vào huy hiệu: xem chi tiết từng phần dữ liệu đang kẹt ở đâu
+    function showCloudPanel() {
+      let box = document.getElementById('cloud-panel');
+      if (!box) {
+        box = document.createElement('div');
+        box.id = 'cloud-panel';
+        box.className = 'fixed inset-0 z-[80] bg-black/80 flex items-center justify-center p-3';
+        box.addEventListener('click', e => { if (e.target === box) box.remove(); });
+        document.body.appendChild(box);
+      }
+      const secs = Math.round((Date.now() - cloudState.startedAt) / 1000);
+      const rowsHtml = Object.keys(CLOUD_LOCAL_KEYS).map(k => {
+        const err = cloudErrors[k], ok = cloudReady[k];
+        const st = err ? `<span class="text-red-400 font-bold">Lỗi: ${highlightMatch(err, [])}</span>`
+          : ok ? `<span class="text-emerald-400 font-bold">Đã tải (${Math.round((cloudState.readyAt[k] - cloudState.startedAt) / 1000)}s${cloudState.sizeKB[k] ? ', ' + formatMoney(cloudState.sizeKB[k]) + ' KB' : ''})</span>`
+          : '<span class="text-amber-400 font-bold">Đang chờ...</span>';
+        return `<div class="flex items-center justify-between gap-2 py-1.5 border-b border-gray-800"><span class="text-gray-300">${CLOUD_LABELS[k]}</span>${st}</div>`;
+      }).join('');
+      box.innerHTML = `
+        <div class="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-sm p-4 text-xs space-y-3 shadow-2xl">
+          <div class="flex items-center justify-between"><h3 class="text-sm font-bold text-orange-400"><i class="fa-solid fa-cloud mr-1.5"></i>Tình trạng đồng bộ máy này</h3>
+            <button onclick="document.getElementById('cloud-panel').remove()" class="w-7 h-7 rounded-full bg-gray-800 text-gray-400"><i class="fa-solid fa-xmark"></i></button></div>
+          <div class="bg-gray-800/60 rounded-xl p-2.5 space-y-1">
+            <div class="flex justify-between"><span class="text-gray-400">Kết nối máy chủ:</span><b class="${cloudState.connected ? 'text-emerald-400' : 'text-red-400'}">${cloudState.connected ? 'Đã kết nối' : (cloudState.everConnected ? 'Mất kết nối' : 'Chưa kết nối được')}</b></div>
+            <div class="flex justify-between"><span class="text-gray-400">Chế độ:</span><b class="text-white">${cloudState.longPoll ? 'Dự phòng (long-polling)' : 'Thường (WebSocket)'}</b></div>
+            <div class="flex justify-between"><span class="text-gray-400">Thời gian từ lúc mở app:</span><b class="text-white">${secs} giây</b></div>
+          </div>
+          <div>${rowsHtml}</div>
+          <p class="text-[11px] text-gray-400">${!cloudState.everConnected ? 'Máy này <b class="text-red-400">chưa kết nối được máy chủ</b>: kết nối đang bị chặn (phần mềm diệt virus, tường lửa, DNS). Xem trang kiểm tra để biết chỗ bị chặn.' : (Object.keys(CLOUD_LOCAL_KEYS).every(k => cloudReady[k]) ? 'Mọi dữ liệu đã đồng bộ.' : 'Đã kết nối nhưng dữ liệu tải chậm. Nếu đứng yên lâu, phần mềm diệt virus có thể đang quét làm nghẽn kết nối.')}</p>
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="resetCloudConnection()" class="py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl font-bold text-sky-300"><i class="fa-solid fa-rotate mr-1"></i>Kết nối lại</button>
+            <a href="kiemtra.html" target="_blank" class="py-2 text-center bg-gradient-to-r from-red-600 to-orange-600 rounded-xl font-bold text-white"><i class="fa-solid fa-stethoscope mr-1"></i>Trang kiểm tra</a>
+          </div>
+        </div>`;
+    }
+
+    function resetCloudConnection() {
+      try { localStorage.removeItem('drshock_fb_longpoll'); localStorage.removeItem('drshock_firebase_config'); } catch (e) {}
+      showNotification('Đang kết nối lại đám mây...', 'info');
+      setTimeout(() => location.reload(), 700);
+    }
+    function onCloudErr(path) {
+      return function(err) {
+        const code = (err && (err.code || err.message)) || 'không rõ';
+        console.error('Lỗi đọc dữ liệu đám mây ' + path + ':', err);
+        if (cloudErrors[path]) return;
+        cloudErrors[path] = code;
+        updateCloudStatus(false, 'Lỗi đám mây');
+        showNotification('Máy này không đọc được dữ liệu ' + path + ' (' + code + '). Kiểm tra mạng / phần mềm diệt virus / tiện ích chặn quảng cáo.', 'error');
+      };
+    }
+
     // KHỞI TẠO FIREBASE
     function initFirebaseConnection() {
-      if (typeof firebase === 'undefined') return;
+      if (firebaseDb) return; // đã kết nối rồi, không khởi tạo / gắn listener lần 2
+      if (typeof firebase === 'undefined') {
+        updateCloudStatus(false, 'Không tải được Firebase');
+        showNotification('Máy này không tải được thư viện Firebase (gstatic.com bị chặn hoặc mất mạng). Dữ liệu sẽ KHÔNG đồng bộ!', 'error');
+        return;
+      }
       const cfg = firebaseConfig || MASTER_FIREBASE_CONFIG;
       if (!cfg || !cfg.databaseURL) return;
 
@@ -1359,11 +1506,31 @@
             apiKey: cfg.apiKey || 'AIzaSyD8iJcVdRJ3XD2_YaWz8aSljJFKn7D5SKU'
           });
         }
+        // Chế độ kết nối dự phòng (long-polling) cho máy bị chặn WebSocket (diệt virus, tường lửa, proxy công ty...)
+        const longPollMode = (function() { try { return localStorage.getItem('drshock_fb_longpoll') === '1'; } catch (e) { return false; } })();
+        if (longPollMode && firebase.database && firebase.database.INTERNAL && typeof firebase.database.INTERNAL.forceLongPolling === 'function') {
+          firebase.database.INTERNAL.forceLongPolling();
+          console.info('Đang dùng chế độ kết nối dự phòng (long-polling).');
+        }
         firebaseDb = firebase.database();
         (function guardCloudWrites() {
           const rawRef = firebaseDb.ref.bind(firebaseDb);
           firebaseDb.ref = function(path) {
             const r = rawRef(path);
+            // Tự gắn hàm báo lỗi cho mọi listener chưa có
+            const rawOn = r.on.bind(r);
+            r.on = function(evt, cb, cancel, ctx) {
+              const wrapped = function(snap) {
+                const out = cb.apply(this, arguments);
+                if (typeof path === 'string' && CLOUD_LOCAL_KEYS[path] && !cloudState.readyAt[path]) {
+                  cloudState.readyAt[path] = Date.now();
+                  try { cloudState.sizeKB[path] = Math.round(JSON.stringify(snap.val() || '').length / 1024); } catch (e) {}
+                  refreshCloudBadge();
+                }
+                return out;
+              };
+              return rawOn(evt, wrapped, typeof cancel === 'function' ? cancel : onCloudErr(String(path || '/')), ctx);
+            };
             if (typeof path === 'string' && CLOUD_LOCAL_KEYS[path]) {
               const rawSet = r.set.bind(r);
               r.set = function(value) {
@@ -1380,10 +1547,40 @@
             return r;
           };
         })();
-        updateCloudStatus(true, 'Đám mây: Trực tuyến');
+        // Trạng thái kết nối THẬT (trước đây luôn báo "Trực tuyến" dù không kết nối được)
+        cloudState.longPoll = longPollMode;
+        updateCloudStatus(false, 'Đang kết nối...');
+        let everConnected = false;
+        firebaseDb.ref('.info/connected').on('value', s => {
+          cloudState.connected = s.val() === true;
+          if (cloudState.connected) { everConnected = true; cloudState.everConnected = true; }
+          refreshCloudBadge();
+        });
+        // Sau 10 giây vẫn chưa kết nối được bằng WebSocket -> tự chuyển sang chế độ dự phòng và tải lại 1 lần
+        if (!longPollMode) {
+          setTimeout(() => {
+            if (everConnected) return;
+            try { localStorage.setItem('drshock_fb_longpoll', '1'); } catch (e) { return; }
+            updateCloudStatus(false, 'Chuyển kết nối dự phòng...');
+            showNotification('Máy này không kết nối được đám mây theo cách thường. Đang tự chuyển sang chế độ kết nối dự phòng...', 'warning');
+            setTimeout(() => location.reload(), 1500);
+          }, 10000);
+        }
         setupFirebaseRealtimeListeners();
+        setTimeout(() => {
+          const missing = Object.keys(CLOUD_LOCAL_KEYS).filter(k => !cloudReady[k] && !cloudErrors[k]);
+          if (missing.length && (longPollMode || everConnected)) {
+            cloudState.timedOut = true;
+            refreshCloudBadge();
+            showNotification(everConnected
+              ? 'Đã kết nối nhưng dữ liệu tải rất chậm. Bấm vào huy hiệu "Chưa đồng bộ" để xem chi tiết.'
+              : 'Máy này không kết nối được máy chủ đám mây (đã thử cả chế độ dự phòng). Bấm vào huy hiệu "Chưa đồng bộ" để xem chi tiết.', 'error');
+          }
+        }, longPollMode ? 20000 : 15000);
       } catch (err) {
+        console.error('Lỗi khởi tạo Firebase:', err);
         updateCloudStatus(false, 'Ngoại tuyến (Offline)');
+        showNotification('Lỗi khởi tạo kết nối đám mây: ' + (err && err.message ? err.message : err), 'error');
       }
     }
 
@@ -1394,10 +1591,10 @@
 
       if (isOnline) {
         badge.className = "shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950/80 text-emerald-400 border border-emerald-500/40";
-        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>${text || 'Đám mây: Trực tuyến'}</span>`;
+        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span id="cloud-status-text">${text || 'Đám mây: Trực tuyến'}</span>`;
       } else {
         badge.className = "shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-950/80 text-amber-400 border border-amber-500/40";
-        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span><span>${text || 'Ngoại tuyến (Offline)'}</span>`;
+        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span><span id="cloud-status-text">${text || 'Ngoại tuyến (Offline)'}</span>`;
       }
     }
 
@@ -1416,57 +1613,29 @@
         renderFinanceDash();
       });
 
-      firebaseDb.ref('garage/inventory').on('value', snapshot => {
-        const val = snapshot.val();
-        cloudReady['garage/inventory'] = true;
-        if (val) {
-          keepLocalSafetyCopy('garage/inventory');
-          inventoryList = convertToArray(val, inventoryList);
-          setStoredData('drshock_inventory', inventoryList);
-          renderInventoryTable();
-          populateInventorySelector('ALL');
-        }
-      });
-
-      firebaseDb.ref('garage/invoices').on('value', snapshot => {
-        const val = snapshot.val();
-        const wasReady = cloudReady['garage/invoices'];
-        cloudReady['garage/invoices'] = true;
-        if (!val && wasReady) { invoiceList = []; setStoredData('drshock_invoices', invoiceList); renderInvoiceList(); renderCustomerAndReports(); }
-        if (val) {
-          keepLocalSafetyCopy('garage/invoices');
-          invoiceList = convertToArray(val, invoiceList);
-          setStoredData('drshock_invoices', invoiceList);
-          renderInvoiceList();
-          renderCustomerAndReports();
-        }
-      });
-
-      firebaseDb.ref('garage/stockLogs').on('value', snapshot => {
-        const val = snapshot.val();
-        const wasReady = cloudReady['garage/stockLogs'];
-        cloudReady['garage/stockLogs'] = true;
-        if (!val && wasReady) { stockLogList = []; setStoredData('drshock_stock_logs', stockLogList); renderStockLogs(); updateInventoryOverviewStats(); }
-        if (val) {
-          keepLocalSafetyCopy('garage/stockLogs');
-          stockLogList = convertToArray(val, stockLogList);
-          setStoredData('drshock_stock_logs', stockLogList);
-          renderStockLogs();
-        }
-      });
-
-      firebaseDb.ref('garage/staff').on('value', snapshot => {
-        const val = snapshot.val();
-        cloudReady['garage/staff'] = true;
-        if (val) {
-          keepLocalSafetyCopy('garage/staff');
-          staffList = convertToArray(val, staffList);
-          setStoredData('drshock_staff_list', staffList);
-          renderLoginUserList();
-          renderStaffCards();
-          populateAdvisorSelect();
-        }
-      });
+      // Nhận dữ liệu realtime. Sau lần tải đầu, danh sách rỗng trên đám mây nghĩa là đã bị xóa hết -> máy này cũng phải rỗng.
+      const bindList = (path, canBeEmpty, afterUpdate) => {
+        firebaseDb.ref(path).on('value', snapshot => {
+          const val = snapshot.val();
+          const wasReady = cloudReady[path];
+          cloudReady[path] = true;
+          const meta = CLOUD_LISTS[path];
+          if (val) {
+            keepLocalSafetyCopy(path);
+            meta.set(convertToArray(val, meta.get()));
+          } else if (wasReady && canBeEmpty) {
+            meta.set([]);
+          } else {
+            return;
+          }
+          setStoredData(meta.key, meta.get());
+          afterUpdate();
+        });
+      };
+      bindList('garage/inventory', true, () => { renderInventoryTable(); populateInventorySelector('ALL'); });
+      bindList('garage/invoices', true, () => { renderInvoiceList(); renderCustomerAndReports(); });
+      bindList('garage/stockLogs', true, () => { renderStockLogs(); updateInventoryOverviewStats(); });
+      bindList('garage/staff', false, () => { renderLoginUserList(); renderStaffCards(); populateAdvisorSelect(); });
     }
 
     function syncAllToCloudForce() {
@@ -1474,15 +1643,20 @@
         showNotification('Chưa kết nối Firebase!', 'warning');
         return;
       }
-      try {
-        firebaseDb.ref('garage/inventory').set(inventoryList);
-        firebaseDb.ref('garage/invoices').set(invoiceList);
-        firebaseDb.ref('garage/stockLogs').set(stockLogList);
-        firebaseDb.ref('garage/staff').set(staffList);
-        showNotification('Đã đồng bộ toàn bộ dữ liệu xưởng lên đám mây!', 'success');
-      } catch (e) {
-        showNotification('Lỗi đồng bộ lên đám mây!', 'error');
-      }
+      if (!cloudWritable(Object.keys(CLOUD_LOCAL_KEYS))) return;
+      showConfirmModal(
+        'Đẩy Dữ Liệu Máy Này Lên Mây',
+        'Toàn bộ dữ liệu trên máy này sẽ GHI ĐÈ dữ liệu trên đám mây (mọi máy khác sẽ nhận theo). Chỉ làm khi chắc chắn dữ liệu trên máy này là bản đúng. Tiếp tục?',
+        () => {
+          Promise.all([
+            firebaseDb.ref('garage/inventory').set(inventoryList),
+            firebaseDb.ref('garage/invoices').set(invoiceList),
+            firebaseDb.ref('garage/stockLogs').set(stockLogList),
+            firebaseDb.ref('garage/staff').set(staffList)
+          ]).then(() => showNotification('Đã đồng bộ toàn bộ dữ liệu xưởng lên đám mây!', 'success'))
+            .catch(() => showNotification('Lỗi đồng bộ lên đám mây!', 'error'));
+        }
+      );
     }
 
     function saveAndConnectFirebase() {
@@ -1495,11 +1669,14 @@
         return;
       }
 
-      firebaseConfig = { databaseURL: url, projectId: proj, apiKey: key };
-      setStoredData('drshock_firebase_config', firebaseConfig);
-      if (!firebaseDb) { _fbInitDone = true; initFirebaseConnection(); }
-      syncAllToCloudForce();
-      showNotification('Đã lưu và kích hoạt kết nối đám mây thành công!', 'success');
+      // App luôn dùng cấu hình gốc (MASTER_FIREBASE_CONFIG). Nút này giờ chỉ xóa cấu hình cũ trên máy và
+      // kết nối lại sạch sẽ - KHÔNG còn đẩy dữ liệu trên máy đè lên đám mây.
+      if (url !== MASTER_FIREBASE_CONFIG.databaseURL || key !== MASTER_FIREBASE_CONFIG.apiKey) {
+        showNotification('Cấu hình khác bản gốc sẽ không được dùng. Muốn đổi database cần sửa MASTER_FIREBASE_CONFIG trong code.', 'warning');
+      }
+      try { localStorage.removeItem('drshock_firebase_config'); } catch (e) {}
+      showNotification('Đang kết nối lại đám mây...', 'info');
+      setTimeout(() => location.reload(), 900);
     }
 
     // ĐĂNG NHẬP
@@ -1605,6 +1782,7 @@
 
       if (errBox) errBox.classList.add('hidden');
       currentLoggedInUser = user;
+      try { sessionStorage.setItem('drshock_session_uid', user.id); } catch (e) {}
       document.getElementById('login-screen').classList.add('hidden');
       document.getElementById('main-app').classList.remove('hidden');
 
@@ -1633,6 +1811,7 @@
 
     function handleLogout() {
       currentLoggedInUser = null;
+      try { sessionStorage.removeItem('drshock_session_uid'); } catch (e) {}
       const pinInput = document.getElementById('login-pin-input');
       if (pinInput) pinInput.value = '';
       document.getElementById('main-app').classList.add('hidden');
@@ -1828,11 +2007,11 @@
         user: userName,
         note: note || ''
       };
-      stockLogList.unshift(newLog);
-      if (stockLogList.length > 1000) stockLogList.length = 1000;
-      setStoredData('drshock_stock_logs', stockLogList);
-      if (firebaseDb) firebaseDb.ref('garage/stockLogs').set(stockLogList);
-      renderStockLogs();
+      cloudUpdateList('garage/stockLogs', list => {
+        list.unshift(newLog);
+        if (list.length > 1000) list.length = 1000;
+        return list;
+      }).then(() => renderStockLogs());
     }
 
     // ===== SẮP XẾP THEO THỜI GIAN =====
@@ -2374,7 +2553,9 @@
       showNotification('Đã làm mới thông tin báo giá.', 'info');
     }
 
-    function handleSaveInvoice() {
+    let invoiceSaving = false;
+    async function handleSaveInvoice() {
+      if (invoiceSaving) return;
       const plate = document.getElementById('quote-plate').value.trim();
       const name = document.getElementById('quote-name').value.trim();
       const phone = document.getElementById('quote-phone').value.trim();
@@ -2407,58 +2588,65 @@
         showNotification('Vui lòng thêm ít nhất 1 dịch vụ hoặc phụ tùng vào bill!', 'warning');
         return;
       }
+      if (!cloudWritable(['garage/invoices', 'garage/inventory', 'garage/stockLogs'])) return;
 
-      if (firebaseDb && (!cloudReady['garage/invoices'] || !cloudReady['garage/inventory'] || !cloudReady['garage/stockLogs'])) {
-        showNotification('Đang tải dữ liệu từ đám mây, vui lòng đợi vài giây rồi xuất hóa đơn lại!', 'warning');
-        return;
+      invoiceSaving = true;
+      try {
+        const { subtotal, discount, finalTotal } = calculateQuoteTotal();
+        const base = {
+          date: new Date().toLocaleDateString('vi-VN') + ' ' + new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'}),
+          plate: plate.toUpperCase(),
+          name: name,
+          phone: phone,
+          car: car,
+          odo: odo,
+          note: note,
+          serviceType: serviceType,
+          customerType: customerType,
+          advisor: advisor,
+          items: JSON.parse(JSON.stringify(currentQuoteItems)),
+          subtotal: subtotal,
+          discount: discount,
+          total: finalTotal
+        };
+
+        // Số lượng trừ kho (tính theo tồn hiện có để ghi nhật ký), cộng dồn nếu 1 mã xuất hiện nhiều dòng
+        const deltas = {};
+        const running = {};
+        const logs = [];
+        currentQuoteItems.forEach(item => {
+          const prod = inventoryList.find(p => p.id === item.id || p.name.trim().toLowerCase() === item.name.trim().toLowerCase());
+          if (!prod) return;
+          const used = parseFloat(item.qty) || 1;
+          const prev = running[prod.id] != null ? running[prod.id] : (parseFloat(prod.stock) || 0);
+          const next = Math.max(0, Math.round((prev - used) * 10) / 10);
+          running[prod.id] = next;
+          deltas[prod.id] = (deltas[prod.id] || 0) - used;
+          logs.push([prod, item, prev, next]);
+        });
+
+        // Mã hóa đơn được cấp ngay trên bản mới nhất ở đám mây -> 2 máy lập bill cùng lúc không bao giờ trùng mã / đè bill của nhau
+        let newInv = null;
+        await cloudUpdateList('garage/invoices', list => {
+          const id = 'INV-' + (Math.max(100, ...list.map(i => invSeq(i))) + 1);
+          newInv = Object.assign({ id: id }, base);
+          list.unshift(newInv);
+          return list;
+        });
+        if (!newInv) { showNotification('Chưa lưu được hóa đơn, vui lòng thử lại!', 'error'); return; }
+
+        if (Object.keys(deltas).length) await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas));
+        logs.forEach(l => logStockEvent('XUAT', l[0].id, l[0].name, l[0].unit || l[1].unit || 'Cái', l[2], l[3], `Xuất theo hóa đơn ${newInv.id} cho xe ${newInv.plate} (${newInv.serviceType} - ${newInv.customerType})`));
+
+        renderInventoryTable();
+        populateInventorySelector('ALL');
+        renderInvoiceList();
+        renderCustomerAndReports();
+        showPrintModal(newInv);
+        showNotification(`Đã xuất hóa đơn ${newInv.id}!`, 'success');
+      } finally {
+        invoiceSaving = false;
       }
-
-      const { subtotal, discount, finalTotal } = calculateQuoteTotal();
-
-      const newInv = {
-        id: 'INV-' + (Math.max(100, ...invoiceList.map(i => invSeq(i))) + 1),
-        date: new Date().toLocaleDateString('vi-VN') + ' ' + new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'}),
-        plate: plate.toUpperCase(),
-        name: name,
-        phone: phone,
-        car: car,
-        odo: odo,
-        note: note,
-        serviceType: serviceType,
-        customerType: customerType,
-        advisor: advisor,
-        items: JSON.parse(JSON.stringify(currentQuoteItems)),
-        subtotal: subtotal,
-        discount: discount,
-        total: finalTotal
-      };
-
-      currentQuoteItems.forEach(item => {
-        const prod = inventoryList.find(p => p.id === item.id || p.name.trim().toLowerCase() === item.name.trim().toLowerCase());
-        if (prod) {
-          const prev = parseFloat(prod.stock) || 0;
-          const usedQty = parseFloat(item.qty) || 1;
-          const next = Math.max(0, Math.round((prev - usedQty) * 10) / 10);
-          prod.stock = next;
-          logStockEvent('XUAT', prod.id, prod.name, prod.unit || item.unit || 'Cái', prev, next, `Xuất theo hóa đơn ${newInv.id} cho xe ${newInv.plate} (${newInv.serviceType} - ${newInv.customerType})`);
-        }
-      });
-
-      setStoredData('drshock_inventory', inventoryList);
-      invoiceList.unshift(newInv);
-      setStoredData('drshock_invoices', invoiceList);
-
-      if (firebaseDb) {
-        firebaseDb.ref('garage/inventory').set(inventoryList);
-        firebaseDb.ref('garage/invoices').set(invoiceList);
-      }
-
-      renderInventoryTable();
-      populateInventorySelector('ALL');
-      renderInvoiceList();
-      renderCustomerAndReports();
-      showPrintModal(newInv);
-      showNotification(`Đã xuất hóa đơn ${newInv.id}!`, 'success');
     }
 
     // ==========================================
@@ -2723,7 +2911,7 @@
       return { subtotal, discount, total };
     }
 
-    function handleSaveEditInvoiceModal() {
+    async function handleSaveEditInvoiceModal() {
       if (!checkInvoiceManagePermission()) return;
       const invId = document.getElementById('edit-inv-id').value;
       const inv = invoiceList.find(i => i.id === invId);
@@ -2748,6 +2936,7 @@
         showNotification('Hóa đơn phải có ít nhất 1 hạng mục!', 'warning');
         return;
       }
+      if (!cloudWritable(['garage/invoices', 'garage/inventory', 'garage/stockLogs'])) return;
 
       const { subtotal, discount, total } = calculateEditInvoiceTotal();
 
@@ -2762,53 +2951,47 @@
       });
 
       const allProductIds = Array.from(new Set([...Object.keys(oldItemsMap), ...Object.keys(newItemsMap)]));
+      const deltas = {};
+      const logs = [];
 
       allProductIds.forEach(pId => {
         const prod = inventoryList.find(p => p.id === pId);
-        if (prod) {
-          const oldQty = oldItemsMap[pId] || 0;
-          const newQty = newItemsMap[pId] || 0;
-          const diff = Math.round((newQty - oldQty) * 10) / 10;
-          if (diff !== 0) {
-            const prevStock = parseFloat(prod.stock) || 0;
-            const nextStock = Math.max(0, Math.round((prevStock - diff) * 10) / 10);
-            prod.stock = nextStock;
-            const logType = diff > 0 ? 'XUAT' : 'NHAP';
-            const noteStr = diff > 0 
-              ? `Xuất thêm ${diff} ${prod.unit || 'Cái'} do sửa HĐ ${inv.id}` 
-              : `Hoàn trả ${Math.abs(diff)} ${prod.unit || 'Cái'} vào kho do sửa HĐ ${inv.id}`;
-            logStockEvent(logType, prod.id, prod.name, prod.unit || 'Cái', prevStock, nextStock, noteStr);
-          }
-        }
+        if (!prod) return;
+        const diff = Math.round(((newItemsMap[pId] || 0) - (oldItemsMap[pId] || 0)) * 10) / 10;
+        if (diff === 0) return;
+        const prevStock = parseFloat(prod.stock) || 0;
+        const nextStock = Math.max(0, Math.round((prevStock - diff) * 10) / 10);
+        deltas[pId] = -diff;
+        const noteStr = diff > 0
+          ? `Xuất thêm ${diff} ${prod.unit || 'Cái'} do sửa HĐ ${inv.id}`
+          : `Hoàn trả ${Math.abs(diff)} ${prod.unit || 'Cái'} vào kho do sửa HĐ ${inv.id}`;
+        logs.push([diff > 0 ? 'XUAT' : 'NHAP', prod.id, prod.name, prod.unit || 'Cái', prevStock, nextStock, noteStr]);
       });
 
-      inv.plate = plate;
-      inv.name = name;
-      inv.phone = phone;
-      inv.car = car;
-      inv.odo = odo;
-      inv.note = note;
-      inv.serviceType = serviceType;
-      inv.customerType = customerType;
-      inv.items = JSON.parse(JSON.stringify(currentEditingInvoiceItems));
-      inv.subtotal = subtotal;
-      inv.discount = discount;
-      inv.total = total;
-
-      setStoredData('drshock_invoices', invoiceList);
-      setStoredData('drshock_inventory', inventoryList);
-
-      if (firebaseDb) {
-        firebaseDb.ref('garage/invoices').set(invoiceList);
-        firebaseDb.ref('garage/inventory').set(inventoryList);
+      const newItems = JSON.parse(JSON.stringify(currentEditingInvoiceItems));
+      let missing = false;
+      await cloudUpdateList('garage/invoices', list => {
+        const target = list.find(i => i.id === invId);
+        missing = !target;
+        if (target) {
+          Object.assign(target, { plate: plate, name: name, phone: phone, car: car, odo: odo, note: note, serviceType: serviceType, customerType: customerType, items: JSON.parse(JSON.stringify(newItems)), subtotal: subtotal, discount: discount, total: total });
+        }
+        return list;
+      });
+      if (missing) {
+        showNotification(`Hóa đơn ${invId} đã bị xóa trên máy khác, không thể lưu!`, 'error');
+        closeEditInvoiceModal();
+        return;
       }
+      if (Object.keys(deltas).length) await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas));
+      logs.forEach(l => logStockEvent.apply(null, l));
 
       renderInvoiceList();
       renderInventoryTable();
       renderCustomerAndReports();
       populateInventorySelector('ALL');
       closeEditInvoiceModal();
-      showNotification(`Đã cập nhật hóa đơn ${inv.id} thành công!`, 'success');
+      showNotification(`Đã cập nhật hóa đơn ${invId} thành công!`, 'success');
     }
 
     function deleteInvoice(id) {
@@ -2819,32 +3002,38 @@
       showConfirmModal(
         'Xác Nhận Xóa Hóa Đơn',
         `Bạn có chắc chắn muốn xóa hóa đơn ${inv.id} (Xe ${inv.plate})? Toàn bộ phụ tùng trong hóa đơn sẽ được hoàn trả lại vào kho.`,
-        () => {
+        async () => {
+          if (!cloudWritable(['garage/invoices', 'garage/inventory', 'garage/stockLogs'])) return;
+          const deltas = {};
+          const running = {};
+          const logs = [];
           (inv.items || []).forEach(item => {
             const prod = inventoryList.find(p => p.id === item.id || p.name.trim().toLowerCase() === item.name.trim().toLowerCase());
-            if (prod) {
-              const prev = parseFloat(prod.stock) || 0;
-              const returnQty = parseFloat(item.qty) || 1;
-              const next = Math.round((prev + returnQty) * 10) / 10;
-              prod.stock = next;
-              logStockEvent('NHAP', prod.id, prod.name, prod.unit || item.unit || 'Cái', prev, next, `Hoàn trả vào kho do xóa hóa đơn ${inv.id} (Xe ${inv.plate})`);
-            }
+            if (!prod) return;
+            const returnQty = parseFloat(item.qty) || 1;
+            const prev = running[prod.id] != null ? running[prod.id] : (parseFloat(prod.stock) || 0);
+            const next = Math.round((prev + returnQty) * 10) / 10;
+            running[prod.id] = next;
+            deltas[prod.id] = (deltas[prod.id] || 0) + returnQty;
+            logs.push(['NHAP', prod.id, prod.name, prod.unit || item.unit || 'Cái', prev, next, `Hoàn trả vào kho do xóa hóa đơn ${inv.id} (Xe ${inv.plate})`]);
           });
 
-          invoiceList = invoiceList.filter(i => i.id !== id);
-          setStoredData('drshock_invoices', invoiceList);
-          setStoredData('drshock_inventory', inventoryList);
-
-          if (firebaseDb) {
-            firebaseDb.ref('garage/invoices').set(invoiceList);
-            firebaseDb.ref('garage/inventory').set(inventoryList);
+          // Chỉ hoàn kho nếu hóa đơn còn tồn tại trên đám mây (tránh cộng kho 2 lần khi 2 máy cùng xóa)
+          let existed = false;
+          await cloudUpdateList('garage/invoices', list => {
+            existed = list.some(i => i.id === id);
+            return list.filter(i => i.id !== id);
+          });
+          if (existed && Object.keys(deltas).length) {
+            await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas));
+            logs.forEach(l => logStockEvent.apply(null, l));
           }
 
           renderInvoiceList();
           renderInventoryTable();
           renderCustomerAndReports();
           populateInventorySelector('ALL');
-          showNotification(`Đã xóa hóa đơn ${inv.id} và hoàn kho thành công!`, 'info');
+          showNotification(existed ? `Đã xóa hóa đơn ${inv.id} và hoàn kho thành công!` : `Hóa đơn ${inv.id} đã được xóa từ máy khác.`, 'info');
         }
       );
     }
@@ -3062,7 +3251,7 @@
                 <div class="min-w-0 flex-1">
                   <h3 class="text-xs sm:text-sm font-bold text-white leading-snug">${esc(p.name)}</h3>
                   <div class="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                    <span class="text-[10px] font-mono font-bold text-gray-400">${esc(p.id)}</span>
+                    <span class="text-[10px] font-mono font-bold text-gray-400">${p.id}</span>
                     <span class="text-[10px] px-1.5 py-0.2 rounded bg-orange-950/60 text-orange-400 border border-orange-500/30 font-semibold">${p.cat || 'PHUOC'}</span>
                     <span class="text-[10px] px-1.5 py-0.2 rounded bg-amber-950/60 text-amber-300 border border-amber-500/30 font-bold uppercase">ĐVT: ${unitStr}</span>
                   </div>
@@ -3186,7 +3375,7 @@
         document.body.appendChild(box);
       }
       box.innerHTML = `<img src="${src}" alt="" class="max-w-full max-h-[80vh] rounded-2xl shadow-2xl object-contain">
-        <div class="mt-3 text-sm font-bold text-white text-center">${esc(p.name)}</div>
+        <div class="mt-3 text-sm font-bold text-white text-center">${p.name}</div>
         <div class="mt-1 text-[11px] text-gray-400">Chạm để đóng</div>`;
       box.classList.remove('hidden');
     }
@@ -3314,7 +3503,7 @@
       document.getElementById('inventory-modal').classList.add('hidden');
     }
 
-    function handleSaveInventoryModal() {
+    async function handleSaveInventoryModal() {
       if (!checkStockManagePermission()) return;
       const editId = document.getElementById('inv-edit-id').value.trim();
       const code = document.getElementById('inv-edit-code').value.trim().toUpperCase();
@@ -3323,70 +3512,60 @@
       const unit = document.getElementById('inv-edit-unit').value.trim() || 'Cái';
       const costPrice = parseCurrencyNumber(document.getElementById('inv-edit-cost').value);
       const price = parseCurrencyNumber(document.getElementById('inv-edit-price').value);
-      let stock = editId ? (parseFloat((inventoryList.find(i => i.id === editId) || {}).stock) || 0) : 0; // tồn kho chỉ đổi qua phiếu nhập / bán bill
 
       if (!name) {
         showNotification('Vui lòng nhập Tên phụ tùng!', 'warning');
         document.getElementById('inv-edit-name').focus();
         return;
       }
+      if (!cloudWritable(['garage/inventory', 'garage/stockLogs'])) return;
 
       if (editId) {
         const p = inventoryList.find(i => i.id === editId);
-        if (p) {
-          const oldUnit = p.unit || 'Cái';
-          if (oldUnit !== unit && (parseFloat(p.stock) || 0) > 0) {
-            const ans = window.prompt('Đổi đơn vị từ "' + oldUnit + '" sang "' + unit + '".\nTồn kho hiện là ' + formatStockQty(p.stock) + ' ' + oldUnit + '.\n\n1 ' + oldUnit + ' = bao nhiêu ' + unit + '? (VD: 4)\nNhập số để quy đổi tồn kho. Bỏ trống hoặc Hủy = giữ nguyên số tồn.\nLưu ý: nhập Giá nhập / Giá bán theo ' + unit + '.', '');
-            const f = parseFloat(String(ans || '').replace(',', '.'));
-            if (f > 0 && isFinite(f)) {
-              const before = parseFloat(p.stock) || 0;
-              const after = Math.round(before * f * 10) / 10;
-              p.stock = after;
-              stock = after;
-              logStockEvent('DIEUCHINH', p.id, p.name, unit, before, after, 'Quy đổi đơn vị ' + oldUnit + ' → ' + unit + ' (×' + f + '): ' + formatStockQty(before) + ' ' + oldUnit + ' = ' + formatStockQty(after) + ' ' + unit);
-            }
-          }
-          const prevStock = parseFloat(p.stock) || 0;
-          const isStockChanged = prevStock !== stock;
-          let noteDetails = [];
-          if (p.name !== name) noteDetails.push(`Đổi tên`);
-          if (p.price !== price) noteDetails.push(`Giá bán: ${formatMoney(p.price)} -> ${formatMoney(price)}`);
-          if (p.costPrice !== costPrice) noteDetails.push(`Giá vốn: ${formatMoney(p.costPrice)} -> ${formatMoney(costPrice)}`);
-          if (isStockChanged) noteDetails.push(`Tồn: ${formatStockQty(prevStock)} -> ${formatStockQty(stock)}`);
-
-          p.name = name;
-          p.cat = cat;
-          p.unit = unit;
-          p.costPrice = costPrice;
-          p.price = price;
-          p.stock = stock;
-          if (currentInvImageChanged) {
-            if (currentInvImageData) { p.image = currentInvImageData; } else { delete p.image; }
-            noteDetails.push(currentInvImageData ? 'Cập nhật hình ảnh' : 'Xóa hình ảnh');
-          }
-
-          const logType = isStockChanged ? (stock > prevStock ? 'NHAP' : 'DIEUCHINH') : 'DIEUCHINH';
-          logStockEvent(logType, p.id, p.name, unit, prevStock, stock, noteDetails.join(', ') || 'Cập nhật thông tin phụ tùng');
-          showNotification(`Đã lưu "${name}" (${unit})!`, 'success');
+        if (!p) { showNotification('Phụ tùng này không còn trong kho (đã bị xóa từ máy khác)!', 'error'); closeInventoryModal(); return; }
+        const oldUnit = p.unit || 'Cái';
+        const prevStock = parseFloat(p.stock) || 0;
+        let factor = 0;
+        if (oldUnit !== unit && prevStock > 0) {
+          const ans = window.prompt('Đổi đơn vị từ "' + oldUnit + '" sang "' + unit + '".\nTồn kho hiện là ' + formatStockQty(prevStock) + ' ' + oldUnit + '.\n\n1 ' + oldUnit + ' = bao nhiêu ' + unit + '? (VD: 4)\nNhập số để quy đổi tồn kho. Bỏ trống hoặc Hủy = giữ nguyên số tồn.\nLưu ý: nhập Giá nhập / Giá bán theo ' + unit + '.', '');
+          const f = parseFloat(String(ans || '').replace(',', '.'));
+          if (f > 0 && isFinite(f)) factor = f;
         }
+        const noteDetails = [];
+        if (p.name !== name) noteDetails.push('Đổi tên');
+        if (p.price !== price) noteDetails.push(`Giá bán: ${formatMoney(p.price)} -> ${formatMoney(price)}`);
+        if (p.costPrice !== costPrice) noteDetails.push(`Giá vốn: ${formatMoney(p.costPrice)} -> ${formatMoney(costPrice)}`);
+        if (currentInvImageChanged) noteDetails.push(currentInvImageData ? 'Cập nhật hình ảnh' : 'Xóa hình ảnh');
+        const imgChanged = currentInvImageChanged, imgData = currentInvImageData;
+        const afterStock = factor ? Math.round(prevStock * factor * 10) / 10 : prevStock;
+
+        let gone = false;
+        await cloudUpdateList('garage/inventory', list => {
+          const t = list.find(i => i.id === editId);
+          gone = !t;
+          if (!t) return list;
+          t.name = name; t.cat = cat; t.unit = unit; t.costPrice = costPrice; t.price = price;
+          if (factor) t.stock = Math.round((parseFloat(t.stock) || 0) * factor * 10) / 10;
+          if (imgChanged) { if (imgData) t.image = imgData; else delete t.image; }
+          return list;
+        });
+        if (gone) { showNotification('Phụ tùng này đã bị xóa từ máy khác!', 'error'); closeInventoryModal(); return; }
+        if (factor) logStockEvent('DIEUCHINH', p.id, name, unit, prevStock, afterStock, 'Quy đổi đơn vị ' + oldUnit + ' → ' + unit + ' (×' + factor + '): ' + formatStockQty(prevStock) + ' ' + oldUnit + ' = ' + formatStockQty(afterStock) + ' ' + unit);
+        if (noteDetails.length || !factor) logStockEvent('DIEUCHINH', p.id, name, unit, afterStock, afterStock, noteDetails.join(', ') || 'Cập nhật thông tin phụ tùng');
+        showNotification(`Đã lưu "${name}" (${unit})!`, 'success');
       } else {
         const newCode = code || ('P' + Date.now().toString().slice(-4));
-        inventoryList.unshift({
-          id: newCode,
-          name: name,
-          cat: cat,
-          unit: unit,
-          costPrice: costPrice,
-          price: price,
-          stock: stock,
-          image: currentInvImageData || ''
+        const item = { id: newCode, name: name, cat: cat, unit: unit, costPrice: costPrice, price: price, stock: 0, image: currentInvImageData || '' };
+        let dup = false;
+        await cloudUpdateList('garage/inventory', list => {
+          dup = list.some(i => i.id === newCode);
+          if (!dup) list.unshift(item);
+          return list;
         });
-        logStockEvent('NHAP', newCode, name, unit, 0, stock, `Thêm mới mặt hàng vào kho (Tồn: ${formatStockQty(stock)}, Giá vốn: ${formatMoney(costPrice)} đ, Bán: ${formatMoney(price)} đ)`);
+        if (dup) { showNotification(`Mã hàng "${newCode}" đã tồn tại, vui lòng dùng mã khác!`, 'error'); return; }
+        logStockEvent('NHAP', newCode, name, unit, 0, 0, `Thêm mới mặt hàng vào kho (Tồn: 0, Giá vốn: ${formatMoney(costPrice)} đ, Bán: ${formatMoney(price)} đ)`);
         showNotification(`Đã thêm mới "${name}" (${unit}) vào kho!`, 'success');
       }
-
-      setStoredData('drshock_inventory', inventoryList);
-      if (firebaseDb) firebaseDb.ref('garage/inventory').set(inventoryList);
 
       renderInventoryTable();
       populateInventorySelector('ALL');
@@ -3400,12 +3579,10 @@
       showConfirmModal(
         'Xác Nhận Xóa Phụ Tùng',
         `Bạn có chắc chắn muốn xóa "${p.name}" (${p.id}) khỏi kho?`,
-        () => {
+        async () => {
+          if (!cloudWritable(['garage/inventory', 'garage/stockLogs'])) return;
           logStockEvent('DIEUCHINH', p.id, p.name, p.unit || 'Cái', p.stock, 0, `Xóa phụ tùng khỏi hệ thống kho`);
-          inventoryList = inventoryList.filter(i => i.id !== id);
-          setStoredData('drshock_inventory', inventoryList);
-          if (firebaseDb) firebaseDb.ref('garage/inventory').set(inventoryList);
-
+          await cloudUpdateList('garage/inventory', list => list.filter(i => i.id !== id));
           renderInventoryTable();
           populateInventorySelector('ALL');
           showNotification(`Đã xóa phụ tùng "${p.name}"!`, 'info');
@@ -3626,9 +3803,9 @@
               <div class="flex items-center gap-1.5 flex-wrap">
                 <span class="font-bold text-amber-400 font-mono">${inv.id}</span>
                 <span class="text-gray-400">•</span>
-                <span class="text-gray-300 font-semibold uppercase">${esc(inv.plate || 'Xe ship')}</span>
+                <span class="text-gray-300 font-semibold uppercase">${inv.plate || 'Xe ship'}</span>
                 <span class="text-gray-500">•</span>
-                <span class="text-gray-400 truncate">${esc(inv.car || '---')}</span>
+                <span class="text-gray-400 truncate">${inv.car || '---'}</span>
               </div>
               <p class="text-[10px] text-gray-500 mt-0.5"><i class="fa-regular fa-clock mr-1"></i>${inv.date} | KTV: ${inv.advisor || '---'}</p>
             </div>
@@ -3649,7 +3826,7 @@
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-1.5 flex-wrap">
                   <span class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-bold uppercase ${badgeColor}">
-                    <i class="fa-solid ${badgeIcon} text-[9px]"></i>${esc(c.customerType)}
+                    <i class="fa-solid ${badgeIcon} text-[9px]"></i>${c.customerType}
                   </span>
                   <span class="text-xs sm:text-sm font-bold text-white leading-tight">${esc(c.name)}</span>
                   <span class="text-[10px] px-2 py-0.5 rounded-full bg-red-950 text-red-400 font-black border border-red-500/30">
@@ -3773,7 +3950,7 @@
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
                 <p class="text-xs sm:text-sm font-bold text-white">${esc(s.name)}</p>
-                <span class="text-[10px] px-1.5 py-0.2 rounded bg-orange-950/60 text-orange-400 border border-orange-500/30 font-semibold">${esc(s.roleTitle || s.name)}</span>
+                <span class="text-[10px] px-1.5 py-0.2 rounded bg-orange-950/60 text-orange-400 border border-orange-500/30 font-semibold">${s.roleTitle || s.name}</span>
               </div>
               <p class="text-[10px] text-gray-400 mt-1">${s.role === 'admin' ? 'Toàn quyền 1-8' : (s.role === 'stock' ? 'Quyền Lập Bill, Quản Lý Kho & Sửa Hóa Đơn' : 'Tiếp nhận xe, lập bill & in hóa đơn')}</p>
             </div>
@@ -3835,6 +4012,7 @@
         showNotification('Vui lòng nhập mã PIN!', 'warning');
         return;
       }
+      if (!cloudWritable(['garage/staff'])) return;
 
       const roleTitles = {
         admin: 'Chủ Xưởng (Admin)',
@@ -3881,6 +4059,7 @@
         'Xác Nhận Xóa Nhân Viên',
         'Bạn có chắc chắn muốn xóa nhân viên này khỏi hệ thống?',
         () => {
+          if (!cloudWritable(['garage/staff'])) return;
           staffList = staffList.filter(u => u.id !== id);
           setStoredData('drshock_staff_list', staffList);
           if (firebaseDb) firebaseDb.ref('garage/staff').set(staffList);
@@ -3895,6 +4074,7 @@
 
     function updateStaffPin(idx, newPin) {
       if (!newPin.trim()) return;
+      if (!cloudWritable(['garage/staff'])) { renderStaffCards(); return; }
       staffList[idx].pin = newPin.trim();
       setStoredData('drshock_staff_list', staffList);
       if (firebaseDb) firebaseDb.ref('garage/staff').set(staffList);
@@ -3969,7 +4149,7 @@
                     <i class="fa-solid ${badgeIcon} text-[9px]"></i>${badgeText}
                   </span>
                   <span class="text-xs sm:text-sm font-bold text-white leading-tight">${esc(log.itemName)}</span>
-                  <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-gray-900 text-gray-400 border border-gray-800">${esc(log.itemId)}</span>
+                  <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-gray-900 text-gray-400 border border-gray-800">${log.itemId}</span>
                 </div>
                 <p class="text-xs text-gray-300 mt-1"><i class="fa-solid fa-note-sticky text-gray-500 text-[10px] mr-1"></i>${esc(log.note || 'Không có ghi chú')}</p>
               </div>
@@ -4001,10 +4181,9 @@
       showConfirmModal(
         'Xóa Lịch Sử Kho',
         'Bạn có chắc chắn muốn xóa toàn bộ nhật ký lịch sử nhập xuất này không? Dữ liệu tồn kho hiện tại sẽ không bị ảnh hưởng.',
-        () => {
-          stockLogList = [];
-          setStoredData('drshock_stock_logs', stockLogList);
-          if (firebaseDb) firebaseDb.ref('garage/stockLogs').set(stockLogList);
+        async () => {
+          if (!cloudWritable(['garage/stockLogs'])) return;
+          await cloudUpdateList('garage/stockLogs', () => []);
           renderStockLogs();
           showNotification('Đã xóa sạch lịch sử kho!', 'info');
         }
@@ -4060,6 +4239,7 @@
               'Xác Nhận Khôi Phục Dữ Liệu',
               'Toàn bộ dữ liệu hiện tại sẽ được cập nhật từ file sao lưu này. Bạn có chắc chắn muốn tiến hành?',
               () => {
+                if (!cloudWritable(Object.keys(CLOUD_LOCAL_KEYS))) return;
                 inventoryList = parsed.inventory || [];
                 invoiceList = parsed.invoices || [];
                 stockLogList = parsed.stockLogs || [];
@@ -4272,7 +4452,6 @@
       }
     }
 
-    let _fbInitDone = false;
     function initSystem() {
       renderLoginUserList();
       populateAdvisorSelect();
@@ -4284,7 +4463,7 @@
       renderQuoteItems();
       renderStockLogs();
       updateInventoryOverviewStats();
-      if (!_fbInitDone) { _fbInitDone = true; initFirebaseConnection(); }
+      initFirebaseConnection();
     }
 
     // ===== PHIẾU NHẬP HÀNG + THÔNG BÁO =====
@@ -4413,17 +4592,19 @@
       try { await firebaseDb.ref().update(upd); }
       catch (e) { btn.disabled = false; showNotification('Không lưu được phiếu lên đám mây, kho chưa bị thay đổi. Vui lòng thử lại!', 'error'); return; }
 
+      const deltas = {}, costs = {}, running = {}, logs = [];
       items.forEach(it => {
         const p = inventoryList.find(x => x.id === it.id);
         if (!p) return;
-        const prev = parseFloat(p.stock) || 0;
+        const prev = running[p.id] != null ? running[p.id] : (parseFloat(p.stock) || 0);
         const next = Math.round((prev + it.qty) * 10) / 10;
-        p.stock = next;
-        if (it.cost > 0) p.costPrice = it.cost;
-        logStockEvent('NHAP', p.id, p.name, p.unit || 'Cái', prev, next, `Nhập theo phiếu ${id}` + (supplier ? ` - ${supplier}` : ''));
+        running[p.id] = next;
+        deltas[p.id] = (deltas[p.id] || 0) + it.qty;
+        if (it.cost > 0) costs[p.id] = it.cost;
+        logs.push(['NHAP', p.id, p.name, p.unit || 'Cái', prev, next, `Nhập theo phiếu ${id}` + (supplier ? ` - ${supplier}` : '')]);
       });
-      setStoredData('drshock_inventory', inventoryList);
-      firebaseDb.ref('garage/inventory').set(inventoryList);
+      await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas, costs));
+      logs.forEach(l => logStockEvent.apply(null, l));
       btn.disabled = false;
       renderInventoryTable();
       populateInventorySelector('ALL');
@@ -4459,7 +4640,7 @@
       c.innerHTML = receiptList.slice(0, 10).map(r => `
         <div class="flex items-center justify-between gap-2 bg-gray-800/60 border border-gray-700/60 rounded-xl p-2.5">
           <div class="min-w-0">
-            <div class="flex items-center gap-1.5 flex-wrap"><span class="text-xs font-bold text-amber-400 font-mono">${esc(r.id)}</span><span class="text-[10px] text-gray-400">${esc(r.date)}</span></div>
+            <div class="flex items-center gap-1.5 flex-wrap"><span class="text-xs font-bold text-amber-400 font-mono">${r.id}</span><span class="text-[10px] text-gray-400">${r.date}</span></div>
             <p class="text-[11px] text-gray-300 truncate mt-0.5">${(r.items || []).length} mặt hàng · ${formatStockQty(r.totalQty)} món${r.supplier ? ' · ' + highlightMatch(r.supplier, []) : ''} · <span class="text-orange-400">${highlightMatch(r.user || '', [])}</span></p>
           </div>
           <div class="text-right shrink-0">
@@ -5033,6 +5214,699 @@
     initNotifications();
     renderReceiptList();
     initSystem();
+
+    // ==========================================================
+    // TRỢ LÝ AI DR.SHOCK (chat agent: tra xe, tư vấn kho, lên đơn nhanh)
+    // ==========================================================
+    const AI_DEFAULTS = { provider: 'gemini', model: { gemini: 'gemini-3.6-flash', claude: 'claude-haiku-5-5' } };
+    let aiConfig = { provider: 'gemini', model: '', key: '', shared: false };
+    let aiCloudConfig = null;
+    let aiNative = { provider: '', msgs: [], turnStarts: [] };
+    let aiPendingImage = null;     // { data (base64), mime, preview }
+    let aiBusy = false;
+    let aiLastVehicle = null;      // xe vừa tra cứu gần nhất, để "lên đơn" nhanh
+
+    (function loadAiConfig() {
+      const local = getStoredData('drshock_ai_config', null);
+      if (local && typeof local === 'object') aiConfig = Object.assign(aiConfig, local);
+    })();
+
+    function aiActiveConfig() {
+      if (aiConfig.key) return aiConfig;
+      if (aiCloudConfig && aiCloudConfig.key) return aiCloudConfig;
+      return null;
+    }
+    function aiModelFor(cfg) { return (cfg && cfg.model) || AI_DEFAULTS.model[(cfg && cfg.provider) || 'gemini']; }
+    function aiEsc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+    function aiCanSeeCost() { return !!currentLoggedInUser && (currentLoggedInUser.role === 'admin' || currentLoggedInUser.role === 'stock'); }
+
+    // ---------------- CÔNG CỤ DỮ LIỆU ----------------
+    function aiDaysAgo(ts) { return ts ? Math.floor((Date.now() - ts) / 86400000) : null; }
+    function aiOdoNum(s) { const n = parseInt(String(s || '').replace(/\D/g, ''), 10); return isNaN(n) ? 0 : n; }
+
+    function aiToolFindVehicle(args) {
+      const plateQ = normPlate(args.bien_so || '');
+      const phoneQ = String(args.sdt || '').replace(/\D/g, '');
+      const nameQ = normText(args.ten || '');
+      if (!plateQ && phoneQ.length < 3 && !nameQ) return { loi: 'Cần biển số, SĐT hoặc tên khách để tra cứu.' };
+      const groups = {};
+      sortInvoicesByTime(invoiceList, 'desc').forEach(inv => {
+        const p = normPlate(inv.plate), ph = String(inv.phone || '').replace(/\D/g, ''), nm = normText(inv.name);
+        let hit = false;
+        if (plateQ && p && p.length > 2 && (p === plateQ || (plateQ.length >= 5 && (p.includes(plateQ) || plateQ.includes(p))))) hit = true;
+        if (!hit && phoneQ.length >= 6 && ph.includes(phoneQ)) hit = true;
+        if (!hit && nameQ && nameQ.length >= 2 && nm.includes(nameQ)) hit = true;
+        if (!hit) return;
+        const k = (p && p.length > 2) ? 'P' + p : 'N' + nm + ph;
+        (groups[k] = groups[k] || []).push(inv);
+      });
+      const vehicles = Object.values(groups).slice(0, 5).map(invs => {
+        const last = invs[0];
+        const odos = invs.map(i => aiOdoNum(i.odo)).filter(Boolean);
+        return {
+          bien_so: last.plate || '', ten_khach: last.name || '', sdt: last.phone || '', dong_xe: last.car || '',
+          loai_khach: last.customerType || 'Khách lẻ', so_lan_den: invs.length,
+          tong_chi_tieu: invs.reduce((a, i) => a + (i.total || 0), 0),
+          lan_gan_nhat: last.date, so_ngay_tu_lan_gan_nhat: aiDaysAgo(invTime(last)),
+          odo_gan_nhat: odos.length ? Math.max.apply(null, odos) : null,
+          lich_su: invs.slice(0, 8).map(i => ({
+            ma_hd: i.id, ngay: i.date, odo: i.odo || '', tong_tien: i.total || 0, ghi_chu: i.note || '',
+            hang_muc: (i.items || []).map(it => ({ ma: it.id && !String(it.id).startsWith('LBR') ? it.id : '', ten: it.name, sl: it.qty, don_vi: it.unit || '' }))
+          }))
+        };
+      });
+      if (vehicles.length === 1) aiLastVehicle = vehicles[0];
+      return vehicles.length
+        ? { tim_thay: vehicles.length, xe: vehicles }
+        : { tim_thay: 0, ghi_chu: 'Xe/khách này CHƯA từng có hóa đơn tại xưởng (khách mới).' };
+    }
+
+    const AI_STOP_WORDS = ['xe', 'doi', 'dong', 'the', 'he', 'ban', 'may', 'dau', 'xang', 'at', 'mt', 'cvt', 'turbo', 'premium', 'cao', 'cap', 'tieu', 'chuan'];
+    function aiModelTokens(model) {
+      return normText(model).split(/[\s\-\/,.()]+/).filter(t => t.length >= 2 && !/^\d+$/.test(t) && AI_STOP_WORDS.indexOf(t) < 0);
+    }
+
+    function aiProductOut(p) {
+      const o = { ma: p.id, ten: p.name, nhom: p.cat || 'KHAC', don_vi: p.unit || 'Cái', gia_ban: parseCurrencyNumber(p.price) || 0, ton_kho: parseFloat(p.stock) || 0 };
+      if (aiCanSeeCost()) o.gia_von = parseCurrencyNumber(p.costPrice) || 0;
+      return o;
+    }
+
+    function aiToolModelRecs(args) {
+      const tokens = aiModelTokens(args.dong_xe || '');
+      if (!tokens.length) return { loi: 'Cần tên dòng xe, VD: Ranger, Xpander, Fortuner.' };
+      const main = tokens[0];
+      const matchInv = inv => { const c = normText(inv.car); return c.includes(main) && tokens.slice(1, 2).every(t => c.includes(t) || tokens.length < 2); };
+      let invs = invoiceList.filter(matchInv);
+      if (!invs.length) invs = invoiceList.filter(inv => normText(inv.car).includes(main));
+      const items = {}, plates = {};
+      invs.forEach(inv => {
+        const pl = normPlate(inv.plate) || inv.id;
+        (inv.items || []).forEach(it => {
+          const isLabor = String(it.id || '').startsWith('LBR');
+          const k = isLabor ? 'CONG:' + normText(it.name) : (it.id || normText(it.name));
+          const r = items[k] = items[k] || { ma: isLabor ? '' : it.id, ten: it.name, la_cong: isLabor, so_lan_ban: 0, sl: 0, xe: {} };
+          r.so_lan_ban++; r.sl += parseFloat(it.qty) || 0; r.xe[pl] = 1;
+        });
+        plates[pl] = 1;
+      });
+      const top = Object.values(items).sort((a, b) => b.so_lan_ban - a.so_lan_ban).slice(0, 15).map(r => {
+        const p = r.ma && inventoryList.find(x => x.id === r.ma);
+        const out = { ma: r.ma, ten: r.ten, la_tien_cong: r.la_cong, so_lan_ban: r.so_lan_ban, so_xe_da_dung: Object.keys(r.xe).length };
+        if (p) Object.assign(out, { con_hang: (parseFloat(p.stock) || 0) > 0, ton_kho: parseFloat(p.stock) || 0, don_vi: p.unit || 'Cái', gia_ban: parseCurrencyNumber(p.price) || 0, nhom: p.cat });
+        else if (r.ma) out.ghi_chu = 'Mã này không còn trong kho';
+        return out;
+      });
+      const named = inventoryList.filter(p => normText(p.name).includes(main)).slice(0, 15).map(aiProductOut);
+      return {
+        dong_xe: args.dong_xe, so_hoa_don_cung_dong_xe: invs.length, so_xe_cung_dong: Object.keys(plates).length,
+        san_pham_xe_cung_dong_hay_dung: top,
+        san_pham_trong_kho_ghi_ten_dong_xe: named,
+        ghi_chu: invs.length ? '' : 'Chưa có lịch sử bán cho dòng xe này. Có thể tìm kho theo nhóm hàng.'
+      };
+    }
+
+    function aiToolSearchStock(args) {
+      const q = String(args.tu_khoa || '').trim();
+      let list = q ? smartFilterProducts(inventoryList, q) : inventoryList.slice();
+      if (!list.length && q) {
+        const toks = normText(q).split(/\s+/).filter(Boolean);
+        list = inventoryList.filter(p => { const n = normText(p.id + ' ' + p.name); return toks.some(t => t.length >= 3 && n.includes(t)); });
+      }
+      if (args.nhom) list = list.filter(p => (p.cat || 'KHAC') === String(args.nhom).toUpperCase());
+      if (args.chi_con_hang) list = list.filter(p => (parseFloat(p.stock) || 0) > 0);
+      return { tong: list.length, san_pham: list.slice(0, 20).map(aiProductOut) };
+    }
+
+    function aiToolDraftOrder(args) {
+      const set = (id, v) => { const e = document.getElementById(id); if (e && v != null && String(v).trim() !== '') e.value = String(v).trim(); };
+      const v = aiLastVehicle || {};
+      set('quote-plate', (args.bien_so || v.bien_so || '').toUpperCase());
+      set('quote-name', args.ten_khach || v.ten_khach);
+      set('quote-phone', args.sdt || v.sdt);
+      set('quote-carmodel', args.dong_xe || v.dong_xe);
+      if (args.odo) { const n = aiOdoNum(args.odo); if (n) set('quote-odo', formatMoney(n) + ' km'); }
+      if (args.ghi_chu) set('quote-note', args.ghi_chu);
+      if (args.loai_khach === 'garage' || String(args.loai_khach || v.loai_khach || '').indexOf('Garage') > -1) setCustomerType('Khách Garage / Đại lý');
+      if (args.hinh_thuc === 'ship') setServiceType('Gửi về');
+
+      const added = [], missing = [], warnings = [];
+      (args.hang_muc || []).forEach(h => {
+        const qty = Math.max(0.5, parseFloat(h.so_luong) || 1);
+        let p = h.ma && inventoryList.find(x => x.id.toUpperCase() === String(h.ma).toUpperCase());
+        if (!p && h.ten) p = smartFilterProducts(inventoryList, h.ten)[0];
+        if (!p) { missing.push(h.ma || h.ten); return; }
+        const price = h.don_gia ? parseCurrencyNumber(h.don_gia) : (parseCurrencyNumber(p.price) || 0);
+        const ex = currentQuoteItems.find(i => i.id === p.id);
+        if (ex) ex.qty = Math.round((ex.qty + qty) * 10) / 10;
+        else currentQuoteItems.push({ id: p.id, name: p.name, unit: p.unit || 'Cái', qty: qty, price: price });
+        if ((parseFloat(p.stock) || 0) < qty) warnings.push(`${p.name}: tồn ${formatStockQty(p.stock)} ${p.unit || 'Cái'}, không đủ ${formatStockQty(qty)}`);
+        added.push(`${p.name} ×${formatStockQty(qty)}`);
+      });
+      (args.tien_cong || []).forEach((c, i) => {
+        if (!c || !c.ten) return;
+        currentQuoteItems.push({ id: 'LBR_' + Date.now() + '_' + i, name: c.ten, unit: 'Lần', qty: 1, price: parseCurrencyNumber(c.don_gia) || 0 });
+        added.push(`${c.ten} (công)`);
+      });
+      renderQuoteItems();
+      const t = calculateQuoteTotal();
+      return {
+        da_dien_phieu: true, da_them: added, khong_tim_thay: missing, canh_bao_ton_kho: warnings,
+        tong_tam_tinh: t.finalTotal,
+        luu_y: 'Phiếu mới ở dạng NHÁP tại tab 1. Nhân viên cần kiểm tra rồi tự bấm "Xuất Hóa Đơn & In". Chưa trừ kho.'
+      };
+    }
+
+    const AI_TOOLS = [
+      { name: 'tra_cuu_xe', fn: aiToolFindVehicle,
+        description: 'Tra lịch sử xe/khách đã từng ghé xưởng theo biển số, số điện thoại hoặc tên. Trả về số lần đến, lần gần nhất, ODO, các hạng mục đã thay.',
+        params: { bien_so: ['string', 'Biển số xe, VD 51K-888.88'], sdt: ['string', 'Số điện thoại khách'], ten: ['string', 'Tên khách hoặc tên garage'] }, required: [] },
+      { name: 'goi_y_theo_dong_xe', fn: aiToolModelRecs,
+        description: 'Thống kê phụ tùng/dịch vụ mà các xe CÙNG DÒNG đã thay tại xưởng (kèm tồn kho, giá), và sản phẩm trong kho có ghi tên dòng xe đó.',
+        params: { dong_xe: ['string', 'Dòng xe, VD: Ranger Raptor, Xpander, Fortuner 2020'] }, required: ['dong_xe'] },
+      { name: 'tim_kho', fn: aiToolSearchStock,
+        description: 'Tìm sản phẩm trong kho (tên, mã, tồn kho, giá bán). nhom: PHUOC, NHOT, BOTHANG, ROTUYN, GAM, KHAC.',
+        params: { tu_khoa: ['string', 'Từ khóa, VD: nhot 5w30, tein, xpander'], nhom: ['string', 'Nhóm hàng (không bắt buộc)'], chi_con_hang: ['boolean', 'Chỉ lấy hàng còn tồn'] }, required: [] },
+      { name: 'len_don_nhap', fn: aiToolDraftOrder,
+        description: 'Điền nhanh phiếu tiếp nhận (tab 1) dạng NHÁP: thông tin xe + phụ tùng theo mã kho + tiền công. KHÔNG tự xuất hóa đơn. Chỉ gọi khi nhân viên yêu cầu lên đơn.',
+        params: {
+          bien_so: ['string', 'Biển số'], ten_khach: ['string', 'Tên khách'], sdt: ['string', 'SĐT'], dong_xe: ['string', 'Dòng xe'],
+          odo: ['string', 'Số ODO km'], ghi_chu: ['string', 'Ghi chú'], loai_khach: ['string', '"le" hoặc "garage"'], hinh_thuc: ['string', '"xuong" hoặc "ship"'],
+          hang_muc: ['array', 'Phụ tùng: [{ma, so_luong, ten?, don_gia?}]', { type: 'object', properties: { ma: { type: 'string' }, ten: { type: 'string' }, so_luong: { type: 'number' }, don_gia: { type: 'number' } } }],
+          tien_cong: ['array', 'Tiền công: [{ten, don_gia}]', { type: 'object', properties: { ten: { type: 'string' }, don_gia: { type: 'number' } } }]
+        }, required: [] }
+    ];
+
+    function aiSchema(t) {
+      const props = {};
+      Object.keys(t.params).forEach(k => {
+        const d = t.params[k];
+        props[k] = { type: d[0], description: d[1] };
+        if (d[0] === 'array') props[k].items = d[2];
+      });
+      const o = { type: 'object', properties: props };
+      if (t.required && t.required.length) o.required = t.required;
+      return o;
+    }
+
+    function aiRunTool(name, args) {
+      const t = AI_TOOLS.find(x => x.name === name);
+      if (!t) return { loi: 'Không có công cụ ' + name };
+      let res;
+      try { res = t.fn(args || {}); } catch (e) { console.error(e); res = { loi: 'Lỗi khi chạy công cụ: ' + e.message }; }
+      aiRenderToolCard(name, args || {}, res);
+      return res;
+    }
+
+    function aiSystemPrompt() {
+      const u = currentLoggedInUser || {};
+      const cats = {};
+      inventoryList.forEach(p => { cats[p.cat || 'KHAC'] = (cats[p.cat || 'KHAC'] || 0) + 1; });
+      return [
+        'Bạn là trợ lý AI nội bộ của CÔNG TY TNHH DR.SHOCK VN (TP.HCM) - xưởng chuyên NÂNG CẤP PHUỘC và BẢO DƯỠNG GẦM ô tô, có bán nhớt, bố thắng, rotuyn, cao su gầm.',
+        `Người đang hỏi: ${u.name || 'nhân viên'} (${u.roleTitle || u.role || ''}). Hôm nay: ${new Date().toLocaleDateString('vi-VN')}.`,
+        `Kho hiện có ${inventoryList.length} mã hàng: ` + Object.keys(cats).map(k => k + ' ' + cats[k]).join(', ') + '. Có ' + invoiceList.length + ' hóa đơn lịch sử.',
+        'QUY TẮC:',
+        '- Luôn dùng công cụ để lấy dữ liệu thật về xe, kho, giá. TUYỆT ĐỐI không bịa mã hàng, giá, tồn kho hay lịch sử.',
+        '- Khi nhận ảnh xe: đọc biển số Việt Nam (VD 51K-888.88, 30A-123.45) và nhận diện hãng/dòng xe/đời ước đoán. Nếu đọc được biển số thì gọi tra_cuu_xe; nếu biết dòng xe thì gọi goi_y_theo_dong_xe. Nói rõ nếu biển số nhìn không rõ.',
+        '- Tư vấn (nhớt, phuộc...): kết hợp kiến thức kỹ thuật chung về xe (độ nhớt khuyến nghị, loại phuộc phù hợp nhu cầu) với sản phẩm ĐANG CÓ trong kho (gọi tim_kho / goi_y_theo_dong_xe). Ưu tiên đề xuất hàng còn tồn. Kiến thức chung chỉ là tham khảo, nhắc kiểm tra sách hướng dẫn xe khi không chắc.',
+        '- Dựa vào lịch sử (ODO, số ngày từ lần trước) để nhắc hạng mục có thể đến hạn (VD nhớt ~5.000-10.000 km hoặc 6 tháng).',
+        '- Lên đơn: chỉ gọi len_don_nhap khi nhân viên yêu cầu lên đơn/lên bill. Dùng đúng mã từ kho. Sau đó nhắc nhân viên kiểm tra phiếu ở tab 1 và tự bấm Xuất Hóa Đơn.',
+        aiCanSeeCost() ? '- Người hỏi được xem giá vốn.' : '- KHÔNG tiết lộ giá vốn/giá nhập/lợi nhuận cho người hỏi này.',
+        '- Trả lời bằng tiếng Việt, ngắn gọn, dễ đọc trên điện thoại, dùng gạch đầu dòng. Tiền ghi dạng 1.250.000 đ. Giao diện đã hiện thẻ chi tiết từ công cụ nên không cần chép lại toàn bộ danh sách, chỉ nêu điểm chính và đề xuất.'
+      ].join('\n');
+    }
+
+    // ---------------- KẾT NỐI AI ----------------
+    function aiTrimHistory() {
+      // Bỏ ảnh ở các lượt cũ (tiết kiệm chi phí), giữ tối đa 8 lượt gần nhất
+      const n = aiNative;
+      const lastStart = n.turnStarts[n.turnStarts.length - 1];
+      n.msgs.forEach((m, idx) => {
+        if (idx >= lastStart) return;
+        if (n.provider === 'gemini' && m.parts) m.parts = m.parts.map(p => p.inline_data || p.inlineData ? { text: '[Ảnh đã gửi trước đó]' } : p);
+        if (n.provider === 'claude' && Array.isArray(m.content)) m.content = m.content.map(b => b.type === 'image' ? { type: 'text', text: '[Ảnh đã gửi trước đó]' } : b);
+      });
+      while (n.turnStarts.length > 8) {
+        const cut = n.turnStarts[1];
+        n.msgs = n.msgs.slice(cut);
+        n.turnStarts = n.turnStarts.slice(1).map(i => i - cut);
+      }
+    }
+
+    async function aiFetchJson(url, opts) {
+      const r = await fetch(url, opts);
+      let j = null;
+      try { j = await r.json(); } catch (e) {}
+      if (!r.ok) {
+        const msg = (j && j.error && (j.error.message || j.error.type)) || ('HTTP ' + r.status);
+        const err = new Error(msg); err.status = r.status; throw err;
+      }
+      return j;
+    }
+
+    async function aiCallGemini(cfg) {
+      const body = {
+        systemInstruction: { parts: [{ text: aiSystemPrompt() }] },
+        contents: aiNative.msgs,
+        tools: [{ functionDeclarations: AI_TOOLS.map(t => ({ name: t.name, description: t.description, parameters: aiSchema(t) })) }],
+        generationConfig: { temperature: 0.4, maxOutputTokens: 2048 }
+      };
+      const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(aiModelFor(cfg)) + ':generateContent';
+      const j = await aiFetchJson(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.key }, body: JSON.stringify(body) });
+      const cand = j && j.candidates && j.candidates[0];
+      if (!cand || !cand.content) throw new Error((j && j.promptFeedback && j.promptFeedback.blockReason) ? 'AI từ chối trả lời: ' + j.promptFeedback.blockReason : 'AI không trả về nội dung');
+      const content = { role: 'model', parts: cand.content.parts || [] };
+      aiNative.msgs.push(content);
+      const calls = content.parts.filter(p => p.functionCall).map(p => ({ id: p.functionCall.id, name: p.functionCall.name, args: p.functionCall.args || {} }));
+      const text = content.parts.filter(p => p.text && !p.thought).map(p => p.text).join('\n').trim();
+      return { calls: calls, text: text };
+    }
+    function aiGeminiToolResults(results) {
+      aiNative.msgs.push({ role: 'user', parts: results.map(r => ({ functionResponse: Object.assign({ name: r.name, response: { ket_qua: r.result } }, r.id ? { id: r.id } : {}) })) });
+    }
+
+    async function aiCallClaude(cfg) {
+      const body = {
+        model: aiModelFor(cfg), max_tokens: 2048, system: aiSystemPrompt(), messages: aiNative.msgs,
+        tools: AI_TOOLS.map(t => ({ name: t.name, description: t.description, input_schema: aiSchema(t) }))
+      };
+      const j = await aiFetchJson('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': cfg.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify(body)
+      });
+      const blocks = (j && j.content) || [];
+      aiNative.msgs.push({ role: 'assistant', content: blocks });
+      const calls = blocks.filter(b => b.type === 'tool_use').map(b => ({ id: b.id, name: b.name, args: b.input || {} }));
+      const text = blocks.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+      return { calls: calls, text: text };
+    }
+    function aiClaudeToolResults(results) {
+      aiNative.msgs.push({ role: 'user', content: results.map(r => ({ type: 'tool_result', tool_use_id: r.id, content: JSON.stringify(r.result) })) });
+    }
+
+    async function aiAskAgent(cfg, text, image) {
+      const prov = cfg.provider === 'claude' ? 'claude' : 'gemini';
+      if (aiNative.provider !== prov) aiNative = { provider: prov, msgs: [], turnStarts: [] };
+      aiNative.turnStarts.push(aiNative.msgs.length);
+      const userText = text || 'Đây là ảnh xe khách vừa tới. Hãy đọc biển số, nhận diện dòng xe, tra lịch sử và gợi ý sản phẩm hay thay.';
+      if (prov === 'gemini') {
+        const parts = [];
+        if (image) parts.push({ inline_data: { mime_type: image.mime, data: image.data } });
+        parts.push({ text: userText });
+        aiNative.msgs.push({ role: 'user', parts: parts });
+      } else {
+        const content = [];
+        if (image) content.push({ type: 'image', source: { type: 'base64', media_type: image.mime, data: image.data } });
+        content.push({ type: 'text', text: userText });
+        aiNative.msgs.push({ role: 'user', content: content });
+      }
+      aiTrimHistory();
+      const call = prov === 'gemini' ? aiCallGemini : aiCallClaude;
+      const sendResults = prov === 'gemini' ? aiGeminiToolResults : aiClaudeToolResults;
+      let finalText = '';
+      for (let step = 0; step < 6; step++) {
+        const res = await call(cfg);
+        if (res.text) finalText = res.text;
+        if (!res.calls.length) break;
+        aiSetTyping('Đang tra dữ liệu xưởng...');
+        const results = res.calls.map(c => ({ id: c.id, name: c.name, result: aiRunTool(c.name, c.args) }));
+        sendResults(results);
+        aiSetTyping('Đang soạn trả lời...');
+      }
+      return finalText || 'Đã xong. Xem thông tin chi tiết ở các thẻ bên trên.';
+    }
+
+    // Chế độ cơ bản (không cần API key): nhận biển số / SĐT / từ khóa
+    function aiLocalAnswer(text) {
+      const t = String(text || '').trim();
+      if (!t) return 'Hãy nhập biển số, số điện thoại hoặc tên phụ tùng.';
+      const plate = t.toUpperCase().match(/\b\d{2}[A-Z]{1,2}\d?[-\s.]?\d{3}[.\s]?\d{1,2}\b/);
+      const phone = t.replace(/[^\d]/g, '').match(/0\d{8,10}/);
+      const n = normText(t);
+      if (/^(len|tao|lam)\s*(don|bill|phieu)/.test(n)) {
+        if (!aiLastVehicle) return 'Hãy tra xe trước (gõ biển số), sau đó bấm nút "Điền vào phiếu" trên thẻ xe, rồi bấm "+ Bill" ở các sản phẩm muốn thêm.';
+        aiRunTool('len_don_nhap', {});
+        return 'Đã điền thông tin xe ' + aiLastVehicle.bien_so + ' vào phiếu ở tab 1. Thêm sản phẩm bằng nút "+ Bill" trên các thẻ.';
+      }
+      if (plate || phone) {
+        const r = aiRunTool('tra_cuu_xe', plate ? { bien_so: plate[0] } : { sdt: phone[0] });
+        if (r.tim_thay === 1 && r.xe[0].dong_xe) aiRunTool('goi_y_theo_dong_xe', { dong_xe: r.xe[0].dong_xe });
+        return r.tim_thay ? 'Đây là lịch sử xe' + (r.tim_thay > 1 ? ' (có ' + r.tim_thay + ' kết quả)' : '') + ' và các sản phẩm xe cùng dòng hay thay.' : 'Xe này chưa từng có hóa đơn tại xưởng (khách mới). Gõ tên dòng xe để xem gợi ý, VD: "ranger".';
+      }
+      const cust = aiToolFindVehicle({ ten: t });
+      if (cust.tim_thay && t.length >= 3 && !/nhot|phuoc|bo thang|rotuyn|cao su|cang/.test(n)) { aiRenderToolCard('tra_cuu_xe', {}, cust); return 'Tìm thấy khách khớp với "' + t + '".'; }
+      const stock = aiRunTool('tim_kho', { tu_khoa: t });
+      const words = aiModelTokens(t).filter(w => !/nhot|phuoc|thang|rotuyn|gam|cang|cao|su|loai|gi|nao|nen|dung|cho/.test(w));
+      if (words.length) { const rec = aiToolModelRecs({ dong_xe: words.join(' ') }); if (rec.so_hoa_don_cung_dong_xe) aiRenderToolCard('goi_y_theo_dong_xe', { dong_xe: words.join(' ') }, rec); }
+      return stock.tong ? 'Kết quả tìm trong kho cho "' + t + '".' : 'Không thấy sản phẩm khớp "' + t + '". Thử từ khóa ngắn hơn.';
+    }
+
+    // ---------------- GIAO DIỆN CHAT ----------------
+    function aiMd(s) {
+      let h = aiEsc(s);
+      h = h.replace(/\*\*(.+?)\*\*/g, '<b class="text-white">$1</b>').replace(/`([^`]+)`/g, '<code class="px-1 rounded bg-gray-800 text-amber-300">$1</code>');
+      return h.split('\n').map(line => {
+        const m = line.match(/^\s*[-*•]\s+(.*)/);
+        if (m) return '<div class="flex gap-1.5"><span class="text-orange-400">•</span><span>' + m[1] + '</span></div>';
+        if (/^#{1,4}\s/.test(line)) return '<div class="font-bold text-orange-300 mt-1">' + line.replace(/^#{1,4}\s/, '') + '</div>';
+        return line ? '<div>' + line + '</div>' : '<div class="h-1.5"></div>';
+      }).join('');
+    }
+
+    function aiAppend(html, cls) {
+      const box = document.getElementById('ai-messages');
+      if (!box) return null;
+      const el = document.createElement('div');
+      el.className = cls || '';
+      el.innerHTML = html;
+      box.appendChild(el);
+      box.scrollTop = box.scrollHeight;
+      return el;
+    }
+    function aiAddUser(text, preview) {
+      aiAppend(`<div class="ml-auto max-w-[85%] bg-red-600/90 text-white rounded-2xl rounded-br-md px-3 py-2 text-xs sm:text-sm space-y-1.5">
+        ${preview ? `<img src="${preview}" class="rounded-xl max-h-48 object-cover">` : ''}${text ? '<div>' + aiEsc(text) + '</div>' : ''}</div>`, 'flex');
+    }
+    function aiAddBot(text, isErr) {
+      aiAppend(`<div class="max-w-[90%] ${isErr ? 'bg-red-950/60 border-red-500/40 text-red-200' : 'bg-gray-800/90 border-gray-700 text-gray-200'} border rounded-2xl rounded-bl-md px-3 py-2 text-xs sm:text-sm leading-relaxed space-y-0.5">${aiMd(text)}</div>`, 'flex');
+    }
+    function aiSetTyping(label) {
+      let el = document.getElementById('ai-typing');
+      if (!label) { if (el) el.remove(); return; }
+      if (!el) { el = aiAppend('', 'flex'); if (!el) return; el.id = 'ai-typing'; }
+      el.innerHTML = `<div class="bg-gray-800/90 border border-gray-700 rounded-2xl px-3 py-2 text-xs text-gray-400"><i class="fa-solid fa-circle-notch fa-spin mr-1.5 text-orange-400"></i>${aiEsc(label)}</div>`;
+      document.getElementById('ai-messages').appendChild(el);
+    }
+
+    function aiRenderToolCard(name, args, res) {
+      if (!res || res.loi) return;
+      if (name === 'tra_cuu_xe') {
+        if (!res.tim_thay) { aiAppend(`<div class="w-full bg-sky-950/40 border border-sky-500/30 rounded-2xl p-2.5 text-xs text-sky-200"><i class="fa-solid fa-user-plus mr-1.5"></i>Không có lịch sử: <b>khách mới</b>.</div>`); return; }
+        res.xe.forEach((v, vi) => {
+          const key = 'aiv' + Date.now() + vi;
+          window[key] = v;
+          const hist = v.lich_su.slice(0, 4).map(h => `<div class="border-t border-gray-700/60 pt-1.5 mt-1.5"><div class="flex justify-between gap-2 text-[11px]"><span class="text-gray-400">${aiEsc(h.ngay)}${h.odo ? ' · ' + aiEsc(h.odo) : ''}</span><span class="font-mono font-bold text-red-400">${formatMoney(h.tong_tien)} đ</span></div>
+            <div class="text-[11px] text-gray-300">${h.hang_muc.map(x => aiEsc(x.ten) + ' ×' + formatStockQty(x.sl)).join(', ')}</div></div>`).join('');
+          aiAppend(`<div class="w-full bg-gray-900 border border-amber-500/40 rounded-2xl p-3 text-xs">
+            <div class="flex items-start justify-between gap-2"><div>
+              <div class="font-black font-mono text-amber-400 text-sm uppercase">${aiEsc(v.bien_so || 'Không biển số')}</div>
+              <div class="font-bold text-white">${aiEsc(v.ten_khach)} <span class="text-gray-400 font-normal">${aiEsc(v.sdt)}</span></div>
+              <div class="text-sky-300">${aiEsc(v.dong_xe)}</div></div>
+              <div class="text-right shrink-0"><div class="px-2 py-0.5 rounded-full bg-red-950 text-red-400 border border-red-500/30 font-black text-[10px]">${v.so_lan_den} lần ghé</div>
+              <div class="text-[10px] text-gray-400 mt-1">${v.so_ngay_tu_lan_gan_nhat != null ? v.so_ngay_tu_lan_gan_nhat + ' ngày trước' : ''}</div>
+              ${v.odo_gan_nhat ? `<div class="text-[10px] text-sky-400">ODO ${formatMoney(v.odo_gan_nhat)} km</div>` : ''}</div></div>
+            ${hist}
+            <div class="grid grid-cols-2 gap-1.5 mt-2.5">
+              <button onclick="aiFillVehicle('${key}')" class="py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg font-bold"><i class="fa-solid fa-file-pen mr-1"></i>Điền vào phiếu</button>
+              <button onclick="toggleAiPanel(false); viewInvoiceDetail('${aiEsc(v.lich_su[0].ma_hd)}')" class="py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 rounded-lg font-semibold"><i class="fa-solid fa-receipt mr-1"></i>HĐ gần nhất</button>
+            </div></div>`, 'w-full');
+        });
+        return;
+      }
+      const prodRows = (list, extra) => list.map(p => {
+        const inStock = p.ton_kho != null ? p.ton_kho > 0 : p.con_hang;
+        return `<div class="flex items-center justify-between gap-2 py-1.5 border-t border-gray-800 first:border-0">
+          <div class="min-w-0"><div class="text-[12px] font-semibold text-white truncate">${aiEsc(p.ten)}</div>
+            <div class="text-[10px] text-gray-400">${p.ma ? `<span class="font-mono text-gray-500">${aiEsc(p.ma)}</span> · ` : ''}${p.gia_ban != null ? `<span class="text-amber-400 font-mono">${formatMoney(p.gia_ban)} đ</span> · ` : ''}${p.ton_kho != null ? `<span class="${inStock ? 'text-sky-400' : 'text-red-400'}">${inStock ? 'Tồn ' + formatStockQty(p.ton_kho) + ' ' + aiEsc(p.don_vi || '') : 'Hết hàng'}</span>` : ''}${extra ? extra(p) : ''}</div></div>
+          ${p.ma && inventoryList.find(x => x.id === p.ma) ? `<button onclick="aiAddToBill('${aiEsc(p.ma)}')" class="shrink-0 px-2 py-1 bg-red-600 hover:bg-red-500 text-white rounded-lg text-[10px] font-bold">+ Bill</button>` : ''}
+        </div>`;
+      }).join('');
+      if (name === 'goi_y_theo_dong_xe') {
+        const top = (res.san_pham_xe_cung_dong_hay_dung || []).slice(0, 8);
+        const named = (res.san_pham_trong_kho_ghi_ten_dong_xe || []).filter(p => !top.some(t => t.ma === p.ma)).slice(0, 6);
+        if (!top.length && !named.length) return;
+        aiAppend(`<div class="w-full bg-gray-900 border border-emerald-500/30 rounded-2xl p-3 text-xs">
+          <div class="font-bold text-emerald-400 mb-1"><i class="fa-solid fa-lightbulb mr-1.5"></i>Xe ${aiEsc(args.dong_xe || res.dong_xe)} hay thay <span class="text-gray-500 font-normal">(${res.so_xe_cung_dong} xe, ${res.so_hoa_don_cung_dong_xe} HĐ)</span></div>
+          ${prodRows(top, p => ` · <span class="text-emerald-400">${p.so_lan_ban} lần bán</span>`)}
+          ${named.length ? `<div class="font-bold text-sky-300 mt-2 mb-1 text-[11px]">Hàng trong kho ghi tên dòng xe này</div>${prodRows(named)}` : ''}
+        </div>`, 'w-full');
+        return;
+      }
+      if (name === 'tim_kho') {
+        if (!res.san_pham.length) return;
+        aiAppend(`<div class="w-full bg-gray-900 border border-gray-700 rounded-2xl p-3 text-xs">
+          <div class="font-bold text-orange-400 mb-1"><i class="fa-solid fa-boxes-stacked mr-1.5"></i>Kho: ${res.tong} kết quả${res.tong > 10 ? ' (10 đầu)' : ''}</div>${prodRows(res.san_pham.slice(0, 10))}</div>`, 'w-full');
+        return;
+      }
+      if (name === 'len_don_nhap') {
+        aiAppend(`<div class="w-full bg-gradient-to-br from-red-950/60 to-gray-900 border border-red-500/40 rounded-2xl p-3 text-xs space-y-1.5">
+          <div class="font-bold text-red-300"><i class="fa-solid fa-file-invoice mr-1.5"></i>Đã lên đơn nháp ở tab 1</div>
+          ${res.da_them.length ? `<div class="text-gray-200">${res.da_them.map(aiEsc).join('<br>')}</div>` : ''}
+          ${res.khong_tim_thay.length ? `<div class="text-amber-300">Không tìm thấy trong kho: ${res.khong_tim_thay.map(aiEsc).join(', ')}</div>` : ''}
+          ${res.canh_bao_ton_kho.length ? `<div class="text-red-300"><i class="fa-solid fa-triangle-exclamation mr-1"></i>${res.canh_bao_ton_kho.map(aiEsc).join('<br>')}</div>` : ''}
+          <div class="flex items-center justify-between pt-1"><span class="text-gray-400">Tạm tính:</span><b class="font-mono text-red-400 text-sm">${formatMoney(res.tong_tam_tinh)} đ</b></div>
+          <button onclick="aiOpenQuote()" class="w-full py-2 bg-gradient-to-r from-red-600 to-orange-600 rounded-xl font-bold text-white"><i class="fa-solid fa-eye mr-1"></i>Mở phiếu để kiểm tra & xuất</button>
+        </div>`, 'w-full');
+      }
+    }
+
+    function aiFillVehicle(key) {
+      const v = window[key];
+      if (!v) return;
+      aiLastVehicle = v;
+      aiToolDraftOrder({});
+      showNotification('Đã điền thông tin xe ' + (v.bien_so || v.ten_khach) + ' vào phiếu', 'success');
+    }
+    function aiAddToBill(id) { selectSuggestedPart(id); }
+    function aiOpenQuote() { toggleAiPanel(false); switchTab('tab-quote'); }
+
+    function aiModeLabel() {
+      const c = aiActiveConfig();
+      return c ? ('AI · ' + (c.provider === 'claude' ? 'Claude' : 'Gemini')) : 'Chế độ cơ bản';
+    }
+
+    function aiWelcome() {
+      const c = aiActiveConfig();
+      aiAddBot(c
+        ? `Chào **${(currentLoggedInUser && currentLoggedInUser.name) || 'bạn'}**! Mình có thể:\n- 📷 Chụp ảnh xe: đọc biển số, xem xe đã ghé xưởng chưa, gợi ý hàng hay thay\n- Tư vấn nhớt, phuộc... theo xe và hàng đang có trong kho\n- Lên đơn nhanh: VD "lên đơn thay nhớt 4 lít + công lắp phuộc"`
+        : `Đang ở **chế độ cơ bản** (chưa cài API key AI).\n- Gõ **biển số** hoặc **SĐT** để xem lịch sử xe + hàng xe cùng dòng hay thay\n- Gõ tên phụ tùng hoặc dòng xe để tìm kho\n- Chụp ảnh đọc biển số và tư vấn tự do cần bật AI ở **tab 7. Cài Đặt** (Chủ Xưởng)`);
+    }
+
+    function initAiAssistant() {
+      if (document.getElementById('ai-fab')) return;
+      const app = document.getElementById('main-app');
+      const fab = document.createElement('button');
+      fab.id = 'ai-fab'; fab.type = 'button'; fab.title = 'Trợ lý AI';
+      fab.className = 'fixed bottom-4 right-4 z-[65] w-14 h-14 rounded-full bg-gradient-to-br from-red-600 via-orange-500 to-amber-500 text-white shadow-2xl flex items-center justify-center active:scale-95 transition border-2 border-white/10';
+      fab.innerHTML = '<i class="fa-solid fa-robot text-xl"></i>';
+      fab.onclick = () => toggleAiPanel();
+      app.appendChild(fab);
+      const mainEl = app.querySelector('main'); if (mainEl) mainEl.classList.add('pb-24'); // chừa chỗ cho nút nổi
+
+      const panel = document.createElement('div');
+      panel.id = 'ai-panel';
+      panel.className = 'hidden fixed z-[75] inset-0 sm:inset-auto sm:bottom-4 sm:right-4 sm:w-[420px] sm:h-[78vh] bg-[#0b0f19] sm:rounded-2xl border border-gray-700 shadow-2xl flex flex-col overflow-hidden';
+      panel.innerHTML = `
+        <div class="flex items-center justify-between gap-2 px-3 py-2.5 bg-gray-900 border-b border-gray-800" style="padding-top:max(10px, env(safe-area-inset-top))">
+          <div class="flex items-center gap-2 min-w-0">
+            <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-red-600 to-amber-500 flex items-center justify-center text-white shrink-0"><i class="fa-solid fa-robot text-sm"></i></div>
+            <div class="min-w-0"><div class="text-sm font-black text-white leading-tight">Trợ lý Dr.Shock</div><div id="ai-mode" class="text-[10px] text-orange-400 font-semibold"></div></div>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <button onclick="aiClearChat()" title="Cuộc trò chuyện mới" class="w-8 h-8 rounded-lg bg-gray-800 text-gray-400 hover:text-white"><i class="fa-solid fa-rotate-left text-xs"></i></button>
+            <button onclick="toggleAiPanel(false)" title="Đóng" class="w-8 h-8 rounded-lg bg-gray-800 text-gray-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+          </div>
+        </div>
+        <div id="ai-messages" class="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2.5"></div>
+        <div class="flex gap-1.5 overflow-x-auto no-scrollbar px-3 pb-2 text-[11px]">
+          <button onclick="document.getElementById('ai-file').click()" class="shrink-0 px-2.5 py-1.5 rounded-full bg-gray-800 border border-gray-700 text-amber-300 font-semibold">📷 Chụp xe</button>
+          <button onclick="aiQuick('Xe này nên dùng nhớt gì? Trong kho đang có loại nào phù hợp?')" class="shrink-0 px-2.5 py-1.5 rounded-full bg-gray-800 border border-gray-700 text-sky-300 font-semibold">🛢️ Nhớt gì?</button>
+          <button onclick="aiQuick('Xe này nên nâng cấp phuộc gì? Trong kho có phuộc nào hợp?')" class="shrink-0 px-2.5 py-1.5 rounded-full bg-gray-800 border border-gray-700 text-emerald-300 font-semibold">🔧 Phuộc gì?</button>
+          <button onclick="aiQuick('Lên đơn nhanh cho xe này với các hạng mục vừa tư vấn')" class="shrink-0 px-2.5 py-1.5 rounded-full bg-gray-800 border border-gray-700 text-red-300 font-semibold">⚡ Lên đơn</button>
+        </div>
+        <div id="ai-img-preview" class="hidden px-3 pb-2"></div>
+        <div class="flex items-end gap-2 p-2.5 bg-gray-900 border-t border-gray-800" style="padding-bottom:max(10px, env(safe-area-inset-bottom))">
+          <input type="file" id="ai-file" accept="image/*" capture="environment" class="hidden" onchange="aiPickImage(this)">
+          <button onclick="document.getElementById('ai-file').click()" title="Chụp / chọn ảnh xe" class="w-10 h-10 shrink-0 rounded-xl bg-gray-800 border border-gray-700 text-amber-300"><i class="fa-solid fa-camera"></i></button>
+          <textarea id="ai-input" rows="1" placeholder="Gõ biển số, câu hỏi hoặc yêu cầu lên đơn..." class="flex-1 resize-none max-h-28 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-orange-500"
+            onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); aiSend();}" oninput="this.style.height='auto'; this.style.height=Math.min(this.scrollHeight,112)+'px'"></textarea>
+          <button id="ai-send" onclick="aiSend()" class="w-10 h-10 shrink-0 rounded-xl bg-gradient-to-br from-red-600 to-orange-600 text-white"><i class="fa-solid fa-paper-plane"></i></button>
+        </div>`;
+      document.body.appendChild(panel);
+      initAiSettings();
+    }
+
+    function toggleAiPanel(force) {
+      const p = document.getElementById('ai-panel');
+      if (!p) return;
+      const open = typeof force === 'boolean' ? force : p.classList.contains('hidden');
+      p.classList.toggle('hidden', !open);
+      const fab = document.getElementById('ai-fab'); if (fab) fab.classList.toggle('hidden', open);
+      if (open) {
+        document.getElementById('ai-mode').textContent = aiModeLabel();
+        if (!document.getElementById('ai-messages').children.length) aiWelcome();
+        setTimeout(() => { const i = document.getElementById('ai-input'); if (i && window.innerWidth >= 640) i.focus(); }, 50);
+      }
+    }
+
+    function aiClearChat() {
+      aiNative = { provider: '', msgs: [], turnStarts: [] };
+      aiLastVehicle = null;
+      aiClearImage();
+      document.getElementById('ai-messages').innerHTML = '';
+      document.getElementById('ai-mode').textContent = aiModeLabel();
+      aiWelcome();
+    }
+
+    function aiPickImage(input) {
+      const f = input.files && input.files[0];
+      if (!f) return;
+      compressImageFile(f, 1280, 0.8, dataUrl => {
+        aiPendingImage = { data: dataUrl.split(',')[1], mime: 'image/jpeg', preview: dataUrl };
+        const box = document.getElementById('ai-img-preview');
+        box.innerHTML = `<div class="relative inline-block"><img src="${dataUrl}" class="h-20 rounded-xl border border-gray-700 object-cover">
+          <button onclick="aiClearImage()" class="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-gray-900 border border-gray-600 text-gray-300 text-xs"><i class="fa-solid fa-xmark"></i></button></div>`;
+        box.classList.remove('hidden');
+        input.value = '';
+        const t = document.getElementById('ai-input');
+        if (t) t.placeholder = 'Thêm ghi chú (không bắt buộc) rồi bấm gửi...';
+      });
+    }
+    function aiClearImage() {
+      aiPendingImage = null;
+      const box = document.getElementById('ai-img-preview'); if (box) { box.innerHTML = ''; box.classList.add('hidden'); }
+      const t = document.getElementById('ai-input'); if (t) t.placeholder = 'Gõ biển số, câu hỏi hoặc yêu cầu lên đơn...';
+    }
+    function aiQuick(text) { const i = document.getElementById('ai-input'); i.value = text; aiSend(); }
+
+    async function aiSend() {
+      if (aiBusy) return;
+      const input = document.getElementById('ai-input');
+      const text = input.value.trim();
+      const img = aiPendingImage;
+      if (!text && !img) return;
+      input.value = ''; input.style.height = 'auto';
+      aiClearImage();
+      aiAddUser(text, img && img.preview);
+      const cfg = aiActiveConfig();
+      if (!cfg) {
+        if (img) aiAddBot('Đọc biển số từ ảnh cần bật **Trợ lý AI** (Chủ Xưởng nhập API key ở tab 7. Cài Đặt). Tạm thời hãy gõ biển số để tra.', true);
+        if (text) aiAddBot(aiLocalAnswer(text));
+        return;
+      }
+      aiBusy = true;
+      document.getElementById('ai-send').disabled = true;
+      aiSetTyping(img ? 'Đang xem ảnh xe...' : 'Đang suy nghĩ...');
+      try {
+        const answer = await aiAskAgent(cfg, text, img);
+        aiSetTyping(null);
+        aiAddBot(answer);
+      } catch (e) {
+        console.error('Lỗi trợ lý AI:', e);
+        aiSetTyping(null);
+        aiNative = { provider: '', msgs: [], turnStarts: [] }; // tránh lịch sử hỏng sau lỗi
+        let msg = e.message || String(e);
+        if (e.status === 400 && /api key|API_KEY/i.test(msg)) msg = 'API key không hợp lệ. Kiểm tra lại ở tab 7. Cài Đặt.';
+        else if (e.status === 401 || e.status === 403) msg = 'API key không hợp lệ hoặc bị giới hạn (' + msg + ').';
+        else if (e.status === 429) msg = 'Đã vượt giới hạn lượt dùng AI, thử lại sau ít phút. (' + msg + ')';
+        else if (e.status === 404) msg = 'Không tìm thấy model "' + aiModelFor(cfg) + '". Kiểm tra tên model ở tab 7.';
+        else if (/Failed to fetch|NetworkError/i.test(msg)) msg = 'Không kết nối được máy chủ AI (mất mạng hoặc bị phần mềm diệt virus chặn).';
+        aiAddBot('Lỗi: ' + msg + '\n\nĐang chuyển sang chế độ cơ bản cho câu này:', true);
+        if (text) aiAddBot(aiLocalAnswer(text));
+      } finally {
+        aiBusy = false;
+        document.getElementById('ai-send').disabled = false;
+      }
+    }
+
+    // ---------------- CÀI ĐẶT AI (tab 7, Chủ Xưởng) ----------------
+    function initAiSettings() {
+      const wrap = document.querySelector('#tab-profile > div');
+      if (!wrap || document.getElementById('ai-settings')) return;
+      const box = document.createElement('div');
+      box.id = 'ai-settings';
+      box.className = 'bg-gray-900 border border-orange-500/40 rounded-2xl p-4 space-y-3 shadow-lg';
+      wrap.appendChild(box);
+      renderAiSettings();
+    }
+
+    function renderAiSettings() {
+      const box = document.getElementById('ai-settings');
+      if (!box) return;
+      const c = aiConfig.key ? aiConfig : (aiCloudConfig || aiConfig);
+      const prov = c.provider || 'gemini';
+      box.innerHTML = `
+        <div class="flex items-center justify-between"><div class="flex items-center gap-1.5 text-xs font-bold text-orange-400"><i class="fa-solid fa-robot"></i><span>Trợ Lý AI</span></div>
+          <span class="text-[10px] font-bold px-2 py-0.5 rounded ${aiActiveConfig() ? 'bg-emerald-950 text-emerald-400 border border-emerald-500/40' : 'bg-gray-800 text-gray-400 border border-gray-700'}">${aiActiveConfig() ? 'ĐANG BẬT' + (aiConfig.key ? ' (máy này)' : ' (dùng chung)') : 'CHẾ ĐỘ CƠ BẢN'}</span></div>
+        <p class="text-[11px] text-gray-400 leading-snug">Nhập API key để bật đọc ảnh biển số và tư vấn tự do. <b class="text-gray-300">Gemini</b> có gói miễn phí (lấy key tại aistudio.google.com). <b class="text-gray-300">Claude</b> trả phí theo lượt (console.anthropic.com).</p>
+        <div class="grid grid-cols-2 gap-2">
+          <div><label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Nhà cung cấp</label>
+            <select id="ai-cfg-provider" onchange="document.getElementById('ai-cfg-model').placeholder = this.value === 'claude' ? '${AI_DEFAULTS.model.claude}' : '${AI_DEFAULTS.model.gemini}'" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white">
+              <option value="gemini"${prov === 'gemini' ? ' selected' : ''}>Google Gemini</option><option value="claude"${prov === 'claude' ? ' selected' : ''}>Anthropic Claude</option></select></div>
+          <div><label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Model (để trống = mặc định)</label>
+            <input id="ai-cfg-model" type="text" value="${aiEsc(c.model || '')}" placeholder="${AI_DEFAULTS.model[prov]}" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-xs font-mono text-gray-200"></div>
+        </div>
+        <div><label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">API Key</label>
+          <input id="ai-cfg-key" type="password" autocomplete="off" value="${aiEsc(aiConfig.key || '')}" placeholder="${aiCloudConfig && aiCloudConfig.key ? 'Đang dùng key chung trên đám mây' : 'Dán API key vào đây'}" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-xs font-mono text-gray-200"></div>
+        <label class="flex items-start gap-2 text-[11px] text-gray-300 cursor-pointer"><input id="ai-cfg-shared" type="checkbox" class="mt-0.5"${aiCloudConfig && aiCloudConfig.key ? ' checked' : ''}>
+          <span>Dùng chung cho mọi máy (lưu key lên đám mây). <span class="text-amber-400">Lưu ý: ai mở được app cũng có thể xem key này. Nên giới hạn key theo trang web drshockvn-droid.github.io và đặt hạn mức chi tiêu.</span></span></label>
+        <div class="grid grid-cols-3 gap-2">
+          <button onclick="saveAiSettings()" class="col-span-2 py-2.5 bg-gradient-to-r from-orange-600 to-amber-600 rounded-xl text-white font-bold text-xs"><i class="fa-solid fa-floppy-disk mr-1"></i>Lưu & bật</button>
+          <button onclick="clearAiSettings()" class="py-2.5 bg-gray-800 border border-gray-700 rounded-xl text-gray-300 font-semibold text-xs">Tắt AI</button>
+        </div>`;
+    }
+
+    function saveAiSettings() {
+      if (!currentLoggedInUser || currentLoggedInUser.role !== 'admin') { showNotification('Chỉ Chủ Xưởng mới được cài đặt AI!', 'warning'); return; }
+      const provider = document.getElementById('ai-cfg-provider').value;
+      const model = document.getElementById('ai-cfg-model').value.trim();
+      const key = document.getElementById('ai-cfg-key').value.trim();
+      const shared = document.getElementById('ai-cfg-shared').checked;
+      if (!key && !(shared && aiCloudConfig && aiCloudConfig.key)) { showNotification('Vui lòng dán API key!', 'warning'); return; }
+      const cfg = { provider: provider, model: model, key: key || aiCloudConfig.key };
+      if (shared) {
+        aiConfig = { provider: 'gemini', model: '', key: '' };
+        setStoredData('drshock_ai_config', aiConfig);
+        aiCloudConfig = cfg;
+        if (firebaseDb) firebaseDb.ref('garage/aiConfig').set(Object.assign({ updatedBy: currentLoggedInUser.name, updatedAt: Date.now() }, cfg))
+          .catch(() => showNotification('Không lưu được cấu hình AI lên đám mây!', 'error'));
+      } else {
+        aiConfig = cfg;
+        setStoredData('drshock_ai_config', aiConfig);
+        if (firebaseDb && aiCloudConfig) firebaseDb.ref('garage/aiConfig').set(null);
+        aiCloudConfig = null;
+      }
+      aiNative = { provider: '', msgs: [], turnStarts: [] };
+      renderAiSettings();
+      showNotification('Đã bật Trợ lý AI' + (shared ? ' cho mọi máy' : ' trên máy này') + '!', 'success');
+    }
+
+    function clearAiSettings() {
+      if (!currentLoggedInUser || currentLoggedInUser.role !== 'admin') { showNotification('Chỉ Chủ Xưởng mới được cài đặt AI!', 'warning'); return; }
+      aiConfig = { provider: 'gemini', model: '', key: '' };
+      setStoredData('drshock_ai_config', aiConfig);
+      if (firebaseDb && aiCloudConfig) firebaseDb.ref('garage/aiConfig').set(null);
+      aiCloudConfig = null;
+      renderAiSettings();
+      showNotification('Đã tắt AI, trợ lý dùng chế độ cơ bản.', 'info');
+    }
+
+    function listenAiCloudConfig() {
+      if (!firebaseDb) return;
+      firebaseDb.ref('garage/aiConfig').on('value', s => {
+        const v = s.val();
+        aiCloudConfig = (v && v.key) ? { provider: v.provider || 'gemini', model: v.model || '', key: v.key } : null;
+        renderAiSettings();
+        const m = document.getElementById('ai-mode'); if (m) m.textContent = aiModeLabel();
+      }, err => console.warn('Không đọc được cấu hình AI chung:', err && err.code));
+    }
+
+    initAiAssistant();
+    listenAiCloudConfig();
+
+    // Tự đăng nhập lại sau khi trang tải lại (Kết nối lại / chuyển chế độ dự phòng) - chỉ trong cùng tab đang mở
+    (function restoreSession() {
+      let uid = '';
+      try { uid = sessionStorage.getItem('drshock_session_uid') || ''; } catch (e) {}
+      const u = uid && staffList.find(x => x.id === uid);
+      if (!u) return;
+      selectedLoginUserId = u.id;
+      const pin = document.getElementById('login-pin-input');
+      if (pin) pin.value = u.pin;
+      handleLoginSubmit();
+    })();
   </script>
 </body>
 </html>

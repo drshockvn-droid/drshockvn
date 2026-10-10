@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kiểm tra kết nối đám mây - Dr.Shock VN</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0b0f19;color:#f3f4f6;margin:0;padding:16px;max-width:640px;margin:auto}
+  h1{font-size:18px;color:#fb923c;margin:0 0 4px}
+  p.sub{color:#9ca3af;font-size:13px;margin:0 0 16px}
+  .row{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:10px 12px;margin-bottom:8px;font-size:13px}
+  .row b{display:block;margin-bottom:2px}
+  .ok{color:#34d399}.bad{color:#f87171}.wait{color:#fbbf24}
+  .detail{color:#9ca3af;font-size:12px;margin-top:2px;word-break:break-word}
+  button{background:#dc2626;color:#fff;border:0;border-radius:10px;padding:10px 14px;font-weight:700;margin:8px 0;width:100%}
+  #verdict{background:#1f2937;border-radius:12px;padding:12px;font-size:13px;line-height:1.5;margin-top:12px;white-space:pre-line}
+</style>
+</head>
+<body>
+<h1>Kiểm tra kết nối đám mây</h1>
+<p class="sub">Trang này thử từng bước kết nối tới Firebase để biết máy này bị chặn ở đâu.</p>
+<button onclick="runAll()">Chạy kiểm tra lại</button>
+<div id="out"></div>
+<div id="verdict"></div>
+<script>
+const DB = 'https://drshockvn-75287-default-rtdb.asia-southeast1.firebasedatabase.app';
+const out = document.getElementById('out');
+const res = {};
+function row(id, title) {
+  let el = document.getElementById(id);
+  if (!el) { el = document.createElement('div'); el.className = 'row'; el.id = id; out.appendChild(el); }
+  el.innerHTML = '<b>' + title + ' <span class="wait">...đang thử</span></b>';
+  return (state, text, detail) => {
+    res[id] = state;
+    el.innerHTML = '<b>' + title + ' <span class="' + (state ? 'ok' : 'bad') + '">' + text + '</span></b>' + (detail ? '<div class="detail">' + detail + '</div>' : '');
+  };
+}
+function timeout(ms) { return new Promise((_, r) => setTimeout(() => r(new Error('quá ' + ms / 1000 + ' giây không phản hồi')), ms)); }
+async function rest(path, opts) {
+  const t0 = performance.now();
+  const r = await Promise.race([fetch(DB + path, opts), timeout(15000)]);
+  const txt = await r.text();
+  return { status: r.status, ms: Math.round(performance.now() - t0), txt: txt };
+}
+async function runAll() {
+  out.innerHTML = ''; document.getElementById('verdict').textContent = '';
+  for (const k in res) delete res[k];
+
+  let done = row('net', '1. Internet');
+  try { await Promise.race([fetch('https://www.gstatic.com/generate_204', { mode: 'no-cors' }), timeout(8000)]); done(true, 'OK'); }
+  catch (e) { done(false, 'Không có mạng / bị chặn', e.message); }
+
+  done = row('sdk', '2. Thư viện Firebase (gstatic.com)');
+  try {
+    await Promise.race([new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js'; s.onload = ok; s.onerror = () => no(new Error('không tải được')); document.head.appendChild(s); }), timeout(12000)]);
+    done(true, 'OK');
+  } catch (e) { done(false, 'Bị chặn', e.message + '. Tắt tiện ích chặn quảng cáo / kiểm tra diệt virus.'); }
+
+  done = row('rest', '3. Máy chủ dữ liệu + quyền đọc');
+  try {
+    const r = await rest('/garage.json?shallow=true');
+    if (r.status === 200) done(true, 'OK (' + r.ms + ' ms)', 'Có các nhánh: ' + Object.keys(JSON.parse(r.txt) || {}).join(', '));
+    else if (r.status === 401 || r.status === 403) done(false, 'BỊ TỪ CHỐI QUYỀN (' + r.status + ')', 'Rules của Firebase đang chặn đọc/ghi. Thường do "chế độ thử nghiệm" hết hạn 30 ngày. Cần sửa Rules trong Firebase Console.');
+    else done(false, 'Lỗi HTTP ' + r.status, r.txt.slice(0, 200));
+  } catch (e) { done(false, 'Không kết nối được máy chủ', e.message + '. Mạng công ty / DNS / diệt virus đang chặn firebasedatabase.app.'); }
+
+  done = row('write', '4. Thử ghi dữ liệu');
+  try {
+    const id = 'diag_' + Math.random().toString(36).slice(2, 8);
+    const w = await rest('/garage/_diag/' + id + '.json', { method: 'PUT', body: JSON.stringify({ t: Date.now(), ua: navigator.userAgent.slice(0, 80) }) });
+    if (w.status === 200) {
+      const rd = await rest('/garage/_diag/' + id + '.json');
+      await rest('/garage/_diag/' + id + '.json', { method: 'DELETE' });
+      done(rd.status === 200 && rd.txt !== 'null', rd.status === 200 && rd.txt !== 'null' ? 'OK (ghi rồi đọc lại được)' : 'Ghi được nhưng đọc lại không thấy', '');
+    } else if (w.status === 401 || w.status === 403) done(false, 'KHÔNG CÓ QUYỀN GHI (' + w.status + ')', 'Đọc được nhưng không ghi được: dữ liệu nhập vào sẽ không lưu lên mây. Cần sửa Rules.');
+    else done(false, 'Lỗi HTTP ' + w.status, w.txt.slice(0, 200));
+  } catch (e) { done(false, 'Lỗi', e.message); }
+
+  done = row('ws', '5. Kết nối thời gian thực (WebSocket)');
+  try {
+    await Promise.race([new Promise((ok, no) => {
+      const ws = new WebSocket('wss://drshockvn-75287-default-rtdb.asia-southeast1.firebasedatabase.app/.ws?v=5');
+      ws.onopen = () => { ws.close(); ok(); }; ws.onerror = () => no(new Error('bị chặn'));
+    }), timeout(10000)]);
+    done(true, 'OK');
+  } catch (e) { done(false, 'Không dùng được', 'App sẽ tự chuyển sang chế độ dự phòng (chậm hơn nhưng vẫn đồng bộ). ' + e.message); }
+
+  done = row('ls', '6. Dữ liệu lưu trên máy này');
+  try {
+    const n = k => { try { const v = JSON.parse(localStorage.getItem(k) || '[]'); return Array.isArray(v) ? v.length : Object.keys(v).length; } catch (e) { return '?'; } };
+    done(true, 'Đọc được', 'Kho: ' + n('drshock_inventory') + ' mã · Hóa đơn: ' + n('drshock_invoices') + ' · Nhật ký: ' + n('drshock_stock_logs') + ' · Nhân viên: ' + n('drshock_staff_list'));
+  } catch (e) { done(false, 'Lỗi', e.message); }
+
+  const v = document.getElementById('verdict');
+  if (!res.net) v.textContent = 'KẾT LUẬN: Máy này không có Internet.';
+  else if (!res.rest && document.getElementById('rest').textContent.indexOf('QUYỀN') > -1) v.textContent = 'KẾT LUẬN: Kết nối tốt nhưng Firebase TỪ CHỐI QUYỀN.\nĐây là nguyên nhân chính khiến dữ liệu không đồng bộ giữa các máy.\nCách sửa: Firebase Console > Realtime Database > Rules, kiểm tra điều kiện ngày hết hạn trong rules.';
+  else if (!res.rest) v.textContent = 'KẾT LUẬN: Máy này không tới được máy chủ dữ liệu. Thử đổi mạng (4G/WiFi khác), tắt diệt virus hoặc tiện ích chặn quảng cáo.';
+  else if (!res.write) v.textContent = 'KẾT LUẬN: Đọc được nhưng không ghi được. Dữ liệu nhập vào KHÔNG lên được mây. Cần sửa Rules cho phép ghi.';
+  else if (!res.sdk) v.textContent = 'KẾT LUẬN: Máy chủ dữ liệu ổn nhưng thư viện Firebase bị chặn, app không đồng bộ được.';
+  else v.textContent = 'KẾT LUẬN: Kết nối đám mây của máy này bình thường' + (res.ws ? '.' : ' (dùng chế độ dự phòng).');
+}
+runAll();
+</script>
+</body>
+</html>
