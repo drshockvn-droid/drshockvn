@@ -1297,6 +1297,10 @@
       } catch (e) {}
     }
 
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     function convertToArray(val, fallback = []) {
       if (!val) return fallback;
       if (Array.isArray(val)) return val;
@@ -1341,6 +1345,69 @@
       'garage/stockLogs': 'drshock_stock_logs',
       'garage/staff': 'drshock_staff_list'
     };
+
+    // ===== GHI DỮ LIỆU AN TOÀN KHI NHIỀU MÁY CÙNG DÙNG =====
+    // Mỗi thao tác chỉ thay đổi đúng phần của nó trên bản mới nhất ở đám mây (transaction),
+    // không ghi đè cả danh sách từ bản có thể đã cũ trên máy -> không mất dữ liệu khi 2 máy cùng nhập.
+    const CLOUD_LISTS = {
+      'garage/inventory': { key: 'drshock_inventory', get: () => inventoryList, set: v => { inventoryList = v; } },
+      'garage/invoices': { key: 'drshock_invoices', get: () => invoiceList, set: v => { invoiceList = v; } },
+      'garage/stockLogs': { key: 'drshock_stock_logs', get: () => stockLogList, set: v => { stockLogList = v; } },
+      'garage/staff': { key: 'drshock_staff_list', get: () => staffList, set: v => { staffList = v; } }
+    };
+
+    function cleanJson(v) { return JSON.parse(JSON.stringify(v)); }
+
+    // Chỉ cho sửa dữ liệu khi máy này đã tải xong dữ liệu đám mây (tránh sửa trên bản cũ rồi bị ghi đè mất)
+    function cloudWritable(paths) {
+      if (!firebaseDb) return true;
+      const waiting = paths.filter(p => !cloudReady[p]);
+      if (!waiting.length) return true;
+      showNotification('Máy đang tải dữ liệu từ đám mây. Vui lòng đợi vài giây rồi thao tác lại để dữ liệu không bị lệch giữa các máy!', 'warning');
+      return false;
+    }
+
+    function cloudUpdateList(path, apply) {
+      const meta = CLOUD_LISTS[path];
+      if (!firebaseDb) {
+        const next = cleanJson(apply(cleanJson(meta.get())));
+        meta.set(next);
+        setStoredData(meta.key, next);
+        return Promise.resolve(next);
+      }
+      return new Promise(resolve => {
+        let finished = false;
+        const timer = setTimeout(() => {
+          if (finished) return;
+          finished = true;
+          showNotification('Mạng chậm: dữ liệu đã lưu tạm trên máy, sẽ tự đồng bộ khi kết nối ổn định.', 'warning');
+          resolve(null);
+        }, 12000);
+        firebaseDb.ref(path).transaction(cur => {
+          try { return cleanJson(apply(convertToArray(cur, []))); }
+          catch (e) { console.error('Lỗi cập nhật ' + path, e); return undefined; }
+        }, (err, committed, snap) => {
+          clearTimeout(timer);
+          if (finished) return;
+          finished = true;
+          if (err || !committed) {
+            console.error('Không ghi được ' + path, err);
+            showNotification('Không lưu được lên đám mây (' + ((err && (err.code || err.message)) || 'bị từ chối') + '). Kiểm tra mạng / quyền truy cập Firebase!', 'error');
+            resolve(null);
+          } else {
+            resolve(convertToArray(snap.val(), []));
+          }
+        });
+      });
+    }
+
+    function applyStockDeltas(list, deltas, costs) {
+      list.forEach(p => {
+        if (deltas[p.id] != null) p.stock = Math.max(0, Math.round(((parseFloat(p.stock) || 0) + deltas[p.id]) * 10) / 10);
+        if (costs && costs[p.id] > 0) p.costPrice = costs[p.id];
+      });
+      return list;
+    }
 
     // Trước khi dữ liệu đám mây thay thế dữ liệu trên máy: giữ lại 1 bản dự phòng trên máy
     function keepLocalSafetyCopy(nodePath) {
@@ -1546,53 +1613,29 @@
         renderFinanceDash();
       });
 
-      firebaseDb.ref('garage/inventory').on('value', snapshot => {
-        const val = snapshot.val();
-        cloudReady['garage/inventory'] = true;
-        if (val) {
-          keepLocalSafetyCopy('garage/inventory');
-          inventoryList = convertToArray(val, inventoryList);
-          setStoredData('drshock_inventory', inventoryList);
-          renderInventoryTable();
-          populateInventorySelector('ALL');
-        }
-      });
-
-      firebaseDb.ref('garage/invoices').on('value', snapshot => {
-        const val = snapshot.val();
-        cloudReady['garage/invoices'] = true;
-        if (val) {
-          keepLocalSafetyCopy('garage/invoices');
-          invoiceList = convertToArray(val, invoiceList);
-          setStoredData('drshock_invoices', invoiceList);
-          renderInvoiceList();
-          renderCustomerAndReports();
-        }
-      });
-
-      firebaseDb.ref('garage/stockLogs').on('value', snapshot => {
-        const val = snapshot.val();
-        cloudReady['garage/stockLogs'] = true;
-        if (val) {
-          keepLocalSafetyCopy('garage/stockLogs');
-          stockLogList = convertToArray(val, stockLogList);
-          setStoredData('drshock_stock_logs', stockLogList);
-          renderStockLogs();
-        }
-      });
-
-      firebaseDb.ref('garage/staff').on('value', snapshot => {
-        const val = snapshot.val();
-        cloudReady['garage/staff'] = true;
-        if (val) {
-          keepLocalSafetyCopy('garage/staff');
-          staffList = convertToArray(val, staffList);
-          setStoredData('drshock_staff_list', staffList);
-          renderLoginUserList();
-          renderStaffCards();
-          populateAdvisorSelect();
-        }
-      });
+      // Nhận dữ liệu realtime. Sau lần tải đầu, danh sách rỗng trên đám mây nghĩa là đã bị xóa hết -> máy này cũng phải rỗng.
+      const bindList = (path, canBeEmpty, afterUpdate) => {
+        firebaseDb.ref(path).on('value', snapshot => {
+          const val = snapshot.val();
+          const wasReady = cloudReady[path];
+          cloudReady[path] = true;
+          const meta = CLOUD_LISTS[path];
+          if (val) {
+            keepLocalSafetyCopy(path);
+            meta.set(convertToArray(val, meta.get()));
+          } else if (wasReady && canBeEmpty) {
+            meta.set([]);
+          } else {
+            return;
+          }
+          setStoredData(meta.key, meta.get());
+          afterUpdate();
+        });
+      };
+      bindList('garage/inventory', true, () => { renderInventoryTable(); populateInventorySelector('ALL'); });
+      bindList('garage/invoices', true, () => { renderInvoiceList(); renderCustomerAndReports(); });
+      bindList('garage/stockLogs', true, () => { renderStockLogs(); updateInventoryOverviewStats(); });
+      bindList('garage/staff', false, () => { renderLoginUserList(); renderStaffCards(); populateAdvisorSelect(); });
     }
 
     function syncAllToCloudForce() {
@@ -1600,15 +1643,20 @@
         showNotification('Chưa kết nối Firebase!', 'warning');
         return;
       }
-      try {
-        firebaseDb.ref('garage/inventory').set(inventoryList);
-        firebaseDb.ref('garage/invoices').set(invoiceList);
-        firebaseDb.ref('garage/stockLogs').set(stockLogList);
-        firebaseDb.ref('garage/staff').set(staffList);
-        showNotification('Đã đồng bộ toàn bộ dữ liệu xưởng lên đám mây!', 'success');
-      } catch (e) {
-        showNotification('Lỗi đồng bộ lên đám mây!', 'error');
-      }
+      if (!cloudWritable(Object.keys(CLOUD_LOCAL_KEYS))) return;
+      showConfirmModal(
+        'Đẩy Dữ Liệu Máy Này Lên Mây',
+        'Toàn bộ dữ liệu trên máy này sẽ GHI ĐÈ dữ liệu trên đám mây (mọi máy khác sẽ nhận theo). Chỉ làm khi chắc chắn dữ liệu trên máy này là bản đúng. Tiếp tục?',
+        () => {
+          Promise.all([
+            firebaseDb.ref('garage/inventory').set(inventoryList),
+            firebaseDb.ref('garage/invoices').set(invoiceList),
+            firebaseDb.ref('garage/stockLogs').set(stockLogList),
+            firebaseDb.ref('garage/staff').set(staffList)
+          ]).then(() => showNotification('Đã đồng bộ toàn bộ dữ liệu xưởng lên đám mây!', 'success'))
+            .catch(() => showNotification('Lỗi đồng bộ lên đám mây!', 'error'));
+        }
+      );
     }
 
     function saveAndConnectFirebase() {
@@ -1663,8 +1711,8 @@
                 <i class="fa-solid ${icon}"></i>
               </div>
               <div>
-                <p class="text-sm font-bold text-white leading-tight">${s.name}</p>
-                <p class="text-[11px] text-orange-400 font-medium">${s.roleTitle || s.name}</p>
+                <p class="text-sm font-bold text-white leading-tight">${esc(s.name)}</p>
+                <p class="text-[11px] text-orange-400 font-medium">${esc(s.roleTitle || s.name)}</p>
               </div>
             </div>
             <i id="check-user-${s.id}" class="fa-solid fa-circle-check text-red-500 text-base ${isSelected ? '' : 'hidden'}"></i>
@@ -1959,10 +2007,11 @@
         user: userName,
         note: note || ''
       };
-      stockLogList.unshift(newLog);
-      setStoredData('drshock_stock_logs', stockLogList);
-      if (firebaseDb) firebaseDb.ref('garage/stockLogs').set(stockLogList);
-      renderStockLogs();
+      cloudUpdateList('garage/stockLogs', list => {
+        list.unshift(newLog);
+        if (list.length > 1000) list.length = 1000;
+        return list;
+      }).then(() => renderStockLogs());
     }
 
     // ===== SẮP XẾP THEO THỜI GIAN =====
@@ -2350,7 +2399,7 @@
     function populateAdvisorSelect() {
       const sel = document.getElementById('quote-advisor');
       if (!sel) return;
-      sel.innerHTML = staffList.map(s => `<option value="${s.name}">${s.name} (${s.roleTitle || s.name})</option>`).join('');
+      sel.innerHTML = staffList.map(s => `<option value="${esc(s.name)}">${esc(s.name)} (${esc(s.roleTitle || s.name)})</option>`).join('');
     }
 
     function populateInventorySelector(cat) {
@@ -2358,7 +2407,7 @@
       if (!sel) return;
       const filtered = (cat === 'ALL') ? inventoryList : inventoryList.filter(i => i.cat === cat);
       sel.innerHTML = `<option value="">-- Chọn phụ tùng từ kho (${filtered.length}) --</option>` + 
-        filtered.map(i => `<option value="${i.id}">${i.name} [Tồn: ${formatStockQty(i.stock)} ${i.unit || 'Cái'}] - ${formatMoney(i.price)} đ</option>`).join('');
+        filtered.map(i => `<option value="${esc(i.id)}">${esc(i.name)} [Tồn: ${formatStockQty(i.stock)} ${i.unit || 'Cái'}] - ${formatMoney(i.price)} đ</option>`).join('');
     }
 
     function filterInventorySelector(cat) {
@@ -2411,7 +2460,7 @@
       container.innerHTML = currentQuoteItems.map((item, idx) => `
         <div class="bg-gray-800/70 border border-gray-700/70 rounded-xl p-2.5 space-y-2">
           <div class="flex items-center justify-between gap-2">
-            <input type="text" value="${item.name}" oninput="updateItemName(${idx}, this.value)" 
+            <input type="text" value="${esc(item.name)}" oninput="updateItemName(${idx}, this.value)" 
               class="flex-1 bg-transparent text-xs sm:text-sm font-semibold text-white focus:outline-none focus:border-b border-red-500">
             <button onclick="removeQuoteItem(${idx})" class="w-7 h-7 rounded-lg text-gray-500 hover:text-red-400 active:scale-95 flex items-center justify-center shrink-0">
               <i class="fa-solid fa-trash-can text-xs"></i>
@@ -2504,7 +2553,9 @@
       showNotification('Đã làm mới thông tin báo giá.', 'info');
     }
 
-    function handleSaveInvoice() {
+    let invoiceSaving = false;
+    async function handleSaveInvoice() {
+      if (invoiceSaving) return;
       const plate = document.getElementById('quote-plate').value.trim();
       const name = document.getElementById('quote-name').value.trim();
       const phone = document.getElementById('quote-phone').value.trim();
@@ -2537,53 +2588,65 @@
         showNotification('Vui lòng thêm ít nhất 1 dịch vụ hoặc phụ tùng vào bill!', 'warning');
         return;
       }
+      if (!cloudWritable(['garage/invoices', 'garage/inventory', 'garage/stockLogs'])) return;
 
-      const { subtotal, discount, finalTotal } = calculateQuoteTotal();
+      invoiceSaving = true;
+      try {
+        const { subtotal, discount, finalTotal } = calculateQuoteTotal();
+        const base = {
+          date: new Date().toLocaleDateString('vi-VN') + ' ' + new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'}),
+          plate: plate.toUpperCase(),
+          name: name,
+          phone: phone,
+          car: car,
+          odo: odo,
+          note: note,
+          serviceType: serviceType,
+          customerType: customerType,
+          advisor: advisor,
+          items: JSON.parse(JSON.stringify(currentQuoteItems)),
+          subtotal: subtotal,
+          discount: discount,
+          total: finalTotal
+        };
 
-      const newInv = {
-        id: 'INV-' + (invoiceList.length + 101),
-        date: new Date().toLocaleDateString('vi-VN') + ' ' + new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'}),
-        plate: plate.toUpperCase(),
-        name: name,
-        phone: phone,
-        car: car,
-        odo: odo,
-        note: note,
-        serviceType: serviceType,
-        customerType: customerType,
-        advisor: advisor,
-        items: JSON.parse(JSON.stringify(currentQuoteItems)),
-        subtotal: subtotal,
-        discount: discount,
-        total: finalTotal
-      };
+        // Số lượng trừ kho (tính theo tồn hiện có để ghi nhật ký), cộng dồn nếu 1 mã xuất hiện nhiều dòng
+        const deltas = {};
+        const running = {};
+        const logs = [];
+        currentQuoteItems.forEach(item => {
+          const prod = inventoryList.find(p => p.id === item.id || p.name.trim().toLowerCase() === item.name.trim().toLowerCase());
+          if (!prod) return;
+          const used = parseFloat(item.qty) || 1;
+          const prev = running[prod.id] != null ? running[prod.id] : (parseFloat(prod.stock) || 0);
+          const next = Math.max(0, Math.round((prev - used) * 10) / 10);
+          running[prod.id] = next;
+          deltas[prod.id] = (deltas[prod.id] || 0) - used;
+          logs.push([prod, item, prev, next]);
+        });
 
-      currentQuoteItems.forEach(item => {
-        const prod = inventoryList.find(p => p.id === item.id || p.name.trim().toLowerCase() === item.name.trim().toLowerCase());
-        if (prod) {
-          const prev = parseFloat(prod.stock) || 0;
-          const usedQty = parseFloat(item.qty) || 1;
-          const next = Math.max(0, Math.round((prev - usedQty) * 10) / 10);
-          prod.stock = next;
-          logStockEvent('XUAT', prod.id, prod.name, prod.unit || item.unit || 'Cái', prev, next, `Xuất theo hóa đơn ${newInv.id} cho xe ${newInv.plate} (${newInv.serviceType} - ${newInv.customerType})`);
-        }
-      });
+        // Mã hóa đơn được cấp ngay trên bản mới nhất ở đám mây -> 2 máy lập bill cùng lúc không bao giờ trùng mã / đè bill của nhau
+        let newInv = null;
+        await cloudUpdateList('garage/invoices', list => {
+          const id = 'INV-' + (Math.max(100, ...list.map(i => invSeq(i))) + 1);
+          newInv = Object.assign({ id: id }, base);
+          list.unshift(newInv);
+          return list;
+        });
+        if (!newInv) { showNotification('Chưa lưu được hóa đơn, vui lòng thử lại!', 'error'); return; }
 
-      setStoredData('drshock_inventory', inventoryList);
-      invoiceList.unshift(newInv);
-      setStoredData('drshock_invoices', invoiceList);
+        if (Object.keys(deltas).length) await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas));
+        logs.forEach(l => logStockEvent('XUAT', l[0].id, l[0].name, l[0].unit || l[1].unit || 'Cái', l[2], l[3], `Xuất theo hóa đơn ${newInv.id} cho xe ${newInv.plate} (${newInv.serviceType} - ${newInv.customerType})`));
 
-      if (firebaseDb) {
-        firebaseDb.ref('garage/inventory').set(inventoryList);
-        firebaseDb.ref('garage/invoices').set(invoiceList);
+        renderInventoryTable();
+        populateInventorySelector('ALL');
+        renderInvoiceList();
+        renderCustomerAndReports();
+        showPrintModal(newInv);
+        showNotification(`Đã xuất hóa đơn ${newInv.id}!`, 'success');
+      } finally {
+        invoiceSaving = false;
       }
-
-      renderInventoryTable();
-      populateInventorySelector('ALL');
-      renderInvoiceList();
-      renderCustomerAndReports();
-      showPrintModal(newInv);
-      showNotification(`Đã xuất hóa đơn ${newInv.id}!`, 'success');
     }
 
     // ==========================================
@@ -2620,8 +2683,8 @@
       const tbody = document.getElementById('inv-print-tbody');
       tbody.innerHTML = inv.items.map(i => `
         <tr>
-          <td class="p-1.5 border-r border-gray-200">${i.name}</td>
-          <td class="p-1.5 text-center border-r border-gray-200 font-semibold">${formatStockQty(i.qty)} ${i.unit || 'Cái'}</td>
+          <td class="p-1.5 border-r border-gray-200">${esc(i.name)}</td>
+          <td class="p-1.5 text-center border-r border-gray-200 font-semibold">${formatStockQty(i.qty)} ${esc(i.unit || 'Cái')}</td>
           <td class="p-1.5 text-right border-r border-gray-200">${formatMoney(i.price)} đ</td>
           <td class="p-1.5 text-right font-semibold">${formatMoney(i.qty * i.price)} đ</td>
         </tr>
@@ -2671,18 +2734,18 @@
           <div class="bg-gray-800/60 border border-gray-700/60 rounded-xl p-3 flex items-center justify-between gap-2.5">
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2 flex-wrap">
-                <span class="text-xs font-bold text-amber-400 uppercase tracking-wide">${inv.plate}</span>
-                <span class="text-[10px] text-gray-400 font-mono">${inv.id}</span>
-                ${inv.odo ? `<span class="text-[10px] px-1.5 py-0.2 rounded bg-sky-950/80 text-sky-400 border border-sky-500/30">${inv.odo}</span>` : ''}
-                <span class="text-[10px] px-1.5 py-0.2 rounded bg-red-950/80 text-red-400 border border-red-500/30 font-semibold">${inv.serviceType || 'Lắp tại xưởng'}</span>
-                <span class="text-[10px] px-1.5 py-0.2 rounded bg-amber-950/80 text-amber-300 border border-amber-500/30 font-semibold">${inv.customerType || 'Khách lẻ'}</span>
+                <span class="text-xs font-bold text-amber-400 uppercase tracking-wide">${esc(inv.plate)}</span>
+                <span class="text-[10px] text-gray-400 font-mono">${esc(inv.id)}</span>
+                ${inv.odo ? `<span class="text-[10px] px-1.5 py-0.2 rounded bg-sky-950/80 text-sky-400 border border-sky-500/30">${esc(inv.odo)}</span>` : ''}
+                <span class="text-[10px] px-1.5 py-0.2 rounded bg-red-950/80 text-red-400 border border-red-500/30 font-semibold">${esc(inv.serviceType || 'Lắp tại xưởng')}</span>
+                <span class="text-[10px] px-1.5 py-0.2 rounded bg-amber-950/80 text-amber-300 border border-amber-500/30 font-semibold">${esc(inv.customerType || 'Khách lẻ')}</span>
               </div>
-              <p class="text-xs font-semibold text-white truncate mt-0.5">${inv.name} <span class="text-gray-400 font-normal">(${inv.car} - ${inv.phone || 'Không SĐT'})</span></p>
-              ${inv.note ? `<p class="text-[11px] text-amber-300/90 truncate mt-0.5"><i class="fa-solid fa-note-sticky text-[10px] mr-1 text-amber-400"></i>${inv.note}</p>` : ''}
+              <p class="text-xs font-semibold text-white truncate mt-0.5">${esc(inv.name)} <span class="text-gray-400 font-normal">(${esc(inv.car)} - ${esc(inv.phone || 'Không SĐT')})</span></p>
+              ${inv.note ? `<p class="text-[11px] text-amber-300/90 truncate mt-0.5"><i class="fa-solid fa-note-sticky text-[10px] mr-1 text-amber-400"></i>${esc(inv.note)}</p>` : ''}
               <div class="flex items-center gap-2 text-[10px] text-gray-400 mt-0.5">
                 <span><i class="fa-solid fa-clock mr-1"></i>${inv.date}</span>
                 <span>•</span>
-                <span class="text-orange-400">${inv.advisor}</span>
+                <span class="text-orange-400">${esc(inv.advisor)}</span>
               </div>
             </div>
             <div class="text-right shrink-0">
@@ -2722,7 +2785,7 @@
       const sel = document.getElementById('edit-inv-add-select');
       if (sel) {
         sel.innerHTML = `<option value="">-- Chọn phụ tùng từ kho để thêm --</option>` + 
-          inventoryList.map(p => `<option value="${p.id}">${p.name} [Tồn: ${formatStockQty(p.stock)} ${p.unit || 'Cái'}] - ${formatMoney(p.price)} đ</option>`).join('');
+          inventoryList.map(p => `<option value="${esc(p.id)}">${esc(p.name)} [Tồn: ${formatStockQty(p.stock)} ${p.unit || 'Cái'}] - ${formatMoney(p.price)} đ</option>`).join('');
       }
 
       renderEditInvoiceItems();
@@ -2746,7 +2809,7 @@
       container.innerHTML = currentEditingInvoiceItems.map((item, idx) => `
         <div class="bg-gray-800/80 border border-gray-700/80 rounded-xl p-2.5 space-y-1.5">
           <div class="flex items-center justify-between gap-2">
-            <input type="text" value="${item.name}" oninput="currentEditingInvoiceItems[${idx}].name=this.value" 
+            <input type="text" value="${esc(item.name)}" oninput="currentEditingInvoiceItems[${idx}].name=this.value" 
               class="flex-1 bg-transparent text-xs font-semibold text-white focus:outline-none focus:border-b border-amber-500">
             <button type="button" onclick="removeEditInvoiceItem(${idx})" class="text-gray-500 hover:text-red-400 px-1">
               <i class="fa-solid fa-trash-can text-xs"></i>
@@ -2759,7 +2822,7 @@
               <input type="number" min="0.5" step="0.5" value="${item.qty}" onfocus="this.select()" oninput="updateEditInvoiceItemQtyDirect(${idx}, this.value)" 
                 class="w-12 bg-gray-900 border border-gray-700 rounded text-center text-xs py-0.5 text-white font-bold">
               <button type="button" onclick="adjustEditInvoiceItemQty(${idx}, 0.5)" class="w-7 h-6 bg-gray-700 rounded text-emerald-400 font-bold text-[11px]">+0.5</button>
-              <input type="text" value="${item.unit || 'Cái'}" oninput="currentEditingInvoiceItems[${idx}].unit=this.value" 
+              <input type="text" value="${esc(item.unit || 'Cái')}" oninput="currentEditingInvoiceItems[${idx}].unit=this.value" 
                 class="w-12 bg-gray-900 border border-gray-700 rounded text-center text-[10px] py-0.5 text-amber-300 font-bold uppercase">
             </div>
             <div class="flex items-center space-x-1.5">
@@ -2848,7 +2911,7 @@
       return { subtotal, discount, total };
     }
 
-    function handleSaveEditInvoiceModal() {
+    async function handleSaveEditInvoiceModal() {
       if (!checkInvoiceManagePermission()) return;
       const invId = document.getElementById('edit-inv-id').value;
       const inv = invoiceList.find(i => i.id === invId);
@@ -2873,6 +2936,7 @@
         showNotification('Hóa đơn phải có ít nhất 1 hạng mục!', 'warning');
         return;
       }
+      if (!cloudWritable(['garage/invoices', 'garage/inventory', 'garage/stockLogs'])) return;
 
       const { subtotal, discount, total } = calculateEditInvoiceTotal();
 
@@ -2887,53 +2951,47 @@
       });
 
       const allProductIds = Array.from(new Set([...Object.keys(oldItemsMap), ...Object.keys(newItemsMap)]));
+      const deltas = {};
+      const logs = [];
 
       allProductIds.forEach(pId => {
         const prod = inventoryList.find(p => p.id === pId);
-        if (prod) {
-          const oldQty = oldItemsMap[pId] || 0;
-          const newQty = newItemsMap[pId] || 0;
-          const diff = Math.round((newQty - oldQty) * 10) / 10;
-          if (diff !== 0) {
-            const prevStock = parseFloat(prod.stock) || 0;
-            const nextStock = Math.max(0, Math.round((prevStock - diff) * 10) / 10);
-            prod.stock = nextStock;
-            const logType = diff > 0 ? 'XUAT' : 'NHAP';
-            const noteStr = diff > 0 
-              ? `Xuất thêm ${diff} ${prod.unit || 'Cái'} do sửa HĐ ${inv.id}` 
-              : `Hoàn trả ${Math.abs(diff)} ${prod.unit || 'Cái'} vào kho do sửa HĐ ${inv.id}`;
-            logStockEvent(logType, prod.id, prod.name, prod.unit || 'Cái', prevStock, nextStock, noteStr);
-          }
-        }
+        if (!prod) return;
+        const diff = Math.round(((newItemsMap[pId] || 0) - (oldItemsMap[pId] || 0)) * 10) / 10;
+        if (diff === 0) return;
+        const prevStock = parseFloat(prod.stock) || 0;
+        const nextStock = Math.max(0, Math.round((prevStock - diff) * 10) / 10);
+        deltas[pId] = -diff;
+        const noteStr = diff > 0
+          ? `Xuất thêm ${diff} ${prod.unit || 'Cái'} do sửa HĐ ${inv.id}`
+          : `Hoàn trả ${Math.abs(diff)} ${prod.unit || 'Cái'} vào kho do sửa HĐ ${inv.id}`;
+        logs.push([diff > 0 ? 'XUAT' : 'NHAP', prod.id, prod.name, prod.unit || 'Cái', prevStock, nextStock, noteStr]);
       });
 
-      inv.plate = plate;
-      inv.name = name;
-      inv.phone = phone;
-      inv.car = car;
-      inv.odo = odo;
-      inv.note = note;
-      inv.serviceType = serviceType;
-      inv.customerType = customerType;
-      inv.items = JSON.parse(JSON.stringify(currentEditingInvoiceItems));
-      inv.subtotal = subtotal;
-      inv.discount = discount;
-      inv.total = total;
-
-      setStoredData('drshock_invoices', invoiceList);
-      setStoredData('drshock_inventory', inventoryList);
-
-      if (firebaseDb) {
-        firebaseDb.ref('garage/invoices').set(invoiceList);
-        firebaseDb.ref('garage/inventory').set(inventoryList);
+      const newItems = JSON.parse(JSON.stringify(currentEditingInvoiceItems));
+      let missing = false;
+      await cloudUpdateList('garage/invoices', list => {
+        const target = list.find(i => i.id === invId);
+        missing = !target;
+        if (target) {
+          Object.assign(target, { plate: plate, name: name, phone: phone, car: car, odo: odo, note: note, serviceType: serviceType, customerType: customerType, items: JSON.parse(JSON.stringify(newItems)), subtotal: subtotal, discount: discount, total: total });
+        }
+        return list;
+      });
+      if (missing) {
+        showNotification(`Hóa đơn ${invId} đã bị xóa trên máy khác, không thể lưu!`, 'error');
+        closeEditInvoiceModal();
+        return;
       }
+      if (Object.keys(deltas).length) await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas));
+      logs.forEach(l => logStockEvent.apply(null, l));
 
       renderInvoiceList();
       renderInventoryTable();
       renderCustomerAndReports();
       populateInventorySelector('ALL');
       closeEditInvoiceModal();
-      showNotification(`Đã cập nhật hóa đơn ${inv.id} thành công!`, 'success');
+      showNotification(`Đã cập nhật hóa đơn ${invId} thành công!`, 'success');
     }
 
     function deleteInvoice(id) {
@@ -2944,32 +3002,38 @@
       showConfirmModal(
         'Xác Nhận Xóa Hóa Đơn',
         `Bạn có chắc chắn muốn xóa hóa đơn ${inv.id} (Xe ${inv.plate})? Toàn bộ phụ tùng trong hóa đơn sẽ được hoàn trả lại vào kho.`,
-        () => {
+        async () => {
+          if (!cloudWritable(['garage/invoices', 'garage/inventory', 'garage/stockLogs'])) return;
+          const deltas = {};
+          const running = {};
+          const logs = [];
           (inv.items || []).forEach(item => {
             const prod = inventoryList.find(p => p.id === item.id || p.name.trim().toLowerCase() === item.name.trim().toLowerCase());
-            if (prod) {
-              const prev = parseFloat(prod.stock) || 0;
-              const returnQty = parseFloat(item.qty) || 1;
-              const next = Math.round((prev + returnQty) * 10) / 10;
-              prod.stock = next;
-              logStockEvent('NHAP', prod.id, prod.name, prod.unit || item.unit || 'Cái', prev, next, `Hoàn trả vào kho do xóa hóa đơn ${inv.id} (Xe ${inv.plate})`);
-            }
+            if (!prod) return;
+            const returnQty = parseFloat(item.qty) || 1;
+            const prev = running[prod.id] != null ? running[prod.id] : (parseFloat(prod.stock) || 0);
+            const next = Math.round((prev + returnQty) * 10) / 10;
+            running[prod.id] = next;
+            deltas[prod.id] = (deltas[prod.id] || 0) + returnQty;
+            logs.push(['NHAP', prod.id, prod.name, prod.unit || item.unit || 'Cái', prev, next, `Hoàn trả vào kho do xóa hóa đơn ${inv.id} (Xe ${inv.plate})`]);
           });
 
-          invoiceList = invoiceList.filter(i => i.id !== id);
-          setStoredData('drshock_invoices', invoiceList);
-          setStoredData('drshock_inventory', inventoryList);
-
-          if (firebaseDb) {
-            firebaseDb.ref('garage/invoices').set(invoiceList);
-            firebaseDb.ref('garage/inventory').set(inventoryList);
+          // Chỉ hoàn kho nếu hóa đơn còn tồn tại trên đám mây (tránh cộng kho 2 lần khi 2 máy cùng xóa)
+          let existed = false;
+          await cloudUpdateList('garage/invoices', list => {
+            existed = list.some(i => i.id === id);
+            return list.filter(i => i.id !== id);
+          });
+          if (existed && Object.keys(deltas).length) {
+            await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas));
+            logs.forEach(l => logStockEvent.apply(null, l));
           }
 
           renderInvoiceList();
           renderInventoryTable();
           renderCustomerAndReports();
           populateInventorySelector('ALL');
-          showNotification(`Đã xóa hóa đơn ${inv.id} và hoàn kho thành công!`, 'info');
+          showNotification(existed ? `Đã xóa hóa đơn ${inv.id} và hoàn kho thành công!` : `Hóa đơn ${inv.id} đã được xóa từ máy khác.`, 'info');
         }
       );
     }
@@ -3185,7 +3249,7 @@
               <div class="flex items-start justify-between gap-2.5">
                 ${productThumbHtml(p, 'w-14 h-14')}
                 <div class="min-w-0 flex-1">
-                  <h3 class="text-xs sm:text-sm font-bold text-white leading-snug">${p.name}</h3>
+                  <h3 class="text-xs sm:text-sm font-bold text-white leading-snug">${esc(p.name)}</h3>
                   <div class="flex items-center gap-1.5 mt-0.5 flex-wrap">
                     <span class="text-[10px] font-mono font-bold text-gray-400">${p.id}</span>
                     <span class="text-[10px] px-1.5 py-0.2 rounded bg-orange-950/60 text-orange-400 border border-orange-500/30 font-semibold">${p.cat || 'PHUOC'}</span>
@@ -3213,8 +3277,8 @@
             return `
               <tr class="hover:bg-gray-800/40 transition">
                 <td class="py-2 px-3 text-center">${productThumbHtml(p, 'w-10 h-10 inline-flex')}</td>
-                <td class="py-2.5 px-3 font-mono font-bold text-gray-400">${p.id}</td>
-                <td class="py-2.5 px-3 font-bold text-white">${p.name}</td>
+                <td class="py-2.5 px-3 font-mono font-bold text-gray-400">${esc(p.id)}</td>
+                <td class="py-2.5 px-3 font-bold text-white">${esc(p.name)}</td>
                 <td class="py-2.5 px-3 text-xs text-orange-400 font-medium">${p.cat || 'PHUOC'}</td>
                 <td class="py-2.5 px-3 text-center">
                   <span class="px-2 py-0.5 rounded bg-amber-950/60 text-amber-300 border border-amber-500/30 text-xs font-bold">${p.unit || 'Cái'}</span>
@@ -3241,8 +3305,8 @@
             return `
               <tr class="hover:bg-gray-800/40 transition">
                 <td class="py-2 px-3 text-center">${productThumbHtml(p, 'w-10 h-10 inline-flex')}</td>
-                <td class="py-2.5 px-3 font-mono font-bold text-gray-400">${p.id}</td>
-                <td class="py-2.5 px-3 font-bold text-white">${p.name}</td>
+                <td class="py-2.5 px-3 font-mono font-bold text-gray-400">${esc(p.id)}</td>
+                <td class="py-2.5 px-3 font-bold text-white">${esc(p.name)}</td>
                 <td class="py-2.5 px-3 text-xs text-orange-400 font-medium">${p.cat || 'PHUOC'}</td>
                 <td class="py-2.5 px-3 text-center">
                   <span class="px-2 py-0.5 rounded bg-amber-950/60 text-amber-300 border border-amber-500/30 text-xs font-bold">${p.unit || 'Cái'}</span>
@@ -3439,7 +3503,7 @@
       document.getElementById('inventory-modal').classList.add('hidden');
     }
 
-    function handleSaveInventoryModal() {
+    async function handleSaveInventoryModal() {
       if (!checkStockManagePermission()) return;
       const editId = document.getElementById('inv-edit-id').value.trim();
       const code = document.getElementById('inv-edit-code').value.trim().toUpperCase();
@@ -3448,70 +3512,60 @@
       const unit = document.getElementById('inv-edit-unit').value.trim() || 'Cái';
       const costPrice = parseCurrencyNumber(document.getElementById('inv-edit-cost').value);
       const price = parseCurrencyNumber(document.getElementById('inv-edit-price').value);
-      let stock = editId ? (parseFloat((inventoryList.find(i => i.id === editId) || {}).stock) || 0) : 0; // tồn kho chỉ đổi qua phiếu nhập / bán bill
 
       if (!name) {
         showNotification('Vui lòng nhập Tên phụ tùng!', 'warning');
         document.getElementById('inv-edit-name').focus();
         return;
       }
+      if (!cloudWritable(['garage/inventory', 'garage/stockLogs'])) return;
 
       if (editId) {
         const p = inventoryList.find(i => i.id === editId);
-        if (p) {
-          const oldUnit = p.unit || 'Cái';
-          if (oldUnit !== unit && (parseFloat(p.stock) || 0) > 0) {
-            const ans = window.prompt('Đổi đơn vị từ "' + oldUnit + '" sang "' + unit + '".\nTồn kho hiện là ' + formatStockQty(p.stock) + ' ' + oldUnit + '.\n\n1 ' + oldUnit + ' = bao nhiêu ' + unit + '? (VD: 4)\nNhập số để quy đổi tồn kho. Bỏ trống hoặc Hủy = giữ nguyên số tồn.\nLưu ý: nhập Giá nhập / Giá bán theo ' + unit + '.', '');
-            const f = parseFloat(String(ans || '').replace(',', '.'));
-            if (f > 0 && isFinite(f)) {
-              const before = parseFloat(p.stock) || 0;
-              const after = Math.round(before * f * 10) / 10;
-              p.stock = after;
-              stock = after;
-              logStockEvent('DIEUCHINH', p.id, p.name, unit, before, after, 'Quy đổi đơn vị ' + oldUnit + ' → ' + unit + ' (×' + f + '): ' + formatStockQty(before) + ' ' + oldUnit + ' = ' + formatStockQty(after) + ' ' + unit);
-            }
-          }
-          const prevStock = parseFloat(p.stock) || 0;
-          const isStockChanged = prevStock !== stock;
-          let noteDetails = [];
-          if (p.name !== name) noteDetails.push(`Đổi tên`);
-          if (p.price !== price) noteDetails.push(`Giá bán: ${formatMoney(p.price)} -> ${formatMoney(price)}`);
-          if (p.costPrice !== costPrice) noteDetails.push(`Giá vốn: ${formatMoney(p.costPrice)} -> ${formatMoney(costPrice)}`);
-          if (isStockChanged) noteDetails.push(`Tồn: ${formatStockQty(prevStock)} -> ${formatStockQty(stock)}`);
-
-          p.name = name;
-          p.cat = cat;
-          p.unit = unit;
-          p.costPrice = costPrice;
-          p.price = price;
-          p.stock = stock;
-          if (currentInvImageChanged) {
-            if (currentInvImageData) { p.image = currentInvImageData; } else { delete p.image; }
-            noteDetails.push(currentInvImageData ? 'Cập nhật hình ảnh' : 'Xóa hình ảnh');
-          }
-
-          const logType = isStockChanged ? (stock > prevStock ? 'NHAP' : 'DIEUCHINH') : 'DIEUCHINH';
-          logStockEvent(logType, p.id, p.name, unit, prevStock, stock, noteDetails.join(', ') || 'Cập nhật thông tin phụ tùng');
-          showNotification(`Đã lưu "${name}" (${unit})!`, 'success');
+        if (!p) { showNotification('Phụ tùng này không còn trong kho (đã bị xóa từ máy khác)!', 'error'); closeInventoryModal(); return; }
+        const oldUnit = p.unit || 'Cái';
+        const prevStock = parseFloat(p.stock) || 0;
+        let factor = 0;
+        if (oldUnit !== unit && prevStock > 0) {
+          const ans = window.prompt('Đổi đơn vị từ "' + oldUnit + '" sang "' + unit + '".\nTồn kho hiện là ' + formatStockQty(prevStock) + ' ' + oldUnit + '.\n\n1 ' + oldUnit + ' = bao nhiêu ' + unit + '? (VD: 4)\nNhập số để quy đổi tồn kho. Bỏ trống hoặc Hủy = giữ nguyên số tồn.\nLưu ý: nhập Giá nhập / Giá bán theo ' + unit + '.', '');
+          const f = parseFloat(String(ans || '').replace(',', '.'));
+          if (f > 0 && isFinite(f)) factor = f;
         }
+        const noteDetails = [];
+        if (p.name !== name) noteDetails.push('Đổi tên');
+        if (p.price !== price) noteDetails.push(`Giá bán: ${formatMoney(p.price)} -> ${formatMoney(price)}`);
+        if (p.costPrice !== costPrice) noteDetails.push(`Giá vốn: ${formatMoney(p.costPrice)} -> ${formatMoney(costPrice)}`);
+        if (currentInvImageChanged) noteDetails.push(currentInvImageData ? 'Cập nhật hình ảnh' : 'Xóa hình ảnh');
+        const imgChanged = currentInvImageChanged, imgData = currentInvImageData;
+        const afterStock = factor ? Math.round(prevStock * factor * 10) / 10 : prevStock;
+
+        let gone = false;
+        await cloudUpdateList('garage/inventory', list => {
+          const t = list.find(i => i.id === editId);
+          gone = !t;
+          if (!t) return list;
+          t.name = name; t.cat = cat; t.unit = unit; t.costPrice = costPrice; t.price = price;
+          if (factor) t.stock = Math.round((parseFloat(t.stock) || 0) * factor * 10) / 10;
+          if (imgChanged) { if (imgData) t.image = imgData; else delete t.image; }
+          return list;
+        });
+        if (gone) { showNotification('Phụ tùng này đã bị xóa từ máy khác!', 'error'); closeInventoryModal(); return; }
+        if (factor) logStockEvent('DIEUCHINH', p.id, name, unit, prevStock, afterStock, 'Quy đổi đơn vị ' + oldUnit + ' → ' + unit + ' (×' + factor + '): ' + formatStockQty(prevStock) + ' ' + oldUnit + ' = ' + formatStockQty(afterStock) + ' ' + unit);
+        if (noteDetails.length || !factor) logStockEvent('DIEUCHINH', p.id, name, unit, afterStock, afterStock, noteDetails.join(', ') || 'Cập nhật thông tin phụ tùng');
+        showNotification(`Đã lưu "${name}" (${unit})!`, 'success');
       } else {
         const newCode = code || ('P' + Date.now().toString().slice(-4));
-        inventoryList.unshift({
-          id: newCode,
-          name: name,
-          cat: cat,
-          unit: unit,
-          costPrice: costPrice,
-          price: price,
-          stock: stock,
-          image: currentInvImageData || ''
+        const item = { id: newCode, name: name, cat: cat, unit: unit, costPrice: costPrice, price: price, stock: 0, image: currentInvImageData || '' };
+        let dup = false;
+        await cloudUpdateList('garage/inventory', list => {
+          dup = list.some(i => i.id === newCode);
+          if (!dup) list.unshift(item);
+          return list;
         });
-        logStockEvent('NHAP', newCode, name, unit, 0, stock, `Thêm mới mặt hàng vào kho (Tồn: ${formatStockQty(stock)}, Giá vốn: ${formatMoney(costPrice)} đ, Bán: ${formatMoney(price)} đ)`);
+        if (dup) { showNotification(`Mã hàng "${newCode}" đã tồn tại, vui lòng dùng mã khác!`, 'error'); return; }
+        logStockEvent('NHAP', newCode, name, unit, 0, 0, `Thêm mới mặt hàng vào kho (Tồn: 0, Giá vốn: ${formatMoney(costPrice)} đ, Bán: ${formatMoney(price)} đ)`);
         showNotification(`Đã thêm mới "${name}" (${unit}) vào kho!`, 'success');
       }
-
-      setStoredData('drshock_inventory', inventoryList);
-      if (firebaseDb) firebaseDb.ref('garage/inventory').set(inventoryList);
 
       renderInventoryTable();
       populateInventorySelector('ALL');
@@ -3525,12 +3579,10 @@
       showConfirmModal(
         'Xác Nhận Xóa Phụ Tùng',
         `Bạn có chắc chắn muốn xóa "${p.name}" (${p.id}) khỏi kho?`,
-        () => {
+        async () => {
+          if (!cloudWritable(['garage/inventory', 'garage/stockLogs'])) return;
           logStockEvent('DIEUCHINH', p.id, p.name, p.unit || 'Cái', p.stock, 0, `Xóa phụ tùng khỏi hệ thống kho`);
-          inventoryList = inventoryList.filter(i => i.id !== id);
-          setStoredData('drshock_inventory', inventoryList);
-          if (firebaseDb) firebaseDb.ref('garage/inventory').set(inventoryList);
-
+          await cloudUpdateList('garage/inventory', list => list.filter(i => i.id !== id));
           renderInventoryTable();
           populateInventorySelector('ALL');
           showNotification(`Đã xóa phụ tùng "${p.name}"!`, 'info');
@@ -3741,9 +3793,9 @@
           : 'bg-sky-950/80 text-sky-400 border-sky-500/40';
         const badgeIcon = isDealer ? 'fa-warehouse' : 'fa-user';
 
-        const plateStr = Array.from(c.plates).join(', ') || 'Chưa gắn biển (Gửi ship)';
-        const carStr = Array.from(c.cars).join(', ') || 'Chưa có dòng xe';
-        const phoneDisplay = c.phone ? c.phone : '<span class="text-gray-500 italic font-normal">Chưa có SĐT</span>';
+        const plateStr = esc(Array.from(c.plates).join(', ')) || 'Chưa gắn biển (Gửi ship)';
+        const carStr = esc(Array.from(c.cars).join(', ')) || 'Chưa có dòng xe';
+        const phoneDisplay = c.phone ? esc(c.phone) : '<span class="text-gray-500 italic font-normal">Chưa có SĐT</span>';
 
         const invoicesListHtml = c.invoices.map(inv => `
           <div class="flex items-center justify-between text-[11px] bg-gray-900/80 p-2 rounded-lg border border-gray-800">
@@ -3776,7 +3828,7 @@
                   <span class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-bold uppercase ${badgeColor}">
                     <i class="fa-solid ${badgeIcon} text-[9px]"></i>${c.customerType}
                   </span>
-                  <span class="text-xs sm:text-sm font-bold text-white leading-tight">${c.name}</span>
+                  <span class="text-xs sm:text-sm font-bold text-white leading-tight">${esc(c.name)}</span>
                   <span class="text-[10px] px-2 py-0.5 rounded-full bg-red-950 text-red-400 font-black border border-red-500/30">
                     Đã mua: ${c.visits} lần
                   </span>
@@ -3897,7 +3949,7 @@
           <div class="bg-gray-800/60 border border-gray-700/60 rounded-xl p-3 flex items-center justify-between gap-2.5">
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
-                <p class="text-xs sm:text-sm font-bold text-white">${s.name}</p>
+                <p class="text-xs sm:text-sm font-bold text-white">${esc(s.name)}</p>
                 <span class="text-[10px] px-1.5 py-0.2 rounded bg-orange-950/60 text-orange-400 border border-orange-500/30 font-semibold">${s.roleTitle || s.name}</span>
               </div>
               <p class="text-[10px] text-gray-400 mt-1">${s.role === 'admin' ? 'Toàn quyền 1-8' : (s.role === 'stock' ? 'Quyền Lập Bill, Quản Lý Kho & Sửa Hóa Đơn' : 'Tiếp nhận xe, lập bill & in hóa đơn')}</p>
@@ -3905,7 +3957,7 @@
             <div class="flex items-center gap-2 shrink-0">
               <div class="text-right">
                 <span class="text-[10px] text-gray-400 block font-semibold mb-0.5">Mã PIN</span>
-                <input type="text" value="${s.pin}" maxlength="6" inputmode="numeric" onchange="updateStaffPin(${idx}, this.value)" 
+                <input type="text" value="${esc(s.pin)}" maxlength="6" inputmode="numeric" onchange="updateStaffPin(${idx}, this.value)" 
                   class="w-16 bg-gray-900 border border-gray-700 rounded-lg px-1.5 py-1 text-center font-mono text-xs font-bold text-amber-400 focus:border-red-500">
               </div>
               ${!isMasterAdmin ? `
@@ -3960,6 +4012,7 @@
         showNotification('Vui lòng nhập mã PIN!', 'warning');
         return;
       }
+      if (!cloudWritable(['garage/staff'])) return;
 
       const roleTitles = {
         admin: 'Chủ Xưởng (Admin)',
@@ -4006,6 +4059,7 @@
         'Xác Nhận Xóa Nhân Viên',
         'Bạn có chắc chắn muốn xóa nhân viên này khỏi hệ thống?',
         () => {
+          if (!cloudWritable(['garage/staff'])) return;
           staffList = staffList.filter(u => u.id !== id);
           setStoredData('drshock_staff_list', staffList);
           if (firebaseDb) firebaseDb.ref('garage/staff').set(staffList);
@@ -4020,6 +4074,7 @@
 
     function updateStaffPin(idx, newPin) {
       if (!newPin.trim()) return;
+      if (!cloudWritable(['garage/staff'])) { renderStaffCards(); return; }
       staffList[idx].pin = newPin.trim();
       setStoredData('drshock_staff_list', staffList);
       if (firebaseDb) firebaseDb.ref('garage/staff').set(staffList);
@@ -4093,10 +4148,10 @@
                   <span class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border ${badgeColor} font-bold uppercase">
                     <i class="fa-solid ${badgeIcon} text-[9px]"></i>${badgeText}
                   </span>
-                  <span class="text-xs sm:text-sm font-bold text-white leading-tight">${log.itemName}</span>
+                  <span class="text-xs sm:text-sm font-bold text-white leading-tight">${esc(log.itemName)}</span>
                   <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-gray-900 text-gray-400 border border-gray-800">${log.itemId}</span>
                 </div>
-                <p class="text-xs text-gray-300 mt-1"><i class="fa-solid fa-note-sticky text-gray-500 text-[10px] mr-1"></i>${log.note || 'Không có ghi chú'}</p>
+                <p class="text-xs text-gray-300 mt-1"><i class="fa-solid fa-note-sticky text-gray-500 text-[10px] mr-1"></i>${esc(log.note || 'Không có ghi chú')}</p>
               </div>
 
               <div class="text-right shrink-0">
@@ -4110,7 +4165,7 @@
             <div class="flex items-center justify-between text-[10px] text-gray-400 pt-1.5 border-t border-gray-700/40">
               <div class="flex items-center gap-1.5 text-orange-400 font-medium">
                 <i class="fa-solid fa-user-check text-[9px]"></i>
-                <span>Thực hiện: <strong>${log.user || 'Chủ Xưởng'}</strong></span>
+                <span>Thực hiện: <strong>${esc(log.user || 'Chủ Xưởng')}</strong></span>
               </div>
               <div class="text-gray-400 flex items-center gap-1 font-mono">
                 <i class="fa-regular fa-clock text-[9px]"></i>
@@ -4126,10 +4181,9 @@
       showConfirmModal(
         'Xóa Lịch Sử Kho',
         'Bạn có chắc chắn muốn xóa toàn bộ nhật ký lịch sử nhập xuất này không? Dữ liệu tồn kho hiện tại sẽ không bị ảnh hưởng.',
-        () => {
-          stockLogList = [];
-          setStoredData('drshock_stock_logs', stockLogList);
-          if (firebaseDb) firebaseDb.ref('garage/stockLogs').set(stockLogList);
+        async () => {
+          if (!cloudWritable(['garage/stockLogs'])) return;
+          await cloudUpdateList('garage/stockLogs', () => []);
           renderStockLogs();
           showNotification('Đã xóa sạch lịch sử kho!', 'info');
         }
@@ -4185,6 +4239,7 @@
               'Xác Nhận Khôi Phục Dữ Liệu',
               'Toàn bộ dữ liệu hiện tại sẽ được cập nhật từ file sao lưu này. Bạn có chắc chắn muốn tiến hành?',
               () => {
+                if (!cloudWritable(Object.keys(CLOUD_LOCAL_KEYS))) return;
                 inventoryList = parsed.inventory || [];
                 invoiceList = parsed.invoices || [];
                 stockLogList = parsed.stockLogs || [];
@@ -4537,17 +4592,19 @@
       try { await firebaseDb.ref().update(upd); }
       catch (e) { btn.disabled = false; showNotification('Không lưu được phiếu lên đám mây, kho chưa bị thay đổi. Vui lòng thử lại!', 'error'); return; }
 
+      const deltas = {}, costs = {}, running = {}, logs = [];
       items.forEach(it => {
         const p = inventoryList.find(x => x.id === it.id);
         if (!p) return;
-        const prev = parseFloat(p.stock) || 0;
+        const prev = running[p.id] != null ? running[p.id] : (parseFloat(p.stock) || 0);
         const next = Math.round((prev + it.qty) * 10) / 10;
-        p.stock = next;
-        if (it.cost > 0) p.costPrice = it.cost;
-        logStockEvent('NHAP', p.id, p.name, p.unit || 'Cái', prev, next, `Nhập theo phiếu ${id}` + (supplier ? ` - ${supplier}` : ''));
+        running[p.id] = next;
+        deltas[p.id] = (deltas[p.id] || 0) + it.qty;
+        if (it.cost > 0) costs[p.id] = it.cost;
+        logs.push(['NHAP', p.id, p.name, p.unit || 'Cái', prev, next, `Nhập theo phiếu ${id}` + (supplier ? ` - ${supplier}` : '')]);
       });
-      setStoredData('drshock_inventory', inventoryList);
-      firebaseDb.ref('garage/inventory').set(inventoryList);
+      await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas, costs));
+      logs.forEach(l => logStockEvent.apply(null, l));
       btn.disabled = false;
       renderInventoryTable();
       populateInventorySelector('ALL');
