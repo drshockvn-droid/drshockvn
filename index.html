@@ -185,9 +185,6 @@
         <button onclick="switchTab('tab-stock-logs')" id="nav-tab-stock-logs" class="tab-btn admin-only px-3 py-1.5 rounded-lg whitespace-nowrap bg-gray-800 text-gray-300 hover:bg-gray-700 shrink-0 active:scale-95 transition">
           <i class="fa-solid fa-clock-rotate-left mr-1"></i>8. Lịch Sử Kho
         </button>
-        <button onclick="switchTab('tab-loyalty')" id="nav-tab-loyalty" class="tab-btn admin-only px-3 py-1.5 rounded-lg whitespace-nowrap bg-gray-800 text-gray-300 hover:bg-gray-700 shrink-0 active:scale-95 transition">
-          <i class="fa-solid fa-gift mr-1"></i>9. Ưu Đãi & Tích Điểm
-        </button>
       </div>
     </header>
 
@@ -342,30 +339,6 @@
 
               <div id="quote-items-container" class="space-y-2 max-h-[360px] overflow-y-auto custom-scrollbar pr-0.5">
               </div>
-            </div>
-
-            <!-- Ưu đãi khách hàng: hạng thành viên, đại lý, điểm, voucher -->
-            <div id="quote-promo-box" class="bg-gray-800/50 border border-amber-500/30 rounded-xl p-2.5 space-y-2">
-              <div class="flex items-center gap-1.5 text-[11px] font-bold text-amber-400 uppercase tracking-wide"><i class="fa-solid fa-gift"></i>Ưu đãi & điểm thưởng</div>
-              <div id="quote-promo-info" class="text-[11px] text-gray-400">Nhập số điện thoại khách để xem hạng thành viên và điểm tích lũy.</div>
-              <div class="grid grid-cols-2 gap-2">
-                <div>
-                  <label class="block text-[10px] text-gray-400 mb-0.5 font-semibold">Dùng điểm</label>
-                  <div class="flex gap-1">
-                    <input type="text" inputmode="numeric" id="quote-points-input" value="" placeholder="0" autocomplete="off" oninput="handleQuotePointsInput(this)"
-                      class="w-full min-w-0 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1 text-xs text-right text-emerald-300 font-bold font-mono focus:outline-none focus:border-amber-500">
-                    <button type="button" onclick="useMaxQuotePoints()" class="px-2 py-1 bg-gray-700 hover:bg-gray-600 text-[10px] text-amber-300 font-bold rounded-lg shrink-0">Tối đa</button>
-                  </div>
-                </div>
-                <div>
-                  <label class="block text-[10px] text-gray-400 mb-0.5 font-semibold">Mã voucher</label>
-                  <div class="flex gap-1">
-                    <input type="text" id="quote-voucher-input" value="" placeholder="VD: TET2027" autocomplete="off" autocapitalize="characters" oninput="handleQuoteVoucherInput(this)"
-                      class="w-full min-w-0 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1 text-xs text-white font-bold font-mono uppercase focus:outline-none focus:border-amber-500">
-                  </div>
-                </div>
-              </div>
-              <div id="quote-promo-summary" class="text-[11px] space-y-0.5"></div>
             </div>
 
             <!-- Tổng Tiền & Nút Thanh Toán -->
@@ -773,72 +746,6 @@
       </section>
 
       <!-- ================= TAB 8: LỊCH SỬ KHO (CHỈ CHỦ XƯỞNG) ================= -->
-      <!-- ================= TAB 9: ƯU ĐÃI & TÍCH ĐIỂM (ADMIN) ================= -->
-      <section id="tab-loyalty" class="tab-content admin-only hidden space-y-3">
-        <div class="bg-gray-900 border border-gray-800 rounded-2xl p-3.5 sm:p-4 space-y-4">
-          <h2 class="text-sm sm:text-base font-bold text-white flex items-center border-b border-gray-800 pb-2.5">
-            <i class="fa-solid fa-gift mr-2 text-orange-400"></i>Ưu Đãi & Tích Điểm Khách Hàng
-          </h2>
-          <div class="grid grid-cols-3 gap-2 text-center">
-            <div class="bg-gray-800/60 rounded-xl p-2"><div class="text-[10px] text-gray-400">Khách có điểm</div><div id="loy-stat-members" class="text-base font-black text-amber-400">0</div></div>
-            <div class="bg-gray-800/60 rounded-xl p-2"><div class="text-[10px] text-gray-400">Điểm đang lưu</div><div id="loy-stat-points" class="text-base font-black text-emerald-400">0</div></div>
-            <div class="bg-gray-800/60 rounded-xl p-2"><div class="text-[10px] text-gray-400">Điểm đã đổi</div><div id="loy-stat-used" class="text-base font-black text-sky-400">0</div></div>
-          </div>
-
-          <!-- Cài đặt chung -->
-          <div class="space-y-2">
-            <h3 class="text-xs font-bold text-amber-400 uppercase">1. Quy tắc tích điểm</h3>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-              <label class="block"><span class="text-gray-400 font-semibold">Mỗi bao nhiêu đồng chi tiêu = 1 điểm</span>
-                <input type="text" inputmode="numeric" id="loy-earn" class="mt-1 w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono font-bold focus:border-amber-500"></label>
-              <label class="block"><span class="text-gray-400 font-semibold">1 điểm quy đổi được bao nhiêu đồng</span>
-                <input type="text" inputmode="numeric" id="loy-pointvalue" class="mt-1 w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono font-bold focus:border-amber-500"></label>
-              <label class="block"><span class="text-gray-400 font-semibold">Chỉ được dùng điểm tối đa (% giá trị bill)</span>
-                <input type="text" inputmode="numeric" id="loy-maxredeem" class="mt-1 w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono font-bold focus:border-amber-500"></label>
-              <label class="block"><span class="text-gray-400 font-semibold">Chiết khấu mặc định khi chọn "Garage / Đại lý" (%)</span>
-                <input type="text" inputmode="decimal" id="loy-defaultagent" class="mt-1 w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono font-bold focus:border-amber-500"></label>
-            </div>
-          </div>
-
-          <!-- Hạng thành viên -->
-          <div class="space-y-2">
-            <h3 class="text-xs font-bold text-amber-400 uppercase">2. Hạng thành viên (theo tổng chi tiêu tích lũy)</h3>
-            <div class="grid grid-cols-12 gap-2 text-[10px] text-gray-400 font-semibold px-1"><span class="col-span-4">Tên hạng</span><span class="col-span-5">Chi tiêu từ (đ)</span><span class="col-span-3">Giảm (%)</span></div>
-            <div id="loy-tiers" class="space-y-1.5"></div>
-          </div>
-          <button type="button" onclick="saveLoyaltySettings()" class="w-full py-2.5 bg-red-600 hover:bg-red-500 active:scale-[0.98] text-white font-bold text-xs sm:text-sm rounded-xl shadow-lg transition flex items-center justify-center gap-1.5">
-            <i class="fa-solid fa-floppy-disk"></i>Lưu Quy Tắc & Hạng Thành Viên
-          </button>
-
-          <!-- Đại lý -->
-          <div class="space-y-2 pt-3 border-t border-gray-800">
-            <h3 class="text-xs font-bold text-amber-400 uppercase">3. Đại lý / Garage đối tác (chiết khấu riêng theo SĐT)</h3>
-            <div class="grid grid-cols-12 gap-2 text-xs">
-              <input type="tel" id="loy-agent-phone" placeholder="SĐT đại lý" class="col-span-4 bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-white focus:border-amber-500">
-              <input type="text" id="loy-agent-name" placeholder="Tên đại lý" class="col-span-4 bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-white focus:border-amber-500">
-              <input type="text" inputmode="decimal" id="loy-agent-pct" placeholder="% giảm" class="col-span-2 bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-white text-center focus:border-amber-500">
-              <button type="button" onclick="addLoyaltyAgent()" class="col-span-2 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl">Thêm</button>
-            </div>
-            <div id="loy-agents" class="space-y-1.5"></div>
-          </div>
-
-          <!-- Voucher -->
-          <div class="space-y-2 pt-3 border-t border-gray-800">
-            <h3 class="text-xs font-bold text-amber-400 uppercase">4. Voucher / mã giảm giá</h3>
-            <div class="grid grid-cols-6 gap-2 text-xs">
-              <input type="text" id="loy-v-code" placeholder="Mã (VD: TET2027)" class="col-span-3 sm:col-span-2 bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-white uppercase font-mono focus:border-amber-500">
-              <select id="loy-v-type" class="col-span-3 sm:col-span-1 bg-gray-800 border border-gray-700 rounded-xl px-2 py-2 text-white focus:border-amber-500"><option value="amount">Giảm tiền (đ)</option><option value="percent">Giảm %</option></select>
-              <input type="text" inputmode="numeric" id="loy-v-value" placeholder="Giá trị" class="col-span-3 sm:col-span-1 bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-white focus:border-amber-500">
-              <input type="text" inputmode="numeric" id="loy-v-min" placeholder="Bill tối thiểu" class="col-span-3 sm:col-span-1 bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-white focus:border-amber-500">
-              <input type="date" id="loy-v-exp" title="Hạn dùng (để trống = không hạn)" class="col-span-3 sm:col-span-1 bg-gray-800 border border-gray-700 rounded-xl px-2 py-2 text-white focus:border-amber-500">
-              <input type="text" inputmode="numeric" id="loy-v-max" placeholder="Số lần dùng tối đa (0 = không giới hạn)" class="col-span-6 sm:col-span-4 bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-white focus:border-amber-500">
-              <button type="button" onclick="addLoyaltyVoucher()" class="col-span-6 sm:col-span-2 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl py-2">Thêm Voucher</button>
-            </div>
-            <div id="loy-vouchers" class="space-y-1.5"></div>
-          </div>
-        </div>
-      </section>
-
       <section id="tab-stock-logs" class="tab-content admin-only hidden space-y-3">
         <div class="bg-gray-900 border border-gray-800 rounded-2xl p-3 sm:p-4">
           <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 mb-3.5 border-b border-gray-800 pb-3">
@@ -928,7 +835,6 @@
         <div class="text-right space-y-1 text-xs border-t border-gray-300 pt-2 mb-3">
           <div>Tạm tính: <span id="inv-print-subtotal" class="font-semibold">0 đ</span></div>
           <div>Giảm giá: <span id="inv-print-discount" class="text-red-600 font-semibold">0 đ</span></div>
-          <div id="inv-print-loyalty" class="hidden text-[10px] text-gray-600"></div>
           <div class="text-sm sm:text-base font-black text-red-600 pt-1 border-t border-dashed border-gray-300">
             TỔNG THANH TOÁN: <span id="inv-print-total">0 đ</span>
           </div>
