@@ -591,6 +591,17 @@
 
       <!-- ================= TAB 5: BÁO CÁO DOANH THU (ADMIN) ================= -->
       <section id="tab-reports" class="tab-content admin-only hidden space-y-3">
+        <!-- Báo cáo kinh doanh do Claude lập mỗi sáng (đẩy vào garage/aiReport bằng Google Apps Script) -->
+        <div id="ai-report-box" class="hidden bg-gray-900 border border-orange-500/40 rounded-2xl p-4 space-y-2">
+          <div class="flex items-center justify-between gap-2">
+            <h3 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-robot text-orange-400"></i>Báo cáo sáng nay</h3>
+            <div class="flex items-center gap-2">
+              <span id="ai-report-date" class="text-[10px] text-gray-400"></span>
+              <button onclick="toggleAiReport()" id="ai-report-toggle" class="text-[11px] px-2 py-1 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700">Thu gọn</button>
+            </div>
+          </div>
+          <div id="ai-report-body" class="text-xs sm:text-sm text-gray-200 leading-relaxed space-y-1"></div>
+        </div>
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-4">
           <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4">
             <p class="text-xs text-gray-400 uppercase font-semibold">Tổng Doanh Thu</p>
@@ -1667,6 +1678,7 @@
       setupReceiptListeners();
 
       // Dữ liệu tài chính chỉ Chủ Xưởng được đọc (quy tắc database cũng chặn các vai trò khác)
+      if (isAdminUser()) firebaseDb.ref('garage/aiReport/latest').on('value', snap => renderAiReport(snap.val()), () => {});
       if (isAdminUser()) firebaseDb.ref('garage/finance').on('value', snapshot => {
         const val = snapshot.val();
         financeReady = true;
@@ -3403,7 +3415,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.10-3';
+    const APP_VERSION = '2026.10.12-1';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -3680,6 +3692,39 @@
 
     // ===== CHỦ XƯỞNG ĐIỀU CHỈNH TỒN KHO TRỰC TIẾP =====
     let invEditOpenedStock = 0;   // tồn kho lúc mở cửa sổ, để tính phần chênh lệch Chủ Xưởng muốn đổi
+    // ===== Báo cáo sáng nay (Claude) =====
+    function aiReportMd(md) {
+      const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const inline = t => esc(t).replace(/\*\*(.+?)\*\*/g, '<b class="text-white">$1</b>');
+      let html = '', list = '';
+      const close = () => { if (list) { html += '</' + list + '>'; list = ''; } };
+      String(md || '').split(/\r?\n/).forEach(line => {
+        const t = line.trim();
+        let m;
+        if (!t) { close(); return; }
+        if ((m = t.match(/^#{1,3}\s+(.*)/))) { close(); html += '<p class="font-bold text-orange-300 pt-2">' + inline(m[1]) + '</p>'; return; }
+        if ((m = t.match(/^[-*•]\s+(.*)/))) { if (list !== 'ul') { close(); html += '<ul class="list-disc pl-5 space-y-0.5">'; list = 'ul'; } html += '<li>' + inline(m[1]) + '</li>'; return; }
+        if ((m = t.match(/^\d+[.)]\s+(.*)/))) { if (list !== 'ol') { close(); html += '<ol class="list-decimal pl-5 space-y-0.5">'; list = 'ol'; } html += '<li>' + inline(m[1]) + '</li>'; return; }
+        close(); html += '<p>' + inline(t) + '</p>';
+      });
+      close();
+      return html;
+    }
+    function renderAiReport(val) {
+      const box = document.getElementById('ai-report-box');
+      if (!box) return;
+      if (!val || !val.content) { box.classList.add('hidden'); return; }
+      box.classList.remove('hidden');
+      document.getElementById('ai-report-date').textContent = val.date ? 'Cập nhật ' + val.date : '';
+      document.getElementById('ai-report-body').innerHTML = aiReportMd(val.content);
+    }
+    function toggleAiReport() {
+      const body = document.getElementById('ai-report-body'), btn = document.getElementById('ai-report-toggle');
+      const hide = !body.classList.contains('hidden');
+      body.classList.toggle('hidden', hide);
+      btn.textContent = hide ? 'Xem' : 'Thu gọn';
+    }
+
     function isAdminUser() { return !!currentLoggedInUser && currentLoggedInUser.role === 'admin'; }
     function setupStockField(stock) {
       const admin = isAdminUser();
