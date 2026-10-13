@@ -1753,7 +1753,7 @@
       listenProductImages();
       listenGarageProfile();
       bindList('garage/inventory', true, () => { renderInventoryTable(); populateInventorySelector('ALL'); migrateInlineImages(); });
-      bindList('garage/invoices', true, () => { renderInvoiceList(); renderCustomerAndReports(); });
+      bindList('garage/invoices', true, () => { renderInvoiceList(); renderCustomerAndReports(); refreshMaintenanceDue(); });
       bindList('garage/stockLogs', true, () => { renderStockLogs(); updateInventoryOverviewStats(); });
       bindList('garage/staff', false, () => { renderStaffCards(); populateAdvisorSelect(); syncCurrentUserFromRoster(); });
     }
@@ -5480,10 +5480,63 @@
       }, err => console.warn('Không đọc được thông báo:', err && err.code));
     }
 
+
+    // ----- Nhắc bảo dưỡng: tính từ hóa đơn, hiện trên chuông cho mọi tài khoản đăng nhập -----
+    // Quy tắc theo tên hạng mục trong hóa đơn; hạng mục khớp nhiều quy tắc thì lấy chu kỳ ngắn nhất.
+    const MAINT_RULES = [
+      { re: /nh[ớo]t|d[ầa]u|oil/i, months: 3, label: 'Thay dầu/nhớt' },
+      { re: /ph[ưu][ộo]c|g[ầa]m|tein|bilstein|ohlins|lò xo|lo xo/i, months: 6, label: 'Kiểm tra phuộc/gầm' }
+    ];
+    const MAINT_DEFAULT_MONTHS = 6;   // hóa đơn không khớp quy tắc nào
+    const MAINT_SOON_DAYS = 7;        // báo trước số ngày
+    const MAINT_MAX_OVERDUE_DAYS = 90; // quá hạn lâu hơn thì thôi không nhắc nữa
+    let maintDueList = [];
+
+    function computeMaintenanceDue() {
+      const DAY = 86400000, now = Date.now(), latest = {};
+      invoiceList.forEach(inv => {
+        const t = invTime(inv);
+        if (!t) return;
+        const pn = normPlate(inv.plate), pd = String(inv.phone || '').replace(/\D/g, '');
+        const key = (pn && pn !== '0') ? 'P' + pn : (pd.length >= 9 ? 'T' + pd : '');
+        if (!key) return;
+        if (!latest[key] || t > latest[key].t) latest[key] = { t: t, inv: inv };
+      });
+      const out = [];
+      Object.keys(latest).forEach(k => {
+        const inv = latest[k].inv;
+        let months = 0, label = '';
+        (inv.items || []).forEach(it => MAINT_RULES.forEach(r => {
+          if (r.re.test(it.name || '') && (!months || r.months < months)) { months = r.months; label = r.label; }
+        }));
+        if (!months) { months = MAINT_DEFAULT_MONTHS; label = 'Bảo dưỡng định kỳ'; }
+        const due = new Date(latest[k].t); due.setMonth(due.getMonth() + months);
+        const days = Math.ceil((due.getTime() - now) / DAY);   // âm = đã quá hạn
+        if (days > MAINT_SOON_DAYS || days < -MAINT_MAX_OVERDUE_DAYS) return;
+        out.push({ id: 'M' + k, plate: inv.plate || '', name: inv.name || '', phone: inv.phone || '', car: inv.car || '', label: label, days: days, dueText: due.toLocaleDateString('vi-VN') });
+      });
+      return out.sort((a, b) => a.days - b.days);
+    }
+    function maintText(m) {
+      const who = (m.plate ? m.plate + ' - ' : '') + (m.name || 'Khách');
+      return `${who}${m.phone ? ' (' + m.phone + ')' : ''}: ${m.label}, ` + (m.days < 0 ? `quá hạn ${-m.days} ngày` : (m.days === 0 ? 'đến hạn hôm nay' : `còn ${m.days} ngày`)) + ` (hạn ${m.dueText})`;
+    }
+    function refreshMaintenanceDue() {
+      maintDueList = computeMaintenanceDue();
+      // Nhắc 1 lần mỗi ngày trên mỗi máy
+      const today = new Date().toLocaleDateString('vi-VN');
+      let seen = ''; try { seen = localStorage.getItem('drshock_maint_toast') || ''; } catch (e) {}
+      if (maintDueList.length && seen !== today && currentLoggedInUser) {
+        try { localStorage.setItem('drshock_maint_toast', today); } catch (e) {}
+        showNotification('🔧 Có ' + maintDueList.length + ' khách đến hạn bảo dưỡng, bấm chuông để xem', 'info');
+      }
+      renderNotifBell();
+    }
+
     function unreadNotifCount() { return notifList.filter(n => n.ts > notifReadTs && n.device !== DEVICE_ID).length; }
     function renderNotifBell() {
       const b = document.getElementById('notif-badge');
-      if (b) { const c = unreadNotifCount(); b.textContent = c > 9 ? '9+' : c; b.style.display = c ? 'flex' : 'none'; }
+      if (b) { const c = unreadNotifCount() + maintDueList.length; b.textContent = c > 9 ? '9+' : c; b.style.display = c ? 'flex' : 'none'; }
       const p = document.getElementById('notif-panel');
       if (p && !p.classList.contains('hidden')) renderNotifPanel();
     }
@@ -5492,10 +5545,14 @@
       const canAsk = 'Notification' in window && Notification.permission === 'default';
       p.innerHTML = `<div class="flex items-center justify-between px-3 py-2 border-b border-gray-800 bg-gray-950/60"><span class="text-xs font-bold text-white"><i class="fa-solid fa-bell text-orange-400 mr-1.5"></i>Thông báo</span>
         ${canAsk ? '<button onclick="askBrowserNotify()" class="text-[10px] px-2 py-1 rounded-lg bg-sky-600/20 text-sky-300 border border-sky-500/40 font-semibold">Bật thông báo máy này</button>' : ''}</div>
-        <div class="max-h-80 overflow-y-auto custom-scrollbar divide-y divide-gray-800">${notifList.length ? notifList.map(n => `
+        <div class="max-h-80 overflow-y-auto custom-scrollbar divide-y divide-gray-800">${maintDueList.map(m => `
+          <div class="p-2.5 bg-amber-950/20">
+            <div class="flex items-center justify-between gap-2"><span class="text-xs font-bold text-amber-400"><i class="fa-solid fa-wrench mr-1"></i>Khách đến hạn bảo dưỡng</span><span class="text-[10px] ${m.days < 0 ? 'text-red-400' : 'text-gray-500'}">${m.days < 0 ? 'Quá hạn ' + (-m.days) + ' ngày' : (m.days === 0 ? 'Hôm nay' : 'Còn ' + m.days + ' ngày')}</span></div>
+            <p class="text-[11px] text-gray-300 mt-0.5">${esc(maintText(m))}</p>
+            ${m.phone ? `<a href="tel:${esc(String(m.phone).replace(/[^0-9+]/g, ''))}" class="inline-block mt-1 text-[10px] px-2 py-0.5 rounded-lg bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 font-semibold"><i class="fa-solid fa-phone mr-1"></i>Gọi khách</a>` : ''}</div>`).join('')}${notifList.length ? notifList.map(n => `
           <div onclick="openNotif('${n.id}')" class="p-2.5 hover:bg-gray-800/80 cursor-pointer ${n.ts > notifReadTs && n.device !== DEVICE_ID ? 'bg-red-950/20' : ''}">
             <div class="flex items-center justify-between gap-2"><span class="text-xs font-bold text-orange-400"><i class="fa-solid fa-truck-ramp-box mr-1"></i>${highlightMatch(n.title, [])}</span><span class="text-[10px] text-gray-500">${n.time || ''}</span></div>
-            <p class="text-[11px] text-gray-300 mt-0.5">${highlightMatch(n.message, [])}</p></div>`).join('') : '<div class="p-4 text-center text-xs text-gray-500 italic">Chưa có thông báo nào.</div>'}</div>`;
+            <p class="text-[11px] text-gray-300 mt-0.5">${highlightMatch(n.message, [])}</p></div>`).join('') : (maintDueList.length ? '' : '<div class="p-4 text-center text-xs text-gray-500 italic">Chưa có thông báo nào.</div>')}</div>`;
     }
     function toggleNotifPanel() {
       const p = document.getElementById('notif-panel');
