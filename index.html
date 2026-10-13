@@ -24,6 +24,7 @@
   <!-- Thư viện tạo ảnh hóa đơn chất lượng cao & Xuất Excel -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
 
   <!-- Firebase SDK Realtime Database -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -82,6 +83,23 @@
   <!-- ================= THÔNG BÁO TOAST ================= -->
   <div id="toast-container" class="fixed top-3 inset-x-3 sm:inset-x-auto sm:right-4 sm:top-4 z-[9999] flex flex-col gap-2 pointer-events-none"></div>
 
+  <!-- ================= TRA CỨU BẢO HÀNH (CÔNG KHAI) ================= -->
+  <div id="warranty-lookup" class="hidden fixed inset-0 z-[60] bg-[#0b0f19] overflow-y-auto p-3 sm:p-4">
+    <div class="w-full max-w-md mx-auto bg-gray-900/95 border border-gray-800 rounded-2xl p-5 sm:p-6 shadow-2xl my-4">
+      <div class="text-center mb-4">
+        <h1 class="text-lg font-black uppercase text-transparent bg-clip-text bg-gradient-to-r from-red-500 via-orange-400 to-yellow-400">DR.SHOCK VN - Tra Cứu Bảo Hành</h1>
+        <p class="text-[11px] text-gray-400 mt-1">Nhập số điện thoại, biển số xe hoặc mã bảo hành (có trên hóa đơn / mã QR)</p>
+      </div>
+      <form onsubmit="runWarrantyLookup(); return false;" class="flex gap-2">
+        <input id="wl-input" type="text" autocomplete="off" placeholder="SĐT / Biển số / Mã BH-XXXXXX"
+          class="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500">
+        <button type="submit" class="px-4 py-2 bg-red-600 hover:bg-red-500 active:scale-95 rounded-xl text-sm font-bold">Tra cứu</button>
+      </form>
+      <div id="wl-result" class="mt-4 space-y-3 text-sm"></div>
+      <button onclick="closeWarrantyLookup()" class="mt-4 w-full text-xs text-gray-400 hover:text-white underline">Đóng (dành cho nhân viên đăng nhập)</button>
+    </div>
+  </div>
+
   <!-- ================= MÀN HÌNH ĐĂNG NHẬP ================= -->
   <div id="login-screen" class="fixed inset-0 z-50 bg-[#0b0f19] flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
     <div class="w-full max-w-sm sm:max-w-md bg-gray-900/95 border border-gray-800 rounded-2xl p-5 sm:p-8 shadow-2xl backdrop-blur my-auto">
@@ -97,6 +115,7 @@
           <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
           <span>Đám mây kết nối tự động</span>
         </div>
+        <div class="mt-2"><button type="button" onclick="openWarrantyLookup()" class="text-[11px] font-bold text-amber-400 hover:text-amber-300 underline"><i class="fa-solid fa-shield-halved"></i> Khách hàng: Tra cứu bảo hành</button></div>
       </div>
 
       <form id="login-form" class="space-y-4" onsubmit="handleLoginSubmit(); return false;" autocomplete="on">
@@ -864,6 +883,10 @@
         </div>
 
         <div class="text-[10px] text-gray-600 italic border-t border-gray-200 pt-2">
+          <div id="inv-print-warranty-box" class="hidden flex items-center gap-3 not-italic mb-2">
+            <div id="inv-print-warranty-qr" class="w-16 h-16 shrink-0"></div>
+            <div class="text-[10px] text-gray-700">Mã bảo hành điện tử: <strong id="inv-print-warranty-code" class="text-red-600 text-xs"></strong><br>Quét mã QR hoặc tra theo SĐT / biển số tại trang bảo hành của xưởng.</div>
+          </div>
           <p id="inv-print-warranty-text">* Cam kết: Bảo hành phuộc theo chính sách NSX. Phụ tùng gầm bảo hành 6 tháng. Miễn phí kiểm tra siết lại gầm sau 1.000km đầu tiên.</p>
         </div>
 
@@ -2703,6 +2726,9 @@
           discount: discount,
           total: finalTotal
         };
+        // Mã bảo hành điện tử (chỉ khi đã kết nối đám mây để khách tra cứu được)
+        const warrantyRecordCode = firebaseDb ? genWarrantyCode() : '';
+        if (warrantyRecordCode) base.warrantyCode = warrantyRecordCode;
 
         // Số lượng trừ kho, cộng dồn nếu 1 mã xuất hiện nhiều dòng
         const deltas = {};
@@ -2729,6 +2755,8 @@
           logStockEvents(traceToLogs(trace, 'XUAT', `Xuất theo hóa đơn ${newInv.id} cho xe ${newInv.plate} (${newInv.serviceType} - ${newInv.customerType})`));
         }
 
+        if (warrantyRecordCode) await activateWarranty(newInv);
+
         renderInventoryTable();
         populateInventorySelector('ALL');
         renderInvoiceList();
@@ -2739,6 +2767,164 @@
         invoiceSaving = false;
       }
     }
+
+    // ==========================================
+    // BẢO HÀNH ĐIỆN TỬ
+    // Dữ liệu công khai (khách đọc không cần đăng nhập) nằm ở nhánh `warranty/`, KHÔNG chứa tên khách:
+    //   warranty/codes/{mã}            : bản ghi bảo hành
+    //   warranty/byPlate/{BIỂN SỐ}/{mã}: chỉ mục tra theo biển số
+    //   warranty/byPhone/{SĐT}/{mã}    : chỉ mục tra theo số điện thoại
+    // ==========================================
+    const WARRANTY_POLICY = { gamMonths: 6, gamKm: 15000 }; // gầm: 6 tháng hoặc 15.000km; phuộc: theo nhà sản xuất
+    const WARRANTY_GAM_CATS = ['GAM', 'ROTUYN', 'BOTHANG'];
+
+    function normPlate(s) { return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+    function normPhone(s) {
+      let d = String(s || '').replace(/\D/g, '');
+      if (d.indexOf('84') === 0 && d.length >= 11) d = '0' + d.slice(2);
+      return d;
+    }
+    function genWarrantyCode() {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      const bytes = new Uint8Array(8);
+      (window.crypto || window.msCrypto).getRandomValues(bytes);
+      return 'BH-' + Array.from(bytes, b => chars[b % chars.length]).join('');
+    }
+    function warrantyKind(item) {
+      const prod = inventoryList.find(p => p.id === item.id);
+      const cat = prod && prod.cat;
+      if (cat === 'PHUOC') return 'PHUOC';
+      if (WARRANTY_GAM_CATS.indexOf(cat) >= 0) return 'GAM';
+      return null; // nhớt, công thợ... không có bảo hành riêng
+    }
+    function addMonthsISO(d, m) { const x = new Date(d.getTime()); x.setMonth(x.getMonth() + m); return x.toISOString().slice(0, 10); }
+
+    function buildWarrantyRecord(inv) {
+      const now = new Date();
+      const startKm = parseInt(String(inv.odo || '').replace(/\D/g, ''), 10);
+      const items = [];
+      (inv.items || []).forEach(it => {
+        const kind = warrantyKind(it);
+        if (!kind) return;
+        const e = { name: it.name, kind: kind };
+        if (kind === 'GAM') {
+          e.months = WARRANTY_POLICY.gamMonths;
+          e.expiry = addMonthsISO(now, WARRANTY_POLICY.gamMonths);
+          if (!isNaN(startKm)) { e.startKm = startKm; e.maxKm = startKm + WARRANTY_POLICY.gamKm; }
+          else e.kmLimit = WARRANTY_POLICY.gamKm;
+        }
+        items.push(e);
+      });
+      if (!items.length) return null;
+      return { code: inv.warrantyCode, invId: inv.id, plate: normPlate(inv.plate), plateText: inv.plate, car: inv.car || '',
+               start: now.toISOString().slice(0, 10), items: items };
+    }
+
+    async function activateWarranty(inv) {
+      try {
+        const rec = buildWarrantyRecord(inv);
+        if (!rec || !firebaseDb) return;
+        const upd = {};
+        upd['warranty/codes/' + rec.code] = rec;
+        if (rec.plate) upd['warranty/byPlate/' + rec.plate + '/' + rec.code] = true;
+        const ph = normPhone(inv.phone);
+        if (ph) upd['warranty/byPhone/' + ph + '/' + rec.code] = true;
+        await firebaseDb.ref().update(upd);
+      } catch (e) {
+        console.error('Không kích hoạt được bảo hành', e);
+        showNotification('Đã lưu hóa đơn nhưng chưa kích hoạt được bảo hành điện tử. Bấm "Kích hoạt bảo hành" ở hóa đơn để thử lại.', 'warning');
+      }
+    }
+
+    function warrantyPublicUrl(code) { return location.origin + location.pathname + '?bh=' + encodeURIComponent(code); }
+
+    function renderInvoiceWarrantyBox(inv) {
+      const box = document.getElementById('inv-print-warranty-box');
+      if (!box) return;
+      if (!inv.warrantyCode || typeof qrcode !== 'function') { box.classList.add('hidden'); return; }
+      const qr = qrcode(0, 'M');
+      qr.addData(warrantyPublicUrl(inv.warrantyCode));
+      qr.make();
+      document.getElementById('inv-print-warranty-qr').innerHTML = qr.createSvgTag({ cellSize: 3, margin: 0, scalable: true });
+      document.getElementById('inv-print-warranty-code').textContent = inv.warrantyCode;
+      box.classList.remove('hidden');
+    }
+
+    // ----- Trang tra cứu công khai -----
+    function wlDb() {
+      if (!firebase.apps.length) {
+        const cfg = firebaseConfig || MASTER_FIREBASE_CONFIG;
+        firebase.initializeApp({ databaseURL: cfg.databaseURL, projectId: cfg.projectId || MASTER_FIREBASE_CONFIG.projectId,
+          apiKey: cfg.apiKey || MASTER_FIREBASE_CONFIG.apiKey, authDomain: cfg.authDomain || MASTER_FIREBASE_CONFIG.authDomain });
+      }
+      return firebase.database();
+    }
+    function openWarrantyLookup(code) {
+      document.getElementById('warranty-lookup').classList.remove('hidden');
+      if (code) { document.getElementById('wl-input').value = code; runWarrantyLookup(); }
+    }
+    function closeWarrantyLookup() {
+      document.getElementById('warranty-lookup').classList.add('hidden');
+      try { history.replaceState(null, '', location.pathname); } catch (e) {}
+    }
+    async function runWarrantyLookup() {
+      const out = document.getElementById('wl-result');
+      const q = (document.getElementById('wl-input').value || '').trim();
+      if (!q) { out.innerHTML = ''; return; }
+      out.innerHTML = '<p class="text-center text-gray-400 text-xs">Đang tra cứu...</p>';
+      try {
+        const db = wlDb();
+        let codes = [];
+        if (/^BH-/i.test(q)) codes = [q.toUpperCase()];
+        else {
+          const digits = q.replace(/\D/g, '');
+          const looksPhone = /^(\+?84|0)\d{8,10}$/.test(q.replace(/[\s.\-]/g, ''));
+          const key = looksPhone ? normPhone(q) : normPlate(q);
+          const snap = await db.ref('warranty/' + (looksPhone ? 'byPhone/' : 'byPlate/') + key).once('value');
+          codes = Object.keys(snap.val() || {});
+          if (!codes.length && !looksPhone && digits.length >= 9) {
+            const s2 = await db.ref('warranty/byPhone/' + normPhone(q)).once('value');
+            codes = Object.keys(s2.val() || {});
+          }
+        }
+        const recs = [];
+        for (const c of codes.slice(0, 20)) {
+          const r = await db.ref('warranty/codes/' + c).once('value');
+          if (r.val()) recs.push(r.val());
+        }
+        recs.sort((a, b) => (b.start || '').localeCompare(a.start || ''));
+        out.innerHTML = recs.length ? recs.map(renderWarrantyCard).join('') :
+          '<p class="text-center text-amber-400 text-xs">Không tìm thấy bảo hành. Vui lòng kiểm tra lại hoặc gọi 0356.795.954.</p>';
+      } catch (e) {
+        console.error(e);
+        out.innerHTML = '<p class="text-center text-red-400 text-xs">Không tra cứu được lúc này. Vui lòng thử lại sau.</p>';
+      }
+    }
+    function fmtDateVN(iso) { const p = String(iso || '').split('-'); return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : '---'; }
+    function renderWarrantyCard(r) {
+      const today = new Date().toISOString().slice(0, 10);
+      const rows = (r.items || []).map(it => {
+        let status, detail;
+        if (it.kind === 'PHUOC') { status = 'Theo chính sách nhà sản xuất'; detail = 'Liên hệ xưởng để được hỗ trợ bảo hành'; }
+        else {
+          const ok = it.expiry >= today;
+          status = ok ? 'Còn hiệu lực' : 'Đã hết hạn';
+          detail = 'Đến ' + fmtDateVN(it.expiry) + (it.maxKm ? ' hoặc ' + it.maxKm.toLocaleString('vi-VN') + ' km' : ' hoặc ' + (it.kmLimit || WARRANTY_POLICY.gamKm).toLocaleString('vi-VN') + ' km kể từ ngày lắp')
+            + ' (tùy điều kiện nào đến trước)';
+          status = '<span class="' + (ok ? 'text-emerald-400' : 'text-red-400') + ' font-bold">' + status + '</span>';
+        }
+        return '<div class="border-t border-gray-700 pt-2"><div class="font-semibold text-gray-100">' + esc(it.name) + '</div><div class="text-[11px] text-gray-300">' + status + '</div><div class="text-[11px] text-gray-400">' + esc(detail) + '</div></div>';
+      }).join('');
+      return '<div class="bg-gray-800/70 border border-gray-700 rounded-xl p-3 space-y-2"><div class="flex justify-between text-xs"><span class="font-bold text-amber-300">' + esc(r.plateText || r.plate) + '</span><span class="text-gray-400">' + esc(r.code) + '</span></div><div class="text-[11px] text-gray-400">' + esc(r.car) + ' · Hóa đơn ' + esc(r.invId) + ' · Ngày ' + fmtDateVN(r.start) + '</div>' + rows + '</div>';
+    }
+
+    // Mở thẳng trang tra cứu khi quét QR (?bh=MÃ)
+    (function () {
+      try {
+        const code = new URLSearchParams(location.search).get('bh');
+        if (code) window.addEventListener('DOMContentLoaded', () => openWarrantyLookup(code));
+      } catch (e) {}
+    })();
 
     // ==========================================
     // TAB 2: HÓA ĐƠN
@@ -2781,6 +2967,7 @@
         </tr>
       `).join('');
 
+      renderInvoiceWarrantyBox(inv);
       document.getElementById('invoice-modal').classList.remove('hidden');
     }
 
