@@ -602,6 +602,18 @@
           </div>
           <div id="ai-report-body" class="text-xs sm:text-sm text-gray-200 leading-relaxed space-y-1"></div>
         </div>
+        <!-- Gợi ý content Facebook do Claude lập 3 lần/ngày (đẩy vào garage/aiReport/content bằng Google Apps Script) -->
+        <div id="ai-content-box" class="hidden bg-gray-900 border border-sky-500/40 rounded-2xl p-4 space-y-2">
+          <div class="flex items-center justify-between gap-2">
+            <h3 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-brands fa-facebook text-sky-400"></i>Gợi ý content Facebook</h3>
+            <div class="flex items-center gap-2">
+              <button onclick="copyAiContent()" class="text-[11px] px-2 py-1 rounded-lg bg-sky-700 text-white hover:bg-sky-600"><i class="fa-regular fa-copy mr-1"></i>Sao chép</button>
+              <button onclick="toggleAiContent()" id="ai-content-toggle" class="text-[11px] px-2 py-1 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700">Thu gọn</button>
+            </div>
+          </div>
+          <div id="ai-content-tabs" class="flex flex-wrap gap-1.5"></div>
+          <div id="ai-content-body" class="text-xs sm:text-sm text-gray-200 leading-relaxed space-y-1 break-words"></div>
+        </div>
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-4">
           <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4">
             <p class="text-xs text-gray-400 uppercase font-semibold">Tổng Doanh Thu</p>
@@ -1679,6 +1691,7 @@
 
       // Dữ liệu tài chính chỉ Chủ Xưởng được đọc (quy tắc database cũng chặn các vai trò khác)
       if (isAdminUser()) firebaseDb.ref('garage/aiReport/latest').on('value', snap => renderAiReport(snap.val()), () => {});
+      if (isAdminUser()) firebaseDb.ref('garage/aiReport/content').limitToLast(9).on('value', snap => renderAiContent(snap.val()), () => {});
       if (isAdminUser()) firebaseDb.ref('garage/finance').on('value', snapshot => {
         const val = snapshot.val();
         financeReady = true;
@@ -3717,6 +3730,54 @@
       box.classList.remove('hidden');
       document.getElementById('ai-report-date').textContent = val.date ? 'Cập nhật ' + val.date : '';
       document.getElementById('ai-report-body').innerHTML = aiReportMd(val.content);
+    }
+    // ===== Gợi ý content Facebook (Claude, 3 lần/ngày) =====
+    let aiContentItems = [], aiContentSel = 0;
+    function renderAiContent(val) {
+      const box = document.getElementById('ai-content-box');
+      if (!box) return;
+      aiContentItems = Object.keys(val || {}).sort().reverse()
+        .map(k => Object.assign({ key: k }, val[k]))
+        .filter(x => x && x.content);
+      if (!aiContentItems.length) { box.classList.add('hidden'); return; }
+      box.classList.remove('hidden');
+      if (aiContentSel >= aiContentItems.length) aiContentSel = 0;
+      const esc = t => String(t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      document.getElementById('ai-content-tabs').innerHTML = aiContentItems.map((x, i) =>
+        '<button onclick="selectAiContent(' + i + ')" class="text-[11px] px-2 py-1 rounded-lg ' +
+        (i === aiContentSel ? 'bg-sky-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700') + '">' +
+        esc(x.label || x.date || x.key) + '</button>').join('');
+      document.getElementById('ai-content-body').innerHTML = aiReportMd(aiContentItems[aiContentSel].content)
+        .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener" class="text-sky-400 underline">$1</a>');
+    }
+    function selectAiContent(i) {
+      aiContentSel = i;
+      const val = {};
+      aiContentItems.forEach(x => { val[x.key] = x; });
+      renderAiContent(val);
+    }
+    function toggleAiContent() {
+      const tabs = document.getElementById('ai-content-tabs'), body = document.getElementById('ai-content-body'), btn = document.getElementById('ai-content-toggle');
+      const hide = !body.classList.contains('hidden');
+      body.classList.toggle('hidden', hide);
+      tabs.classList.toggle('hidden', hide);
+      btn.textContent = hide ? 'Xem' : 'Thu gọn';
+    }
+    function copyAiContent() {
+      const item = aiContentItems[aiContentSel];
+      if (!item) return;
+      const text = String(item.content).replace(/\*\*(.+?)\*\*/g, '$1');
+      const done = () => showNotification('Đã sao chép gợi ý content!', 'success');
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(done, () => fallbackCopy(text, done));
+      } else fallbackCopy(text, done);
+    }
+    function fallbackCopy(text, done) {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); done(); } catch (e) { showNotification('Không sao chép được, hãy bôi đen để copy.', 'warning'); }
+      document.body.removeChild(ta);
     }
     function toggleAiReport() {
       const body = document.getElementById('ai-report-body'), btn = document.getElementById('ai-report-toggle');
