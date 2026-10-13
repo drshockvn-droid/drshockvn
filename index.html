@@ -1939,6 +1939,7 @@
       }
 
       window.scrollTo({ top: 0, behavior: 'smooth' });
+      if (tabId === 'tab-reports' && typeof renderFinanceDash === 'function') setTimeout(() => { try { renderFinanceDash(); } catch (e) {} }, 30);
     }
 
     function checkStockManagePermission() {
@@ -2671,7 +2672,7 @@
     }
 
     let invoiceSaving = false;
-    async function handleSaveInvoice() {
+    async function handleSaveInvoice(skipLaborCheck) {
       if (invoiceSaving) return;
       const plate = document.getElementById('quote-plate').value.trim();
       const name = document.getElementById('quote-name').value.trim();
@@ -2703,6 +2704,11 @@
       }
       if (currentQuoteItems.length === 0) {
         showNotification('Vui lòng thêm ít nhất 1 dịch vụ hoặc phụ tùng vào bill!', 'warning');
+        return;
+      }
+      // Nhắc khi bill lắp tại xưởng chưa có dòng tiền công
+      if (!skipLaborCheck && !String(serviceType).includes('Gửi') && !currentQuoteItems.some(it => String(it.id || '').startsWith('LBR'))) {
+        showConfirmModal('Bill chưa có tiền công', 'Xe lắp tại xưởng nhưng bill chưa có dòng tiền công. Tiền công gần như là lãi, nên ghi riêng. Bấm Hủy để quay lại thêm tiền công, hoặc xác nhận để vẫn lưu bill.', () => handleSaveInvoice(true));
         return;
       }
       if (!cloudWritable(['garage/invoices', 'garage/inventory', 'garage/stockLogs'])) return;
@@ -5698,25 +5704,129 @@
       finDirty = false;
     }
 
-    function finCostMap() { const m = {}; inventoryList.forEach(p => { m[p.id] = parseCurrencyNumber(p.costPrice) || 0; }); return m; }
+    function finCostMap() {
+      const m = {};
+      inventoryList.forEach(p => {
+        const c = parseCurrencyNumber(p.costPrice) || 0;
+        m[p.id] = c;
+        if (p.name) m['n:' + String(p.name).trim().toLowerCase()] = c;
+      });
+      return m;
+    }
+    // Giá vốn 1 dòng hàng: tìm theo mã, nếu không có thì theo tên. Trả về null khi kho chưa có giá nhập.
+    function finItemCost(it, costMap) {
+      let c = (it.id != null) ? costMap[it.id] : undefined;
+      if (!(c > 0)) c = costMap['n:' + String(it.name || '').trim().toLowerCase()];
+      return c > 0 ? c : null;
+    }
+    function finIsLabor(it) { return String(it.id || '').startsWith('LBR'); }
+    function finIsShip(inv) { return (inv.serviceType || '').includes('Gửi'); }
+    function finIsDealer(inv) { const c = inv.customerType || ''; return c.includes('Garage') || c.includes('Đại lý'); }
 
-    function finMonthStats(k, costMap) {
-      const r = monthRange(k);
+    function finRangeStats(t0, t1, costMap) {
       let rev = 0, n = 0, cogs = 0, parts = 0, labor = 0;
       invoiceList.forEach(inv => {
         const t = invTime(inv);
-        if (t < r[0] || t >= r[1]) return;
+        if (t < t0 || t >= t1) return;
         rev += inv.total || 0; n++;
         (inv.items || []).forEach(it => {
           const q = parseFloat(it.qty) || 0;
           const line = q * (parseCurrencyNumber(it.price) || 0);
-          if (String(it.id || '').startsWith('LBR')) { labor += line; return; }
+          if (finIsLabor(it)) { labor += line; return; }
           parts += line;
-          cogs += q * (costMap[it.id] || 0);
+          cogs += q * (finItemCost(it, costMap) || 0);
         });
       });
       return { rev: rev, n: n, cogs: cogs, parts: parts, labor: labor };
     }
+    function finMonthStats(k, costMap) { const r = monthRange(k); return finRangeStats(r[0], r[1], costMap); }
+
+    // Phân tích chi tiết 1 khoảng thời gian: giảm giá, biên theo nhóm khách, theo sản phẩm, bill thiếu công...
+    function finAnalyze(t0, t1, costMap) {
+      const A = { rev: 0, n: 0, parts: 0, labor: 0, discount: 0, cogs: 0, missing: {}, below: [], items: {}, noLabor: [], shopN: 0, daily: {},
+        seg: { shop_retail: { rev: 0, cogs: 0, n: 0 }, shop_dealer: { rev: 0, cogs: 0, n: 0 }, ship_retail: { rev: 0, cogs: 0, n: 0 }, ship_dealer: { rev: 0, cogs: 0, n: 0 } } };
+      invoiceList.forEach(inv => {
+        const t = invTime(inv);
+        if (!t || t < t0 || t >= t1) return;
+        const items = inv.items || [];
+        let p = 0, l = 0;
+        items.forEach(it => { const line = (parseFloat(it.qty) || 0) * (parseCurrencyNumber(it.price) || 0); if (finIsLabor(it)) l += line; else p += line; });
+        const total = inv.total || 0, sum = p + l;
+        const factor = sum > 0 ? total / sum : 1;
+        let c = 0;
+        items.forEach(it => {
+          if (finIsLabor(it)) return;
+          const q = parseFloat(it.qty) || 0;
+          const net = q * (parseCurrencyNumber(it.price) || 0) * factor;
+          const cost = finItemCost(it, costMap);
+          const key = String(it.id || it.name || '?');
+          const ag = A.items[key] = A.items[key] || { name: it.name || key, qty: 0, net: 0, cogs: 0, known: true };
+          ag.qty += q; ag.net += net;
+          if (cost == null) { ag.known = false; A.missing[key] = it.name || key; }
+          else {
+            ag.cogs += q * cost; c += q * cost;
+            if (q > 0 && net / q < cost) A.below.push({ inv: inv.id, name: it.name || key, unit: Math.round(net / q), cost: cost, qty: q });
+          }
+        });
+        const sk = (finIsShip(inv) ? 'ship' : 'shop') + '_' + (finIsDealer(inv) ? 'dealer' : 'retail');
+        A.seg[sk].rev += total; A.seg[sk].cogs += c; A.seg[sk].n++;
+        if (!finIsShip(inv)) { A.shopN++; if (l <= 0) A.noLabor.push({ id: inv.id, plate: inv.plate || '', name: inv.name || '', total: total, t: t }); }
+        const d = new Date(t).getDate();
+        A.daily[d] = (A.daily[d] || 0) + total;
+        A.rev += total; A.n++; A.parts += p; A.labor += l; A.discount += Math.max(0, sum - total); A.cogs += c;
+      });
+      return A;
+    }
+
+    // Biểu đồ luỹ kế doanh thu so với đường KPI, đường hoà vốn và dự báo
+    function finPaceSvg(o) {
+      const W = o.W, H = 210, pl = 6, pr = 92, pt = 14, pb = 24;
+      const cum = []; let s = 0;
+      for (let d = 1; d <= o.elapsed; d++) { s += o.daily[d] || 0; cum.push(s); }
+      const ymax = Math.max(1, o.kpi, o.breakeven || 0, o.forecast || 0, s) * 1.08;
+      const x = d => pl + d * (W - pl - pr) / o.dim;
+      const y = v => pt + (1 - v / ymax) * (H - pt - pb);
+      const base = y(0);
+      let g = '';
+      [0.25, 0.5, 0.75, 1].forEach(f => { const yy = pt + (1 - f) * (H - pt - pb); g += `<line x1="${pl}" x2="${W - pr}" y1="${yy}" y2="${yy}" stroke="#1f2937" stroke-width="1"/>`; });
+      // Cột doanh thu từng ngày (mờ, nằm dưới đáy)
+      const dmax = Math.max(1, ...Object.values(o.daily));
+      const bw = Math.max(2, (W - pl - pr) / o.dim * 0.55), bh = (H - pt - pb) * 0.28;
+      for (let d = 1; d <= o.dim; d++) {
+        const v = o.daily[d] || 0; if (!v) continue;
+        const h = Math.max(2, v / dmax * bh);
+        g += `<rect x="${x(d - 0.5) - bw / 2}" y="${base - h}" width="${bw}" height="${h}" rx="1.5" fill="#fb923c" opacity="0.22"><title>Ngày ${d}: ${formatMoney(v)} đ</title></rect>`;
+      }
+      const labels = [];
+      if (o.kpi) { g += `<line x1="${x(0)}" y1="${base}" x2="${x(o.dim)}" y2="${y(o.kpi)}" stroke="#38bdf8" stroke-width="1.6" stroke-dasharray="5 4"/>`; labels.push({ y: y(o.kpi), t: 'KPI ' + shortMoney(o.kpi), c: '#38bdf8' }); }
+      if (o.breakeven) { g += `<line x1="${x(0)}" y1="${base}" x2="${x(o.dim)}" y2="${y(o.breakeven)}" stroke="#a78bfa" stroke-width="1.6" stroke-dasharray="2 4"/>`; labels.push({ y: y(o.breakeven), t: 'Hoà vốn ' + shortMoney(o.breakeven), c: '#a78bfa' }); }
+      if (cum.length) {
+        let path = `M${x(0)},${base}`;
+        cum.forEach((v, i) => { path += ` L${x(i + 1)},${y(v)}`; });
+        g += `<path d="${path} L${x(cum.length)},${base} Z" fill="url(#finArea)"/>`;
+        g += `<path d="${path}" fill="none" stroke="#fb923c" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>`;
+        if (o.isCur && o.forecast) {
+          g += `<line x1="${x(o.elapsed)}" y1="${y(s)}" x2="${x(o.dim)}" y2="${y(o.forecast)}" stroke="#fb923c" stroke-width="1.8" stroke-dasharray="1 4" stroke-linecap="round"/>`;
+          labels.push({ y: y(o.forecast), t: 'Dự báo ' + shortMoney(o.forecast), c: '#fdba74' });
+          g += `<line x1="${x(o.elapsed)}" x2="${x(o.elapsed)}" y1="${pt}" y2="${base}" stroke="#e5e7eb" stroke-opacity="0.35" stroke-dasharray="3 3"/>`;
+        } else labels.push({ y: y(s), t: 'Thực tế ' + shortMoney(s), c: '#fdba74' });
+        const cx = x(cum.length), cy = y(s);
+        g += `<circle cx="${cx}" cy="${cy}" r="4.5" fill="#fb923c" stroke="#111827" stroke-width="2"/>`;
+        const tx = Math.min(Math.max(cx, pl + 30), W - pr - 30);
+        g += `<text x="${tx}" y="${Math.max(pt + 10, cy - 10)}" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">${shortMoney(s)}</text>`;
+      }
+      // Nhãn bên phải: đẩy ra cho khỏi chồng nhau
+      labels.sort((a, b) => a.y - b.y);
+      for (let i = 1; i < labels.length; i++) if (labels[i].y - labels[i - 1].y < 13) labels[i].y = labels[i - 1].y + 13;
+      labels.forEach(lb => { g += `<text x="${W - pr + 5}" y="${Math.min(H - pb, lb.y) + 4}" font-size="10" font-weight="700" fill="${lb.c}">${lb.t}</text>`; });
+      // Trục ngày
+      const ticks = [1, 5, 10, 15, 20, 25, o.dim].filter((v, i, a) => a.indexOf(v) === i && !(v !== o.dim && o.dim - v < 3));
+      ticks.forEach(d => { g += `<text x="${x(d - 0.5)}" y="${H - 7}" text-anchor="middle" font-size="10" fill="#6b7280">${d}</text>`; });
+      g += `<line x1="${pl}" x2="${W - pr}" y1="${base}" y2="${base}" stroke="#374151"/>`;
+      return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="xMidYMid meet" style="display:block">
+        <defs><linearGradient id="finArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fb923c" stop-opacity="0.35"/><stop offset="1" stop-color="#fb923c" stop-opacity="0.02"/></linearGradient></defs>${g}</svg>`;
+    }
+
     function finSrc(k) { return (k === finMonth && finDraft) ? finDraft : financeData[k]; }
     function finExpTotal(k) { const d = finSrc(k); return d ? convertToArray(d.expenses, []).reduce((s, e) => s + (+e.amount || 0), 0) : 0; }
     function finKpi(k) { const d = finSrc(k); return d ? (+d.kpi || 0) : 0; }
@@ -5750,17 +5860,18 @@
       renderFinanceDash();
     }
 
+    let finView = 'mtd';
+    function setFinView(v) { finView = v; renderFinanceDash(); }
+
     function renderFinanceDash() {
       const el = document.getElementById('fin-dash');
       if (!el) return;
       if (!finDraft) loadFinDraft();
       const costMap = finCostMap();
-      const st = finMonthStats(finMonth, costMap);
+      const r = monthRange(finMonth);
+      const A = finAnalyze(r[0], r[1], costMap);
       const kpi = finDraft.kpi || 0;
       const expTotal = finExpTotal(finMonth);
-      const gross = st.rev - st.cogs, net = gross - expTotal;
-      const margin = st.rev ? Math.round(net * 1000 / st.rev) / 10 : 0;
-      const pct = kpi ? Math.round(st.rev * 100 / kpi) : 0;
       const now = new Date(), ym = finMonth.split('-').map(Number), y = ym[0], m = ym[1];
       const dim = new Date(y, m, 0).getDate();
       const isCur = finMonth === monthKey(now);
@@ -5768,33 +5879,200 @@
       const elapsed = isCur ? now.getDate() : (isFuture ? 0 : dim);
       const daysLeft = isCur ? (dim - now.getDate() + 1) : 0;
       const pace = Math.round(elapsed * 100 / dim);
-      const forecast = elapsed ? Math.round(st.rev / elapsed * dim) : 0;
-      const needPerDay = (isCur && kpi > st.rev) ? Math.round((kpi - st.rev) / daysLeft) : 0;
-      const grossRatio = st.rev ? gross / st.rev : 0;
+      const pct = kpi ? Math.round(A.rev * 100 / kpi) : 0;
+      const forecast = elapsed ? Math.round(A.rev / elapsed * dim) : 0;
+      const needPerDay = (isCur && kpi > A.rev) ? Math.round((kpi - A.rev) / daysLeft) : 0;
+      const gross = A.rev - A.cogs;
+      const grossRatio = A.rev ? gross / A.rev : 0;
       const breakeven = grossRatio > 0 ? Math.round(expTotal / grossRatio) : 0;
+      const be30 = Math.round(expTotal / 0.3);
       const onTrack = isCur ? pct >= pace : pct >= 100;
-      const barColor = pct >= 100 ? 'from-emerald-600 to-emerald-400' : (onTrack || pct >= 70 ? 'from-amber-600 to-amber-400' : 'from-red-600 to-orange-500');
+      const view = isCur ? finView : 'full';
 
-      let status;
-      if (!kpi) status = '<span class="text-gray-400">Chưa đặt KPI cho ' + monthLabel(finMonth).toLowerCase() + '. Nhập chỉ tiêu ở phần thiết lập bên dưới.</span>';
-      else if (pct >= 100) status = `<span class="text-emerald-400 font-semibold"><i class="fa-solid fa-trophy mr-1"></i>Đã vượt KPI ${formatMoney(st.rev - kpi)} đ</span>`;
-      else if (isCur) status = `<span class="${onTrack ? 'text-amber-300' : 'text-red-400'} font-semibold"><i class="fa-solid ${onTrack ? 'fa-gauge-high' : 'fa-triangle-exclamation'} mr-1"></i>${onTrack ? 'Đúng tiến độ' : 'Chậm tiến độ'}</span> <span class="text-gray-400">· còn ${daysLeft} ngày · cần thêm <b class="text-white">${formatMoney(kpi - st.rev)} đ</b> ≈ <b class="text-white">${formatMoney(needPerDay)} đ/ngày</b></span>`;
-      else if (isFuture) status = '<span class="text-sky-300"><i class="fa-solid fa-calendar mr-1"></i>Tháng kế hoạch, chưa phát sinh doanh thu.</span>';
-      else status = `<span class="text-red-400 font-semibold"><i class="fa-solid fa-circle-xmark mr-1"></i>Không đạt KPI, thiếu ${formatMoney(kpi - st.rev)} đ</span>`;
+      // Số liệu theo chế độ xem: luỹ kế (chi phí chia theo ngày) / dự kiến cả tháng / cả tháng
+      let V;
+      if (view === 'proj') {
+        const k = A.rev ? forecast / A.rev : 0;
+        V = { rev: forecast, parts: A.parts * k, labor: A.labor * k, discount: A.discount * k, cogs: A.cogs * k, exp: expTotal, expNote: 'Cả tháng' };
+      } else {
+        const exp = view === 'mtd' ? Math.round(expTotal * elapsed / dim) : (isFuture ? 0 : expTotal);
+        V = { rev: A.rev, parts: A.parts, labor: A.labor, discount: A.discount, cogs: A.cogs, exp: exp, expNote: view === 'mtd' ? `Phân bổ ${elapsed}/${dim} ngày` : 'Cả tháng' };
+      }
+      V.gross = V.rev - V.cogs; V.net = V.gross - V.exp;
+      V.margin = V.rev ? Math.round(V.net * 1000 / V.rev) / 10 : 0;
 
+      // Cùng kỳ tháng trước
+      const pm = new Date(y, m - 2, 1);
+      const pDim = new Date(pm.getFullYear(), pm.getMonth() + 1, 0).getDate();
+      const pEnd = new Date(pm.getFullYear(), pm.getMonth(), Math.min(elapsed, pDim) + 1).getTime();
+      const prevSame = elapsed ? finRangeStats(pm.getTime(), pEnd, costMap).rev : 0;
+      const growth = prevSame ? Math.round((A.rev - prevSame) * 100 / prevSame) : null;
+
+      // 7 ngày gần nhất
+      let last7 = 0, d7 = 0;
+      for (let d = Math.max(1, elapsed - 6); d <= elapsed; d++) { last7 += A.daily[d] || 0; d7++; }
+      const avg7 = d7 ? Math.round(last7 / d7) : 0;
+      const avgAll = elapsed ? Math.round(A.rev / elapsed) : 0;
+
+      const pctOf = (a, b) => b ? Math.round(a * 1000 / b) / 10 : 0;
+      const fmtPct = v => String(v).replace('.', ',') + '%';
+      const listGross = A.parts + A.labor;
+      const discPct = pctOf(A.discount, listGross);
+      const laborPct = pctOf(A.labor, A.rev);
+      const gPct = Math.round(grossRatio * 1000) / 10;
+
+      // ===== CẢNH BÁO SỨC KHOẺ KINH DOANH =====
+      const alerts = [];
+      const add = (lvl, icon, title, detail) => alerts.push({ lvl, icon, title, detail });
+      if (A.n) {
+        if (gPct < 20) add('red', 'fa-percent', `Biên lãi gộp chỉ ${fmtPct(gPct)}`, `Garage phuộc/nhớt nên đạt 30–40%. Với chi phí hiện tại, nếu biên đạt 30% thì hoà vốn chỉ cần ${shortMoney(be30)}/tháng thay vì ${shortMoney(breakeven)}.`);
+        else if (gPct < 30) add('amber', 'fa-percent', `Biên lãi gộp ${fmtPct(gPct)}, hơi thấp`, `Mục tiêu nên ≥ 30%. Rà lại giá bán các mặt hàng biên thấp bên dưới.`);
+        if (A.shopN && A.noLabor.length) add(A.noLabor.length * 2 >= A.shopN ? 'red' : 'amber', 'fa-screwdriver-wrench', `${A.noLabor.length}/${A.shopN} bill lắp tại xưởng không có tiền công`, `Tổng tiền công cả tháng chỉ ${formatMoney(A.labor)} đ (${fmtPct(laborPct)} doanh thu). Tiền công gần như lãi 100%, cần ghi dòng công riêng trên mỗi bill.`);
+        if (discPct >= 10) add('red', 'fa-tags', `Đã giảm giá ${shortMoney(A.discount)} (${fmtPct(discPct)} giá trị bill)`, `Mức giảm đang ăn gần hết lãi. Nên đặt mức giảm tối đa, giảm sâu hơn phải Chủ Xưởng duyệt.`);
+        else if (discPct >= 5) add('amber', 'fa-tags', `Giảm giá ${shortMoney(A.discount)} (${fmtPct(discPct)})`, `Theo dõi để mức giảm không vượt 5% giá trị bill.`);
+        if (A.below.length) add('red', 'fa-arrow-down-wide-short', `${A.below.length} dòng hàng bán dưới giá vốn`, `Sau khi trừ giảm giá, các món này bán thấp hơn giá nhập. Xem danh sách ở mục Sản phẩm.`);
+        const miss = Object.keys(A.missing).length;
+        if (miss) add('amber', 'fa-circle-question', `${miss} mặt hàng chưa có giá nhập`, `Giá vốn của các món này đang tính = 0 nên lãi bị báo cao hơn thực tế: ${Object.values(A.missing).slice(0, 4).map(escAttr).join(', ')}${miss > 4 ? '…' : ''}. Bổ sung giá nhập trong Quản Lý Kho.`);
+        if (isCur && elapsed >= 7 && avgAll && avg7 < avgAll * 0.75) add('amber', 'fa-chart-line', `7 ngày gần đây chậm lại`, `Trung bình ${shortMoney(avg7)}/ngày, thấp hơn mức ${shortMoney(avgAll)}/ngày đầu tháng${needPerDay ? ` và mức cần ${shortMoney(needPerDay)}/ngày để đạt KPI` : ''}.`);
+        if (expTotal && view !== 'proj' && V.net >= 0 && isCur) add('green', 'fa-circle-check', `Đến hôm nay đang có lãi ${shortMoney(V.net)}`, `Đã trừ chi phí vận hành phân bổ theo ${elapsed}/${dim} ngày. Giữ nhịp này, dự kiến cuối tháng lãi khoảng ${shortMoney(forecast * grossRatio - expTotal)}.`);
+        if (!expTotal) add('amber', 'fa-sliders', 'Chưa nhập chi phí vận hành', 'Nhập lương, mặt bằng… ở phần thiết lập bên dưới để tính lợi nhuận ròng.');
+      }
+      const lvlCls = { red: 'border-red-500/40 bg-red-950/30 text-red-300', amber: 'border-amber-500/40 bg-amber-950/25 text-amber-300', green: 'border-emerald-500/40 bg-emerald-950/30 text-emerald-300' };
+      const order = { red: 0, amber: 1, green: 2 };
+      alerts.sort((a, b) => order[a.lvl] - order[b.lvl]);
+      const nRed = alerts.filter(a => a.lvl === 'red').length, nAmber = alerts.filter(a => a.lvl === 'amber').length;
+      const healthBadge = !A.n ? '' : nRed ? `<span class="text-[10px] px-2 py-0.5 rounded-full bg-red-950 text-red-300 border border-red-500/40 font-bold">${nRed} cần xử lý</span>`
+        : nAmber ? `<span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-500/40 font-bold">${nAmber} cần chú ý</span>`
+        : `<span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-500/40 font-bold">Ổn định</span>`;
+      const alertsHtml = alerts.length ? alerts.map(a => `
+        <div class="flex gap-2.5 rounded-xl border p-2.5 ${lvlCls[a.lvl]}">
+          <i class="fa-solid ${a.icon} mt-0.5 w-4 text-center shrink-0"></i>
+          <div class="min-w-0"><p class="text-xs font-bold">${a.title}</p><p class="text-[11px] text-gray-300 mt-0.5 leading-snug">${a.detail}</p></div>
+        </div>`).join('') : '<p class="text-xs text-gray-500 italic text-center py-3">Chưa có hóa đơn trong tháng này.</p>';
+
+      // ===== THẺ TỔNG QUAN =====
       const card = (label, value, sub, color, icon) => `
         <div class="bg-gray-800/70 border border-gray-700/70 rounded-xl p-3">
           <p class="text-[10px] text-gray-400 uppercase font-bold flex items-center gap-1.5"><i class="fa-solid ${icon}"></i>${label}</p>
           <p class="text-base sm:text-xl font-black font-mono ${color} mt-0.5">${value}</p>
           <p class="text-[10px] text-gray-500 mt-0.5">${sub}</p>
         </div>`;
+      const money = v => (v < 0 ? '-' : '') + formatMoney(Math.abs(Math.round(v))) + ' đ';
+      const growthTxt = growth == null ? A.n + ' hóa đơn' : `${A.n} HĐ · <span class="${growth >= 0 ? 'text-emerald-400' : 'text-red-400'} font-bold">${growth >= 0 ? '▲' : '▼'} ${Math.abs(growth)}%</span> so cùng kỳ T${pm.getMonth() + 1}`;
+      const netLabel = view === 'mtd' ? 'Lợi nhuận đến hôm nay' : (view === 'proj' ? 'Lợi nhuận dự kiến' : 'Lợi nhuận ròng');
 
-      const flow = (label, value, sub, color, sign) => `
-        <div class="bg-gray-900/70 border border-gray-800 rounded-xl p-2.5 text-center">
-          <p class="text-[10px] text-gray-400 uppercase font-bold">${label}</p>
-          <p class="text-sm sm:text-base font-black font-mono ${color}">${sign}${formatMoney(Math.abs(value))} đ</p>
-          <p class="text-[9px] text-gray-500">${sub}</p>
+      // ===== THÁC LÃI LỖ =====
+      const lo = Math.min(0, V.net, V.gross), hi = Math.max(1, V.parts + V.labor, V.rev);
+      const pos = v => ((v - lo) * 100 / (hi - lo));
+      const wrow = (label, sub, from, to, val, color, bold, sign) => {
+        const a = pos(Math.min(from, to)), b = pos(Math.max(from, to));
+        return `<div class="${bold ? 'pt-1.5 mt-1 border-t border-gray-700/60' : ''}">
+          <div class="flex items-baseline justify-between gap-2 text-xs">
+            <span class="${bold ? 'font-bold text-white' : 'text-gray-300'}">${label}${sub ? ` <span class="text-[10px] text-gray-500 font-normal">${sub}</span>` : ''}</span>
+            <span class="font-mono ${bold ? 'font-black' : 'font-bold'} ${color.text}">${sign}${formatMoney(Math.abs(Math.round(val)))} đ</span>
+          </div>
+          <div class="relative h-2.5 mt-1 rounded-full bg-gray-800/80">
+            ${lo < 0 ? `<div class="absolute top-[-3px] bottom-[-3px] w-px bg-gray-500" style="left:${pos(0)}%"></div>` : ''}
+            <div class="absolute top-0 bottom-0 rounded-full ${color.bg}" style="left:${a}%;width:${Math.max(0.6, b - a)}%"></div>
+          </div></div>`;
+      };
+      const C = { slate: { text: 'text-gray-200', bg: 'bg-gray-500' }, emer: { text: 'text-emerald-300', bg: 'bg-emerald-500' }, red: { text: 'text-red-400', bg: 'bg-red-500' },
+        orange: { text: 'text-orange-400', bg: 'bg-gradient-to-r from-orange-600 to-amber-400' }, rose: { text: 'text-rose-300', bg: 'bg-rose-500/80' },
+        amber: { text: 'text-amber-300', bg: 'bg-amber-400' }, pink: { text: 'text-rose-400', bg: 'bg-pink-600/80' } };
+      const L = V.parts + V.labor;
+      const waterfall = [
+        wrow('Tiền phụ tùng', 'giá bán', 0, V.parts, V.parts, C.slate, false, ''),
+        wrow('Tiền công', '', V.parts, L, V.labor, C.emer, false, '+'),
+        wrow('Giảm giá', '', L - V.discount, L, V.discount, C.red, false, '−'),
+        wrow('Doanh thu thực thu', '', 0, V.rev, V.rev, C.orange, true, ''),
+        wrow('Giá vốn phụ tùng', 'theo giá nhập', V.rev - V.cogs, V.rev, V.cogs, C.rose, false, '−'),
+        wrow('Lãi gộp', V.rev ? 'biên ' + fmtPct(pctOf(V.gross, V.rev)) : '', 0, V.gross, V.gross, V.gross >= 0 ? C.amber : C.red, true, V.gross < 0 ? '−' : ''),
+        wrow('Chi phí vận hành', V.expNote, V.gross - V.exp, V.gross, V.exp, C.pink, false, '−'),
+        wrow(V.net >= 0 ? 'Lợi nhuận ròng' : 'Lỗ ròng', 'biên ' + fmtPct(V.margin), 0, V.net, V.net, V.net >= 0 ? { text: 'text-emerald-400', bg: 'bg-emerald-500' } : C.red, true, V.net < 0 ? '−' : '')
+      ].join('');
+
+      // ===== BIÊN LÃI THEO NHÓM =====
+      const segDefs = [['shop_retail', 'Xưởng · Khách lẻ', 'fa-wrench', 'text-red-400'], ['shop_dealer', 'Xưởng · Garage/Đại lý', 'fa-wrench', 'text-red-400'], ['ship_retail', 'Ship · Khách lẻ', 'fa-box', 'text-sky-400'], ['ship_dealer', 'Ship · Garage/Đại lý', 'fa-box', 'text-sky-400']];
+      const segRows = segDefs.filter(sd => A.seg[sd[0]].n).map(sd => {
+        const s = A.seg[sd[0]], gp = s.rev - s.cogs, mg = s.rev ? Math.round(gp * 100 / s.rev) : 0;
+        const mc = mg >= 30 ? 'bg-emerald-500' : mg >= 20 ? 'bg-amber-400' : 'bg-red-500', tc = mg >= 30 ? 'text-emerald-400' : mg >= 20 ? 'text-amber-300' : 'text-red-400';
+        return `<div class="py-2 border-t border-gray-800 first:border-0">
+          <div class="flex items-center justify-between gap-2 text-xs">
+            <span class="font-semibold ${sd[3]}"><i class="fa-solid ${sd[2]} mr-1.5"></i>${sd[1]} <span class="text-gray-500 font-normal">· ${s.n} HĐ</span></span>
+            <span class="font-mono font-black ${tc}">${mg}%</span>
+          </div>
+          <div class="flex items-center gap-2 mt-1">
+            <div class="flex-1 h-2 rounded-full bg-gray-800 overflow-hidden"><div class="h-full rounded-full ${mc}" style="width:${Math.max(0, Math.min(100, mg * 2))}%"></div></div>
+            <span class="text-[10px] text-gray-400 font-mono shrink-0">DT ${shortMoney(s.rev)} · lãi ${shortMoney(gp)}</span>
+          </div></div>`;
+      }).join('') || '<p class="text-xs text-gray-500 italic text-center py-4">Chưa có dữ liệu.</p>';
+
+      // ===== SẢN PHẨM =====
+      const itemArr = Object.values(A.items).filter(it => it.known && it.net > 0).map(it => Object.assign({}, it, { gp: it.net - it.cogs, mg: Math.round((it.net - it.cogs) * 100 / it.net) }));
+      const top = itemArr.slice().sort((a, b) => b.gp - a.gp).slice(0, 5);
+      const low = itemArr.filter(it => it.mg < 20).sort((a, b) => a.mg - b.mg).slice(0, 5);
+      const prow = it => `<div class="flex items-center justify-between gap-2 py-1.5 border-t border-gray-800 first:border-0 text-xs">
+          <div class="min-w-0"><p class="truncate text-gray-100">${escAttr(it.name)}</p><p class="text-[10px] text-gray-500">SL ${Math.round(it.qty * 100) / 100} · DT ${shortMoney(it.net)}</p></div>
+          <div class="text-right shrink-0"><p class="font-mono font-bold ${it.gp >= 0 ? 'text-emerald-400' : 'text-red-400'}">${it.gp < 0 ? '-' : '+'}${shortMoney(Math.abs(it.gp))}</p><p class="text-[10px] font-mono ${it.mg >= 30 ? 'text-emerald-400' : it.mg >= 20 ? 'text-amber-300' : 'text-red-400'}">biên ${it.mg}%</p></div>
         </div>`;
+      const productsHtml = `
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div class="bg-gray-800/40 border border-gray-800 rounded-xl p-3">
+            <p class="text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-1"><i class="fa-solid fa-trophy text-amber-400 mr-1.5"></i>Mang lãi nhiều nhất</p>
+            ${top.length ? top.map(prow).join('') : '<p class="text-xs text-gray-500 italic py-3 text-center">Chưa có dữ liệu.</p>'}
+          </div>
+          <div class="bg-gray-800/40 border border-gray-800 rounded-xl p-3">
+            <p class="text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-1"><i class="fa-solid fa-triangle-exclamation text-red-400 mr-1.5"></i>Biên thấp dưới 20%</p>
+            ${low.length ? low.map(prow).join('') : '<p class="text-xs text-emerald-400 py-3 text-center"><i class="fa-solid fa-circle-check mr-1"></i>Không có mặt hàng biên thấp.</p>'}
+            ${A.below.length ? `<details class="mt-2"><summary class="cursor-pointer text-[11px] text-red-300 font-semibold">Xem ${A.below.length} dòng bán dưới giá vốn</summary>
+              <div class="mt-1.5 space-y-1">${A.below.slice(0, 20).map(b => `<button type="button" onclick="viewInvoiceDetail('${escAttr(b.inv)}')" class="w-full flex justify-between gap-2 text-[11px] bg-gray-900/70 rounded-lg px-2 py-1.5 hover:bg-gray-800 text-left">
+                <span class="truncate text-gray-200">${escAttr(b.inv)} · ${escAttr(b.name)}</span><span class="font-mono shrink-0 text-red-300">${shortMoney(b.unit)} &lt; vốn ${shortMoney(b.cost)}</span></button>`).join('')}</div></details>` : ''}
+          </div>
+        </div>
+        <p class="text-[10px] text-gray-500"><i class="fa-solid fa-circle-info mr-1"></i>Doanh thu từng món đã trừ phần giảm giá của bill (chia theo tỉ lệ). Món chưa có giá nhập không được xếp hạng.</p>`;
+
+      // ===== BILL THIẾU TIỀN CÔNG =====
+      const noLaborHtml = A.noLabor.length ? `
+        <details class="bg-gray-800/40 border border-gray-800 rounded-xl overflow-hidden">
+          <summary class="cursor-pointer list-none [&::-webkit-details-marker]:hidden px-3 py-2.5 flex items-center justify-between gap-2 hover:bg-gray-800/60">
+            <span class="text-[11px] font-bold text-gray-300 uppercase tracking-wider"><i class="fa-solid fa-screwdriver-wrench text-amber-400 mr-1.5"></i>Bill lắp tại xưởng chưa ghi tiền công (${A.noLabor.length})</span>
+            <i class="fa-solid fa-chevron-down text-gray-400 text-xs"></i>
+          </summary>
+          <div class="px-3 pb-3 space-y-1">${A.noLabor.sort((a, b) => b.t - a.t).map(b => `
+            <button type="button" onclick="viewInvoiceDetail('${escAttr(b.id)}')" class="w-full flex items-center justify-between gap-2 text-xs bg-gray-900/70 hover:bg-gray-800 rounded-lg px-2.5 py-2 text-left">
+              <span class="min-w-0 truncate"><b class="text-white">${escAttr(b.plate)}</b> <span class="text-gray-400">· ${escAttr(b.name)} · ${new Date(b.t).getDate()}/${new Date(b.t).getMonth() + 1}</span></span>
+              <span class="font-mono text-amber-300 shrink-0">${formatMoney(b.total)} đ <i class="fa-solid fa-chevron-right text-[9px] text-gray-500 ml-1"></i></span>
+            </button>`).join('')}
+            <p class="text-[10px] text-gray-500 pt-1">Bấm vào bill để xem. Từ nay app sẽ nhắc khi lưu bill lắp tại xưởng mà chưa có tiền công.</p>
+          </div>
+        </details>` : '';
+
+      // ===== KPI =====
+      const barColor = pct >= 100 ? 'from-emerald-600 to-emerald-400' : (onTrack || pct >= 70 ? 'from-amber-600 to-amber-400' : 'from-red-600 to-orange-500');
+      let status;
+      if (!kpi) status = '<span class="text-gray-400">Chưa đặt KPI cho ' + monthLabel(finMonth).toLowerCase() + '. Nhập chỉ tiêu ở phần thiết lập bên dưới.</span>';
+      else if (pct >= 100) status = `<span class="text-emerald-400 font-semibold"><i class="fa-solid fa-trophy mr-1"></i>Đã vượt KPI ${formatMoney(A.rev - kpi)} đ</span>`;
+      else if (isCur) status = `<span class="${onTrack ? 'text-amber-300' : 'text-red-400'} font-semibold"><i class="fa-solid ${onTrack ? 'fa-gauge-high' : 'fa-triangle-exclamation'} mr-1"></i>${onTrack ? 'Đúng tiến độ' : 'Chậm tiến độ'}</span> <span class="text-gray-400">· còn ${daysLeft} ngày · cần thêm <b class="text-white">${formatMoney(kpi - A.rev)} đ</b> ≈ <b class="text-white">${formatMoney(needPerDay)} đ/ngày</b></span>`;
+      else if (isFuture) status = '<span class="text-sky-300"><i class="fa-solid fa-calendar mr-1"></i>Tháng kế hoạch, chưa phát sinh doanh thu.</span>';
+      else status = `<span class="text-red-400 font-semibold"><i class="fa-solid fa-circle-xmark mr-1"></i>Không đạt KPI, thiếu ${formatMoney(kpi - A.rev)} đ</span>`;
+
+      const W = Math.max(300, Math.min(1100, (el.clientWidth || 640) - 26));
+      const paceHtml = elapsed ? `
+        <div class="bg-gray-800/40 border border-gray-800 rounded-xl p-3 space-y-2">
+          <div class="flex items-center justify-between gap-2">
+            <p class="text-[11px] font-bold text-gray-300 uppercase tracking-wider">Doanh thu luỹ kế trong tháng</p>
+            <span class="text-[10px] text-gray-400 font-mono">TB ${shortMoney(avgAll)}/ngày${isCur && elapsed >= 2 ? ` · 7 ngày ${shortMoney(avg7)}/ngày` : ''}</span>
+          </div>
+          ${finPaceSvg({ W: W, dim: dim, elapsed: elapsed, daily: A.daily, kpi: kpi, breakeven: breakeven && breakeven < 1e12 ? breakeven : 0, forecast: isCur ? forecast : 0, isCur: isCur })}
+          <div class="flex items-center justify-center gap-x-3 gap-y-1 flex-wrap text-[10px] text-gray-400">
+            <span class="flex items-center gap-1"><span class="w-4 h-0.5 rounded bg-orange-400"></span>Thực tế</span>
+            ${isCur ? '<span class="flex items-center gap-1"><span class="w-4 border-t-2 border-dotted border-orange-300"></span>Dự báo</span>' : ''}
+            ${kpi ? '<span class="flex items-center gap-1"><span class="w-4 border-t-2 border-dashed border-sky-400"></span>Đường KPI</span>' : ''}
+            ${breakeven ? '<span class="flex items-center gap-1"><span class="w-4 border-t-2 border-dotted border-violet-400"></span>Đường hoà vốn</span>' : ''}
+            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-orange-400/30"></span>Từng ngày</span>
+          </div>
+          <p class="text-[10px] text-gray-500 text-center">Đường cam nằm trên đường tím = đang có lãi; trên đường xanh = vượt tiến độ KPI.</p>
+        </div>` : '';
 
       // Cơ cấu chi phí
       const exps = finDraft.expenses.filter(e => (+e.amount || 0) > 0).slice().sort((a, b) => b.amount - a.amount);
@@ -5802,9 +6080,10 @@
         <div class="flex h-3 rounded-full overflow-hidden bg-gray-800">${exps.map((e, i) => `<div class="${FIN_PALETTE[i % FIN_PALETTE.length]}" style="width:${(e.amount * 100 / expTotal).toFixed(2)}%" title="${escAttr(e.name)}"></div>`).join('')}</div>
         <div class="space-y-1.5 mt-3">${exps.map((e, i) => `
           <div class="flex items-center justify-between gap-2 text-xs">
-            <span class="flex items-center gap-2 min-w-0"><span class="w-2.5 h-2.5 rounded-full shrink-0 ${FIN_PALETTE[i % FIN_PALETTE.length]}"></span><span class="truncate text-gray-200">${highlightMatch(e.name || 'Khoản chi', [])}</span></span>
-            <span class="shrink-0 font-mono"><b class="text-white">${formatMoney(e.amount)} đ</b> <span class="text-gray-500">· ${Math.round(e.amount * 100 / expTotal)}%${st.rev ? ' CP · ' + (Math.round(e.amount * 1000 / st.rev) / 10) + '% DT' : ''}</span></span>
-          </div>`).join('')}</div>`
+            <span class="flex items-center gap-2 min-w-0"><span class="w-2.5 h-2.5 rounded-full shrink-0 ${FIN_PALETTE[i % FIN_PALETTE.length]}"></span><span class="truncate text-gray-200">${escAttr(e.name || 'Khoản chi')}</span></span>
+            <span class="shrink-0 font-mono"><b class="text-white">${formatMoney(e.amount)} đ</b> <span class="text-gray-500">· ${Math.round(e.amount * 100 / expTotal)}%</span></span>
+          </div>`).join('')}</div>
+        <p class="text-[10px] text-gray-500 mt-2">Chi phí mỗi ngày ≈ <b class="text-gray-300">${formatMoney(Math.round(expTotal / dim))} đ</b>${A.rev && view === 'proj' ? ` · lương = ${fmtPct(pctOf(exps.find(e => /lương/i.test(e.name)) ? exps.find(e => /lương/i.test(e.name)).amount : 0, forecast))} DT dự kiến` : ''}</p>`
         : '<p class="text-xs text-gray-500 italic text-center py-6">Chưa nhập chi phí cho tháng này.</p>';
 
       // Xu hướng 6 tháng
@@ -5815,11 +6094,11 @@
         trend.push({ k: k, lbl: (d.getMonth() + 1) + '/' + String(d.getFullYear()).slice(2), rev: s.rev, cost: s.cogs + e, net: s.rev - s.cogs - e, kpi: finKpi(k), has: !!financeData[k] || k === finMonth });
       }
       const tmax = Math.max(1, ...trend.map(t => Math.max(t.rev, t.cost, t.kpi)));
-      const H = 110, hh = v => v > 0 ? Math.max(3, Math.round(v * H / tmax)) : 0;
+      const TH = 110, hh = v => v > 0 ? Math.max(3, Math.round(v * TH / tmax)) : 0;
       const trendHtml = `
         <div class="flex items-end justify-between gap-2 overflow-x-auto no-scrollbar pb-1">${trend.map(t => `
           <div class="flex flex-col items-center shrink-0 rounded-lg px-1 py-1 ${t.k === finMonth ? 'bg-gray-800/80 ring-1 ring-orange-500/40' : ''}" style="min-width:52px" title="${t.lbl}: DT ${formatMoney(t.rev)} đ · Tổng CP ${formatMoney(t.cost)} đ · LN ${formatMoney(t.net)} đ${t.kpi ? ' · KPI ' + formatMoney(t.kpi) + ' đ' : ''}">
-            <div class="relative flex items-end gap-1" style="height:${H}px">
+            <div class="relative flex items-end gap-1" style="height:${TH}px">
               ${t.kpi ? `<div class="absolute -left-1 -right-1 border-t-2 border-dashed border-sky-400" style="bottom:${hh(t.kpi)}px"></div>` : ''}
               <div class="w-3.5 rounded-t bg-gradient-to-t from-orange-600 to-amber-400" style="height:${hh(t.rev)}px"></div>
               <div class="w-3.5 rounded-t bg-gradient-to-t from-rose-800 to-rose-500" style="height:${hh(t.cost)}px"></div>
@@ -5831,24 +6110,35 @@
           <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-amber-500"></span>Doanh thu</span>
           <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-rose-600"></span>Giá vốn + chi phí</span>
           <span class="flex items-center gap-1"><span class="w-4 border-t-2 border-dashed border-sky-400"></span>KPI</span>
-          <span>Số dưới cột = lợi nhuận ròng</span>
+          <span>Số dưới cột = lợi nhuận ròng (cả tháng)</span>
         </div>`;
+
+      const viewBtn = (v, label) => `<button type="button" onclick="setFinView('${v}')" class="px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition ${view === v ? 'bg-orange-600 text-white shadow' : 'text-gray-400 hover:text-white'}">${label}</button>`;
 
       el.innerHTML = `
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <h3 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-bullseye text-orange-400"></i>KPI & Chi Phí Vận Hành</h3>
-          <select id="fin-month-select" onchange="setFinMonth(this.value)" class="bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500">
-            ${finMonthOptions().map(k => `<option value="${k}"${k === finMonth ? ' selected' : ''}>${monthLabel(k)}${k === monthKey(now) ? ' (hiện tại)' : ''}</option>`).join('')}
-          </select>
+          <h3 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-bullseye text-orange-400"></i>KPI & Lãi Lỗ</h3>
+          <div class="flex items-center gap-2 flex-wrap">
+            ${isCur ? `<div class="flex bg-gray-800 border border-gray-700 rounded-xl p-0.5">${viewBtn('mtd', 'Đến hôm nay')}${viewBtn('proj', 'Dự kiến cuối tháng')}</div>` : ''}
+            <select id="fin-month-select" onchange="setFinMonth(this.value)" class="bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500">
+              ${finMonthOptions().map(k => `<option value="${k}"${k === finMonth ? ' selected' : ''}>${monthLabel(k)}${k === monthKey(now) ? ' (hiện tại)' : ''}</option>`).join('')}
+            </select>
+          </div>
         </div>
 
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
-          ${card('Doanh thu tháng', formatMoney(st.rev) + ' đ', st.n + ' hóa đơn', 'text-orange-400', 'fa-sack-dollar')}
-          ${card('Chỉ tiêu KPI', kpi ? formatMoney(kpi) + ' đ' : 'Chưa đặt', kpi ? 'Đạt ' + pct + '%' : 'Đặt ở phần thiết lập', 'text-sky-400', 'fa-bullseye')}
-          ${isCur
-            ? card('Dự báo cuối tháng', formatMoney(forecast) + ' đ', kpi ? (forecast >= kpi ? 'Dự kiến đạt KPI' : 'Dự kiến thiếu ' + formatMoney(kpi - forecast) + ' đ') : 'Theo tốc độ hiện tại', forecast >= kpi && kpi ? 'text-emerald-400' : 'text-amber-400', 'fa-chart-line')
-            : card('Tổng chi phí vận hành', formatMoney(expTotal) + ' đ', exps.length + ' khoản chi', 'text-rose-400', 'fa-money-bill-trend-up')}
-          ${card('Lợi nhuận ròng', (net < 0 ? '-' : '') + formatMoney(Math.abs(net)) + ' đ', 'Biên lợi nhuận ' + String(margin).replace('.', ',') + '%', net >= 0 ? 'text-emerald-400' : 'text-red-400', net >= 0 ? 'fa-arrow-trend-up' : 'fa-arrow-trend-down')}
+          ${card('Doanh thu tháng', formatMoney(A.rev) + ' đ', growthTxt, 'text-orange-400', 'fa-sack-dollar')}
+          ${card('Chỉ tiêu KPI', kpi ? pct + '%' : 'Chưa đặt', kpi ? (isCur ? `của ${shortMoney(kpi)} · dự báo ${shortMoney(forecast)}` : `của ${shortMoney(kpi)}`) : 'Đặt ở phần thiết lập', pct >= 100 ? 'text-emerald-400' : 'text-sky-400', 'fa-bullseye')}
+          ${card(netLabel, money(V.net), 'Biên lợi nhuận ' + fmtPct(V.margin), V.net >= 0 ? 'text-emerald-400' : 'text-red-400', V.net >= 0 ? 'fa-arrow-trend-up' : 'fa-arrow-trend-down')}
+          ${card('Biên lãi gộp', A.rev ? fmtPct(gPct) : '--', 'Mục tiêu ≥ 30%', gPct >= 30 ? 'text-emerald-400' : gPct >= 20 ? 'text-amber-300' : 'text-red-400', 'fa-percent')}
+        </div>
+
+        <div class="bg-gray-800/40 border border-gray-800 rounded-xl p-3 space-y-2">
+          <div class="flex items-center justify-between gap-2">
+            <p class="text-[11px] font-bold text-gray-300 uppercase tracking-wider"><i class="fa-solid fa-heart-pulse text-red-400 mr-1.5"></i>Sức khoẻ kinh doanh</p>
+            ${healthBadge}
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2">${alertsHtml}</div>
         </div>
 
         <div class="bg-gray-800/40 border border-gray-800 rounded-xl p-3 space-y-2">
@@ -5866,24 +6156,30 @@
           </div>
         </div>
 
-        <div class="bg-gray-800/40 border border-gray-800 rounded-xl p-3 space-y-2">
-          <p class="text-[11px] font-bold text-gray-300 uppercase tracking-wider">Lãi lỗ ${monthLabel(finMonth).toLowerCase()}</p>
-          <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
-            ${flow('Doanh thu', st.rev, 'Tổng tiền hóa đơn', 'text-orange-400', '')}
-            ${flow('Giá vốn hàng', st.cogs, 'Phụ tùng đã bán', 'text-rose-300', '−')}
-            ${flow('Lãi gộp', gross, st.rev ? 'Biên ' + Math.round(grossRatio * 100) + '%' : '---', gross >= 0 ? 'text-amber-300' : 'text-red-400', gross < 0 ? '−' : '')}
-            ${flow('Chi phí vận hành', expTotal, 'Lương, mặt bằng...', 'text-rose-400', '−')}
-            <div class="col-span-2 sm:col-span-1 rounded-xl p-2.5 text-center border ${net >= 0 ? 'bg-emerald-950/40 border-emerald-500/40' : 'bg-red-950/40 border-red-500/40'}">
-              <p class="text-[10px] uppercase font-bold ${net >= 0 ? 'text-emerald-400' : 'text-red-400'}">${net >= 0 ? 'Lợi nhuận ròng' : 'Đang lỗ'}</p>
-              <p class="text-sm sm:text-base font-black font-mono ${net >= 0 ? 'text-emerald-400' : 'text-red-400'}">${net < 0 ? '−' : ''}${formatMoney(Math.abs(net))} đ</p>
-              <p class="text-[9px] text-gray-400">Biên ${String(margin).replace('.', ',')}%</p>
+        ${paceHtml}
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          <div class="bg-gray-800/40 border border-gray-800 rounded-xl p-3 space-y-1.5">
+            <div class="flex items-center justify-between gap-2 mb-1">
+              <p class="text-[11px] font-bold text-gray-300 uppercase tracking-wider">Lãi lỗ ${view === 'mtd' ? 'đến hôm nay' : view === 'proj' ? 'dự kiến cả tháng' : monthLabel(finMonth).toLowerCase()}</p>
+              ${view === 'proj' ? '<span class="text-[10px] text-sky-300">Theo tốc độ hiện tại</span>' : ''}
+            </div>
+            ${A.n || view === 'proj' ? waterfall : '<p class="text-xs text-gray-500 italic text-center py-6">Chưa có hóa đơn.</p>'}
+            <div class="text-[10px] text-gray-500 pt-2 space-y-0.5">
+              ${expTotal && breakeven ? `<p><i class="fa-solid fa-scale-balanced text-violet-400 mr-1"></i>Hoà vốn tháng này cần <b class="text-gray-200">${formatMoney(breakeven)} đ</b> (≈ ${shortMoney(Math.round(breakeven / dim))}/ngày)${gPct < 30 ? ` · nếu biên 30% chỉ cần <b class="text-emerald-300">${shortMoney(be30)}</b>` : ''}</p>` : ''}
+              ${view === 'mtd' ? `<p><i class="fa-solid fa-circle-info mr-1"></i>Chi phí vận hành chia đều theo ngày (${formatMoney(Math.round(expTotal / dim))} đ/ngày) để so đúng với doanh thu ${elapsed} ngày.</p>` : ''}
+              <p><i class="fa-solid fa-circle-info mr-1"></i>Giá vốn ước tính theo giá nhập hiện tại trong kho.</p>
             </div>
           </div>
-          <div class="text-[11px] text-gray-400 flex flex-wrap gap-x-4 gap-y-1 pt-1">
-            ${expTotal > 0 && breakeven ? `<span><i class="fa-solid fa-scale-balanced text-sky-400 mr-1"></i>Điểm hòa vốn: cần doanh thu ≥ <b class="text-white">${formatMoney(breakeven)} đ</b>/tháng${st.rev >= breakeven ? ' <span class="text-emerald-400">(đã vượt)</span>' : ' <span class="text-red-400">(còn thiếu ' + formatMoney(breakeven - st.rev) + ' đ)</span>'}</span>` : ''}
-            <span><i class="fa-solid fa-circle-info mr-1"></i>Giá vốn ước tính theo giá nhập hiện tại trong kho. Tiền công: ${formatMoney(st.labor)} đ · Phụ tùng: ${formatMoney(st.parts)} đ</span>
+          <div class="bg-gray-800/40 border border-gray-800 rounded-xl p-3">
+            <p class="text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-1">Biên lãi gộp theo nhóm</p>
+            ${segRows}
+            <p class="text-[10px] text-gray-500 mt-2"><span class="text-emerald-400">≥30%</span> tốt · <span class="text-amber-300">20–30%</span> tạm · <span class="text-red-400">&lt;20%</span> thấp. Tính trên tiền thực thu sau giảm giá.</p>
           </div>
         </div>
+
+        ${productsHtml}
+        ${noLaborHtml}
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div class="bg-gray-800/40 border border-gray-800 rounded-xl p-3">
@@ -5896,6 +6192,12 @@
           </div>
         </div>`;
     }
+
+    let finResizeT = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(finResizeT);
+      finResizeT = setTimeout(() => { const el = document.getElementById('fin-dash'); if (el && el.offsetParent) renderFinanceDash(); }, 300);
+    });
 
     function renderFinanceEditor() {
       const el = document.getElementById('fin-editor');
