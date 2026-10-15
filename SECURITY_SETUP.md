@@ -32,6 +32,7 @@ Realtime Database > Rules > dán nội dung `database.rules.json` > **Publish**.
 | phiếu nhập, ảnh sản phẩm, thông báo | mọi nhân viên | admin, stock |
 | nhân sự, hồ sơ garage, cấu hình AI | mọi nhân viên | admin |
 | tài chính | admin | admin |
+| danh bạ khách cũ (`garage/customers`) | mọi nhân viên | admin |
 | `roles` | chính mình / admin | admin |
 
 Lưu ý: `garage/aiConfig` chứa API key AI mà mọi nhân viên đọc được (app cần để dùng trợ lý). Nên đổi sang gọi AI qua Cloud Function về sau.

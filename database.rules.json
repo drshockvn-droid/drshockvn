@@ -78,6 +78,10 @@
         ".read": "auth != null && root.child('roles').child(auth.uid).exists()",
         ".write": "auth != null && (root.child('roles').child(auth.uid).val() === 'admin' || root.child('roles').child(auth.uid).val() === 'stock')"
       },
+      "customers": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).exists()",
+        ".write": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'"
+      },
       "aiReport": {
         ".read": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'",
         ".write": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'"
