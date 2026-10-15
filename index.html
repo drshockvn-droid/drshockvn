@@ -960,6 +960,16 @@
           <button id="zalo-send-btn" onclick="zaloSendPost()" class="px-3 py-2.5 bg-sky-600 hover:bg-sky-500 active:scale-95 text-white rounded-xl text-xs font-bold"><i class="fa-solid fa-paper-plane mr-1"></i>Gửi vào nhóm</button>
         </div>
         <p class="text-[10px] text-gray-500">Bảng giá chỉ gồm sản phẩm đã nhập <b class="text-emerald-300">Giá Đại Lý</b> (sửa ở nút bút chì từng phụ tùng). Bot gửi lần lượt từng nhóm, cách nhau khoảng 40 giây.</p>
+        <div class="bg-gray-800/40 p-2.5 rounded-xl border border-gray-800">
+          <div class="flex items-center justify-between gap-2 mb-1.5">
+            <div class="text-[10px] font-bold uppercase tracking-wider text-sky-300">Nhóm nhận tin <span id="zalo-groups-count" class="text-gray-400 normal-case"></span></div>
+            <button onclick="zaloRefreshGroups()" class="px-2 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 rounded-lg text-[10px] font-bold"><i class="fa-solid fa-rotate mr-1"></i>Làm mới danh sách</button>
+          </div>
+          <input type="text" id="zalo-groups-search" oninput="zaloRenderGroups()" placeholder="Tìm nhóm (không cần dấu)..." class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white mb-1.5 focus:outline-none focus:border-sky-500">
+          <label class="text-[11px] text-gray-400 flex items-center gap-1.5 mb-1.5"><input type="checkbox" id="zalo-groups-only" onchange="zaloRenderGroups()"> Chỉ hiện nhóm đang bật</label>
+          <div id="zalo-groups-list" class="max-h-56 overflow-y-auto custom-scrollbar space-y-1 text-xs"><div class="text-gray-500">Đang tải...</div></div>
+          <p class="text-[10px] text-gray-500 mt-1.5">Tick để bật/tắt, bot áp dụng ngay không cần khởi động lại. Nên thêm dần 3–5 nhóm mỗi lần.</p>
+        </div>
         <div>
           <div class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mt-2 mb-1">Tin đã gửi gần đây</div>
           <div id="zalo-history" class="space-y-1.5 text-xs"></div>
@@ -3698,7 +3708,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.15-1';
+    const APP_VERSION = '2026.10.15-2';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -3978,7 +3988,53 @@
           '<div class="p-2 rounded-lg bg-gray-800/50 border border-gray-800"><div class="text-[10px] text-gray-500">' + esc(r.group || '') + ' · ' + zaloFmtTime(r.at) + '</div>' +
           '<div class="text-amber-200"><b>' + esc(r.from || 'Đại lý') + ':</b> ' + esc(r.q || '') + '</div><div class="text-gray-300 whitespace-pre-line mt-0.5">🤖 ' + esc(r.a || '') + '</div></div>').join('') : '<div class="text-gray-500">Chưa có câu hỏi nào.</div>';
       });
-      zaloRefs = [r1, r2, r3];
+      const r4 = firebaseDb.ref('garage/zaloBot/allGroups');
+      r4.on('value', s => { zaloAllGroups = s.val() || {}; zaloRenderGroups(); });
+      const r5 = firebaseDb.ref('garage/zaloGroups/enabled');
+      r5.on('value', s => { zaloEnabledGroups = s.val() || {}; zaloRenderGroups(); });
+      zaloRefs = [r1, r2, r3, r4, r5];
+    }
+    let zaloAllGroups = {}, zaloEnabledGroups = {};
+    function zaloNorm(t) { return String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase(); }
+    function zaloRenderGroups() {
+      const box = document.getElementById('zalo-groups-list');
+      if (!box) return;
+      const all = Object.assign({}, (zaloAllGroups && zaloAllGroups.list) || {});
+      Object.keys(zaloEnabledGroups).forEach(id => { if (!all[id]) all[id] = { name: (zaloEnabledGroups[id] && zaloEnabledGroups[id].name) || id, missing: true }; });
+      const q = zaloNorm(document.getElementById('zalo-groups-search').value.trim());
+      const only = document.getElementById('zalo-groups-only').checked;
+      const rows = Object.entries(all)
+        .filter(([id, g]) => (!q || zaloNorm(g.name).includes(q) || id.includes(q)) && (!only || zaloEnabledGroups[id]))
+        .sort((a, b) => (zaloEnabledGroups[b[0]] ? 1 : 0) - (zaloEnabledGroups[a[0]] ? 1 : 0) || String(a[1].name).localeCompare(String(b[1].name), 'vi'));
+      const nOn = Object.keys(zaloEnabledGroups).length;
+      document.getElementById('zalo-groups-count').textContent = '(' + nOn + ' đang bật / ' + Object.keys(all).length + ' nhóm)';
+      if (!Object.keys(all).length) { box.innerHTML = '<div class="text-gray-500">Chưa có danh sách. Bật bot trên máy tính, danh sách nhóm sẽ tự hiện ở đây.</div>'; return; }
+      box.innerHTML = rows.length ? rows.map(([id, g]) => {
+        const on = !!zaloEnabledGroups[id];
+        return '<label class="flex items-center gap-2 p-1.5 rounded-lg cursor-pointer ' + (on ? 'bg-sky-950/50 border border-sky-800/60' : 'hover:bg-gray-800/70 border border-transparent') + '">' +
+          '<input type="checkbox" ' + (on ? 'checked' : '') + ' onchange="zaloToggleGroup(\'' + esc(id) + '\', this)">' +
+          '<span class="flex-1 min-w-0 truncate ' + (on ? 'text-white font-semibold' : 'text-gray-300') + '">' + esc(g.name) + '</span>' +
+          (g.missing ? '<span class="text-[10px] text-red-400 shrink-0">bot không còn trong nhóm</span>' : '<span class="text-[10px] text-gray-500 shrink-0">' + (g.members || '?') + ' người</span>') + '</label>';
+      }).join('') : '<div class="text-gray-500">Không có nhóm khớp.</div>';
+    }
+    async function zaloToggleGroup(id, el) {
+      if (!isAdminUser() || !firebaseDb) { el.checked = !el.checked; return; }
+      const g = ((zaloAllGroups && zaloAllGroups.list) || {})[id] || zaloEnabledGroups[id] || {};
+      if (el.checked && (g.members || 0) > 50 && !window.confirm('Nhóm "' + (g.name || id) + '" có ' + g.members + ' thành viên. Chắc chắn bật bot cho nhóm này?')) { el.checked = false; return; }
+      try {
+        await firebaseDb.ref('garage/zaloGroups/enabled/' + id).set(el.checked ? { name: g.name || id, enabledAt: Date.now(), by: currentLoggedInUser.name || '' } : null);
+        showNotification((el.checked ? 'Đã bật bot cho nhóm: ' : 'Đã tắt bot ở nhóm: ') + (g.name || id), 'success');
+      } catch (e) {
+        el.checked = !el.checked;
+        showNotification('Không lưu được (' + (e && e.code ? e.code : 'lỗi') + '). Kiểm tra đã dán Rules mới chưa.', 'error');
+      }
+    }
+    async function zaloRefreshGroups() {
+      if (!isAdminUser() || !firebaseDb) return;
+      try {
+        await firebaseDb.ref('garage/zaloGroups/refreshAt').set(Date.now());
+        showNotification('Đã yêu cầu bot cập nhật danh sách nhóm (cần bot đang chạy).', 'success');
+      } catch (e) { showNotification('Không gửi được yêu cầu (' + (e && e.code ? e.code : 'lỗi') + ').', 'error'); }
     }
     function closeZaloModal() {
       document.getElementById('zalo-modal').classList.add('hidden');
