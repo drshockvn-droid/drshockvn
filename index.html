@@ -551,11 +551,17 @@
               <h2 class="text-sm sm:text-base font-bold text-white flex items-center">
                 <i class="fa-solid fa-users mr-2 text-orange-400"></i>Quản Lý Khách Hàng & Đối Tác Garage
               </h2>
-              <p class="text-xs text-gray-400 mt-0.5">Dữ liệu được cập nhật tự động 100% từ toàn bộ hóa đơn dịch vụ.</p>
+              <p class="text-xs text-gray-400 mt-0.5">Tự động gom từ hóa đơn dịch vụ + danh bạ khách cũ đã nhập từ app cũ.</p>
             </div>
-            <button onclick="exportCustomersToExcel()" class="px-3 py-1.5 bg-emerald-700/80 hover:bg-emerald-600 active:scale-95 text-white text-xs font-semibold rounded-xl shadow flex items-center justify-center gap-1.5 transition self-start sm:self-auto">
-              <i class="fa-solid fa-file-excel"></i><span>Xuất File Khách Hàng (.xlsx)</span>
-            </button>
+            <div class="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+              <button onclick="triggerImportCustomers()" class="px-3 py-1.5 bg-sky-700/80 hover:bg-sky-600 active:scale-95 text-white text-xs font-semibold rounded-xl shadow flex items-center justify-center gap-1.5 transition">
+                <i class="fa-solid fa-file-import"></i><span>Nhập Khách Cũ (.xlsx)</span>
+              </button>
+              <input type="file" id="import-customers-input" accept=".xlsx,.xls,.csv" class="hidden" onchange="importCustomersFromExcel(event)">
+              <button onclick="exportCustomersToExcel()" class="px-3 py-1.5 bg-emerald-700/80 hover:bg-emerald-600 active:scale-95 text-white text-xs font-semibold rounded-xl shadow flex items-center justify-center gap-1.5 transition">
+                <i class="fa-solid fa-file-excel"></i><span>Xuất File Khách Hàng (.xlsx)</span>
+              </button>
+            </div>
           </div>
 
           <!-- KPI Khách Hàng -->
@@ -1373,6 +1379,8 @@
     try { localStorage.setItem('drshock_staff_list', JSON.stringify(staffList)); } catch (e) {}
     let inventoryList = convertToArray(getStoredData('drshock_inventory', DEFAULT_INVENTORY), DEFAULT_INVENTORY);
     let invoiceList = convertToArray(getStoredData('drshock_invoices', DEFAULT_INVOICES), DEFAULT_INVOICES);
+    // Danh bạ khách hàng cũ (nhập từ Excel app cũ) - lưu ở garage/customers, khóa = mã khách hàng
+    let customerDirectory = (function() { const v = getStoredData('drshock_customers', {}); return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {}; })();
     let stockLogList = convertToArray(getStoredData('drshock_stock_logs', DEFAULT_STOCK_LOGS), DEFAULT_STOCK_LOGS);
     // Luôn dùng cấu hình đám mây gốc. Cấu hình cũ/sai lưu riêng trên 1 máy (VD máy tính) sẽ bị xóa,
     // tránh tình trạng máy đó kết nối nhầm database trong khi các máy khác vẫn bình thường.
@@ -1752,6 +1760,7 @@
       listenAiCloudConfig();
       listenProductImages();
       listenGarageProfile();
+      listenCustomerDirectory();
       bindList('garage/inventory', true, () => { renderInventoryTable(); populateInventorySelector('ALL'); migrateInlineImages(); });
       bindList('garage/invoices', true, () => { renderInvoiceList(); renderCustomerAndReports(); refreshMaintenanceDue(); });
       bindList('garage/stockLogs', true, () => { renderStockLogs(); updateInventoryOverviewStats(); });
@@ -2356,7 +2365,7 @@
     let _custSug = { field: '', list: [], idx: -1 };
 
     function getCustomerIndex() {
-      const key = invoiceList.length + '|' + invoiceList.reduce((a, i) => a + (i.total || 0), 0);
+      const key = invoiceList.length + '|' + invoiceList.reduce((a, i) => a + (i.total || 0), 0) + '|' + Object.keys(customerDirectory || {}).length;
       if (_custIdxCache.key === key) return _custIdxCache.list;
       const map = {};
       sortInvoicesByTime(invoiceList, 'desc').forEach(inv => {
@@ -2373,6 +2382,16 @@
         if (!c.phone && phone) c.phone = phone;
         if (!c.car && inv.car) c.car = inv.car;
         if (inv.customerType && inv.customerType.includes('Garage')) c.customerType = 'Khách Garage / Đại lý';
+      });
+      // Thêm khách cũ (danh bạ nhập từ app cũ) chưa từng có hóa đơn trên app mới
+      const seenPhones = new Set(), seenNames = new Set();
+      Object.values(map).forEach(c => { const d = dirPhoneDigits(c.phone); if (d.length >= 9) seenPhones.add(d); seenNames.add(normText(c.name)); });
+      Object.values(customerDirectory || {}).forEach(d => {
+        if (!d || !d.name) return;
+        const pd = dirPhoneDigits(d.phone);
+        if (pd.length >= 9 ? seenPhones.has(pd) : seenNames.has(normText(d.name))) return;
+        if (pd.length >= 9) seenPhones.add(pd);
+        map['D' + (d.code || d.name)] = { plate: d.plate ? String(d.plate).toUpperCase() : '', name: d.name, phone: d.phone || '', car: d.car || '', customerType: d.type || 'Khách lẻ', visits: 0, oldCode: d.code || '' };
       });
       const list = Object.values(map).map(c => Object.assign({}, c, { nName: normText(c.name), nPlate: normPlate(c.plate), nPhone: c.phone.replace(/\D/g, '') }));
       _custIdxCache = { key: key, list: list };
@@ -2410,7 +2429,7 @@
             <div class="flex items-center gap-1.5 flex-wrap">
               ${c.plate ? `<span class="text-xs font-black font-mono text-amber-400 uppercase">${c.plate}</span>` : ''}
               <span class="text-xs font-bold text-white">${field === 'name' ? highlightMatch(c.name, tokens) : highlightMatch(c.name, [])}</span>
-              <span class="text-[10px] px-1.5 rounded bg-red-950 text-red-400 border border-red-500/30 font-bold">${c.visits} lần</span>
+              <span class="text-[10px] px-1.5 rounded bg-red-950 text-red-400 border border-red-500/30 font-bold">${c.visits ? c.visits + ' lần' : 'Khách cũ'}</span>
               ${c.customerType.includes('Garage') ? '<span class="text-[10px] px-1.5 rounded bg-amber-950/80 text-amber-300 border border-amber-500/30 font-semibold">Garage / ĐL</span>' : ''}
             </div>
             <div class="text-[11px] text-gray-400 mt-0.5">${c.car ? `<span class="text-sky-300">${highlightMatch(c.car, [])}</span>` : ''}${c.car && c.phone ? ' • ' : ''}${c.phone ? `<span class="font-mono">${highlightMatch(c.phone, [])}</span>` : ''}</div>
@@ -4223,6 +4242,158 @@
       }
     }
 
+    // ===== DANH BẠ KHÁCH HÀNG CŨ (nhập từ file Excel của app cũ) =====
+    function dirPhoneDigits(p) {
+      let d = String(p == null ? '' : p).replace(/\D/g, '');
+      if (d.startsWith('84') && d.length >= 11) d = '0' + d.slice(2);
+      return d;
+    }
+
+    function listenCustomerDirectory() {
+      firebaseDb.ref('garage/customers').on('value', snap => {
+        const v = snap.val();
+        customerDirectory = (v && typeof v === 'object') ? v : {};
+        setStoredData('drshock_customers', customerDirectory);
+        _custIdxCache.key = '';
+        renderCustomerAndReports();
+      }, () => {});
+    }
+
+    // Gắn khách cũ vào danh sách khách tính từ hóa đơn: trùng SĐT (hoặc trùng tên duy nhất) thì gộp, còn lại thêm mới
+    function mergeCustomerDirectory(custMap, makeEntry) {
+      const list = Object.keys(customerDirectory || {}).map(k => Object.assign({ _k: k }, customerDirectory[k])).filter(d => d && d.name);
+      if (!list.length) return;
+      const nameCount = {};
+      list.forEach(d => { const n = String(d.name).trim().toLowerCase(); nameCount[n] = (nameCount[n] || 0) + 1; });
+      list.forEach(d => {
+        const digits = dirPhoneDigits(d.phone);
+        const nameKey = String(d.name).trim().toLowerCase();
+        const rawKey = String(d.rawName || '').trim().toLowerCase();
+        let c = null;
+        if (digits.length >= 9) c = custMap['PHONE_' + digits] || custMap['PHONE_84' + digits.slice(1)];
+        if (!c && nameCount[nameKey] === 1) c = custMap['NAME_' + nameKey] || (rawKey ? custMap['NAME_' + rawKey] : null);
+        if (!c) c = custMap['DIR_' + d._k] = makeEntry(d);
+        c.dir = d;
+        if (!c.phone && digits.length >= 9) c.phone = d.phone;
+        if (/garage|đại lý/i.test(d.type || '')) c.customerType = 'Khách Garage / Đại lý';
+      });
+    }
+
+    function triggerImportCustomers() {
+      if (!isAdminUser()) { showNotification('Chỉ Chủ Xưởng được nhập danh sách khách hàng!', 'warning'); return; }
+      if (typeof XLSX === 'undefined') { showNotification('Thư viện Sheet chưa sẵn sàng, vui lòng tải lại trang!', 'warning'); return; }
+      const inp = document.getElementById('import-customers-input');
+      if (inp) inp.click();
+    }
+
+    // Đọc file khách hàng (mẫu KiotViet / app quản lý bán hàng: Mã khách hàng, Tên khách hàng, Số điện thoại, Địa chỉ, Công nợ...)
+    function parseCustomerWorkbook(wb) {
+      const H = s => normText(String(s == null ? '' : s).replace(/\*/g, '')).replace(/\s+/g, ' ').trim();
+      let rows = null, hi = -1;
+      for (const sn of wb.SheetNames) {
+        const r = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: '' });
+        const idx = r.slice(0, 10).findIndex(row => row.some(c => /^ten khach/.test(H(c))));
+        if (idx >= 0) { rows = r; hi = idx; break; }
+      }
+      if (!rows) return null;
+      const head = rows[hi].map(H);
+      const col = re => head.findIndex(h => re.test(h));
+      const C = {
+        code: col(/^ma khach/), name: col(/^ten khach/), group: col(/^nhom khach/), label: col(/^nhan khach/),
+        phone: col(/^(so )?dien thoai$|^sdt$/), email: col(/^email$/), birthday: col(/^ngay sinh/),
+        address: col(/^dia chi$/), province: col(/^tinh/), ward: col(/^phuong/), note: col(/^ghi chu/),
+        tax: col(/^ma so thue/), debtIn: col(/phai thu/), debtOut: col(/phai tra/),
+        plate: col(/bien so/), car: col(/dong xe|loai xe/)
+      };
+      const get = (row, k) => C[k] >= 0 ? row[C[k]] : '';
+      const txt = v => String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+      const num = v => { if (typeof v === 'number') return Math.round(v); const n = Number(String(v || '').replace(/[^\d-]/g, '')); return isFinite(n) ? n : 0; };
+      const SRC_RE = /\(\s*(zalo|zl|fb|facebook|tiktok|tik tok|tt|ig|instagram|shopee)\s*\)/i;
+      const SRC_NAME = { zl: 'Zalo', zalo: 'Zalo', fb: 'Facebook', facebook: 'Facebook', tiktok: 'TikTok', 'tik tok': 'TikTok', tt: 'TikTok', ig: 'Instagram', instagram: 'Instagram', shopee: 'Shopee' };
+      const DEALER_RE = /\b(garage|gara)\b|đại lý|dai ly|phụ tùng|workshop|độ xe|auto/i;
+      const out = {};
+      const stats = { total: 0, phone: 0, dealer: 0, debt: 0 };
+      rows.slice(hi + 1).forEach(row => {
+        const rawName = txt(get(row, 'name'));
+        if (!rawName) return;
+        const m = rawName.match(SRC_RE);
+        const name = txt(rawName.replace(SRC_RE, '')) || rawName;
+        let phoneRaw = get(row, 'phone');
+        let phone = typeof phoneRaw === 'number' ? '0' + String(phoneRaw) : txt(phoneRaw);
+        const pd = dirPhoneDigits(phone);
+        if (pd.length >= 9 && !/^0+$/.test(pd)) phone = pd; else phone = '';
+        const group = txt(get(row, 'group')), label = txt(get(row, 'label'));
+        const isDealer = /garage|gara|đại lý|dai ly|\bdl\b/i.test(group + ' ' + label) || DEALER_RE.test(rawName);
+        let bd = get(row, 'birthday');
+        if (typeof bd === 'number' && XLSX.SSF) bd = XLSX.SSF.format('dd/mm/yyyy', bd);
+        bd = txt(bd);
+        if (bd === '01/01/2000' || bd === '01/01/1900') bd = ''; // ngày mặc định của app cũ, không phải ngày sinh thật
+        const ward = txt(get(row, 'ward')), prov = txt(get(row, 'province'));
+        const address = [txt(get(row, 'address')), ward, prov].filter(Boolean).join(', ');
+        let code = txt(get(row, 'code'));
+        const key = (code || (pd.length >= 9 ? 'SDT' + pd : 'TEN_' + normText(rawName).replace(/[^a-z0-9]+/g, '_'))).replace(/[.#$\[\]\/]/g, '_').slice(0, 120);
+        const rec = { code: code || key, name: name, type: isDealer ? 'Khách Garage / Đại lý' : 'Khách lẻ' };
+        if (name !== rawName) rec.rawName = rawName;
+        if (m) rec.src = SRC_NAME[m[1].toLowerCase()] || m[1];
+        if (phone) rec.phone = phone;
+        if (group) rec.group = group;
+        if (address) rec.address = address;
+        if (bd) rec.birthday = bd;
+        const email = txt(get(row, 'email')); if (email) rec.email = email;
+        const tax = txt(get(row, 'tax')); if (tax) rec.taxCode = tax;
+        const note = txt(get(row, 'note')); if (note) rec.note = note;
+        const plate = txt(get(row, 'plate')); if (plate) rec.plate = plate.toUpperCase();
+        const car = txt(get(row, 'car')); if (car) rec.car = car;
+        const dIn = num(get(row, 'debtIn')), dOut = num(get(row, 'debtOut'));
+        if (dIn) rec.debtIn = dIn;
+        if (dOut) rec.debtOut = dOut;
+        rec.importedAt = Date.now();
+        rec.importedBy = (currentLoggedInUser && currentLoggedInUser.name) || 'Chủ Xưởng';
+        if (!out[key]) stats.total++;
+        out[key] = rec;
+      });
+      Object.values(out).forEach(r => { if (r.phone) stats.phone++; if (r.type.includes('Garage')) stats.dealer++; if (r.debtIn || r.debtOut) stats.debt++; });
+      return { records: out, stats: stats };
+    }
+
+    function importCustomersFromExcel(event) {
+      const file = event.target.files && event.target.files[0];
+      event.target.value = '';
+      if (!file) return;
+      if (!isAdminUser()) { showNotification('Chỉ Chủ Xưởng được nhập danh sách khách hàng!', 'warning'); return; }
+      const reader = new FileReader();
+      reader.onload = e => {
+        let parsed;
+        try {
+          parsed = parseCustomerWorkbook(XLSX.read(new Uint8Array(e.target.result), { type: 'array' }));
+        } catch (err) {
+          showNotification('Không đọc được file Excel này!', 'error');
+          return;
+        }
+        if (!parsed || !parsed.stats.total) { showNotification('Không tìm thấy cột "Tên khách hàng" trong file!', 'warning'); return; }
+        const st = parsed.stats;
+        const existing = customerDirectory || {};
+        const fresh = Object.keys(parsed.records).filter(k => !existing[k]).length;
+        showConfirmModal(
+          'Nhập Danh Sách Khách Hàng Cũ',
+          `Đọc được ${st.total} khách: ${st.phone} có SĐT, ${st.dealer} Garage/Đại lý, ${st.debt} có công nợ. ` +
+          `${fresh} khách mới sẽ được thêm, ${st.total - fresh} khách đã nhập trước đó sẽ được cập nhật. Hóa đơn, kho và dữ liệu khác KHÔNG bị thay đổi.`,
+          () => {
+            if (!firebaseDb) { showNotification('Chưa kết nối đám mây, vui lòng thử lại khi có mạng!', 'warning'); return; }
+            firebaseDb.ref('garage/customers').update(parsed.records)
+              .then(() => showNotification(`Đã nhập ${st.total} khách hàng cũ lên đám mây!`, 'success'))
+              .catch(err => {
+                const denied = err && /permission/i.test(String(err.code || err.message || ''));
+                showNotification(denied
+                  ? 'Firebase chưa cho phép ghi mục khách hàng. Hãy cập nhật Rules (thêm garage/customers) rồi nhập lại!'
+                  : 'Nhập khách hàng lên đám mây bị lỗi (' + ((err && err.code) || 'lỗi mạng') + '), vui lòng thử lại!', 'error');
+              });
+          }
+        );
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
     function renderCustomerAndReports() {
       const totalRev = invoiceList.reduce((sum, i) => sum + (i.total || 0), 0);
       const revElem = document.getElementById('report-total-revenue');
@@ -4290,11 +4461,25 @@
         if ((!c.name || c.name === 'Khách Vãng Lai') && !isGenericName) c.name = rawName;
       });
 
+      const invoiceCustomerCount = Object.keys(custMap).length;
+      mergeCustomerDirectory(custMap, d => ({
+        key: 'DIR_' + d._k,
+        name: d.name,
+        phone: d.phone || '',
+        customerType: d.type || 'Khách lẻ',
+        plates: new Set(d.plate ? [String(d.plate).toUpperCase()] : []),
+        cars: new Set(d.car ? [d.car] : []),
+        visits: 0,
+        total: 0,
+        latestDate: '',
+        invoices: []
+      }));
+
       let allCustomers = Object.values(custMap);
       allCustomers.forEach(c => {
         c.invoices = sortInvoicesByTime(c.invoices, 'desc');
-        c.latestTs = invTime(c.invoices[0]);
-        c.latestDate = c.invoices[0].date;
+        c.latestTs = c.invoices.length ? invTime(c.invoices[0]) : 0;
+        c.latestDate = c.invoices.length ? c.invoices[0].date : '';
       });
       
       const countAll = allCustomers.length;
@@ -4311,7 +4496,7 @@
       if (kpiDealer) kpiDealer.textContent = countDealer;
       if (kpiRetail) kpiRetail.textContent = countRetail;
       if (kpiRev) kpiRev.textContent = formatMoney(totalRev) + ' đ';
-      if (repTotalCust) repTotalCust.textContent = countAll;
+      if (repTotalCust) repTotalCust.textContent = invoiceCustomerCount;
 
       const badgeFilterAll = document.getElementById('count-filter-all');
       const badgeFilterDealer = document.getElementById('count-filter-dealer');
@@ -4326,7 +4511,7 @@
       const q = searchInput ? searchInput.value.toLowerCase().trim() : '';
 
       if (q) {
-        displayList = displayList.filter(c => looseMatch(makeHay([c.name, c.phone, Array.from(c.plates).join(' '), Array.from(c.cars).join(' ')]), q));
+        displayList = displayList.filter(c => looseMatch(makeHay([c.name, c.phone, Array.from(c.plates).join(' '), Array.from(c.cars).join(' '), c.dir ? [c.dir.code, c.dir.rawName, c.dir.address, c.dir.src].join(' ') : '']), q));
       }
 
       if (currentCustomerFilter === 'DEALER') {
@@ -4402,8 +4587,15 @@
                 <div class="text-[11px] text-gray-400 mt-1 flex items-center gap-2 flex-wrap">
                   <span>Biển số xe: <strong class="text-gray-200 font-mono">${plateStr}</strong></span>
                   <span class="text-gray-600">•</span>
-                  <span>Giao dịch gần nhất: <strong class="text-gray-300 font-mono">${c.latestDate}</strong></span>
+                  <span>Giao dịch gần nhất: <strong class="text-gray-300 font-mono">${c.latestDate || 'Chưa có trên app mới'}</strong></span>
                 </div>
+                ${c.dir ? `<div class="text-[11px] text-gray-400 mt-1 flex items-center gap-2 flex-wrap">
+                  <span class="px-1.5 rounded bg-gray-700/70 text-gray-300 font-mono" title="Mã khách bên app cũ">${esc(c.dir.code || '')}</span>
+                  ${c.dir.src ? `<span class="text-violet-300">${esc(c.dir.src)}</span>` : ''}
+                  ${c.dir.address ? `<span><i class="fa-solid fa-location-dot mr-1 text-[10px]"></i>${esc(c.dir.address)}</span>` : ''}
+                  ${c.dir.debtIn ? `<span class="text-red-400 font-semibold">Phải thu (app cũ): ${formatMoney(c.dir.debtIn)} đ</span>` : ''}
+                  ${c.dir.debtOut ? `<span class="text-amber-300 font-semibold">Phải trả (app cũ): ${formatMoney(c.dir.debtOut)} đ</span>` : ''}
+                </div>` : ''}
               </div>
 
               <div class="text-right shrink-0">
@@ -4472,8 +4664,13 @@
           }
         });
 
+        mergeCustomerDirectory(custMap, d => ({
+          name: d.name, phone: d.phone || '', customerType: d.type || 'Khách lẻ',
+          plates: new Set(d.plate ? [String(d.plate).toUpperCase()] : []), cars: new Set(d.car ? [d.car] : []), visits: 0, total: 0
+        }));
+
         const wb = XLSX.utils.book_new();
-        const rows = [['Tên Khách Hàng / Garage', 'Phân Loại', 'Số Điện Thoại', 'Biển Số Đã Thực Hiện', 'Dòng Xe', 'Số Lần Mua / Đến Xưởng', 'Tổng Chi Tiêu (đ)']];
+        const rows = [['Tên Khách Hàng / Garage', 'Phân Loại', 'Số Điện Thoại', 'Biển Số Đã Thực Hiện', 'Dòng Xe', 'Số Lần Mua / Đến Xưởng', 'Tổng Chi Tiêu (đ)', 'Mã KH App Cũ', 'Địa Chỉ', 'Phải Thu (app cũ)', 'Phải Trả (app cũ)']];
         
         Object.values(custMap).forEach(c => {
           rows.push([
@@ -4483,7 +4680,11 @@
             Array.from(c.plates).join(', ') || 'Chưa có biển',
             Array.from(c.cars).join(', ') || '---',
             c.visits,
-            c.total
+            c.total,
+            c.dir ? (c.dir.code || '') : '',
+            c.dir ? (c.dir.address || '') : '',
+            c.dir ? (c.dir.debtIn || 0) : '',
+            c.dir ? (c.dir.debtOut || 0) : ''
           ]);
         });
 
@@ -4825,7 +5026,8 @@
         receipts: receiptList,
         finance: financeData,
         productImages: productImageMap,
-        profile: garageProfile
+        profile: garageProfile,
+        customers: customerDirectory
       };
 
       // Dùng Blob thay cho link data: (file sao lưu lớn - nhiều ảnh - có thể bị trình duyệt cắt/không tải được)
@@ -4869,7 +5071,8 @@
                     firebaseDb.ref('garage/invoices').set(invoiceList),
                     firebaseDb.ref('garage/stockLogs').set(stockLogList),
                     (parsed.productImages && typeof parsed.productImages === 'object') ? firebaseDb.ref('garage/productImages').update(parsed.productImages) : null,
-                    (parsed.profile && typeof parsed.profile === 'object') ? firebaseDb.ref('garage/profile').set(parsed.profile) : null
+                    (parsed.profile && typeof parsed.profile === 'object') ? firebaseDb.ref('garage/profile').set(parsed.profile) : null,
+                    (parsed.customers && typeof parsed.customers === 'object' && Object.keys(parsed.customers).length) ? firebaseDb.ref('garage/customers').update(parsed.customers) : null
                   ]).then(() => migrateInlineImages())
                     .catch(err => showNotification('Khôi phục lên đám mây bị lỗi (' + ((err && err.code) || 'lỗi mạng') + '). Dữ liệu các máy có thể chưa giống nhau, hãy thử lại!', 'error'));
                 } else if (parsed.profile) {
