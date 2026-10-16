@@ -1545,6 +1545,41 @@
       return false;
     }
 
+    // Mã hàng trùng nhau / trống / "-" làm nút Sửa mở nhầm sản phẩm và nút Xóa xóa luôn sản phẩm khác.
+    // Tự đổi các mã lỗi thành mã mới duy nhất (chỉ máy Chủ Xưởng / Thủ kho làm, 1 lần).
+    let fixingInvIds = false;
+    function badInvId(id, seen) { id = String(id == null ? '' : id).trim(); return !id || id === '-' || seen.has(id); }
+    function fixDuplicateInventoryIds() {
+      if (fixingInvIds || !firebaseDb || !cloudReady['garage/inventory']) return;
+      if (!currentLoggedInUser || !['admin', 'stock'].includes(currentLoggedInUser.role)) return;
+      const seen0 = new Set(); let bad = false;
+      inventoryList.forEach(p => { if (badInvId(p.id, seen0)) bad = true; seen0.add(String(p.id == null ? '' : p.id).trim()); });
+      if (!bad) return;
+      fixingInvIds = true;
+      const renamed = [];
+      cloudUpdateList('garage/inventory', list => {
+        renamed.length = 0;
+        const all = new Set(list.map(p => String(p.id == null ? '' : p.id).trim()));
+        const seen = new Set();
+        list.forEach(p => {
+          let id = String(p.id == null ? '' : p.id).trim();
+          if (badInvId(id, seen)) {
+            let n; do { n = 'P' + Math.random().toString(36).slice(2, 7).toUpperCase(); } while (all.has(n));
+            all.add(n);
+            renamed.push({ from: id || '(trống)', to: n, name: p.name || '', unit: p.unit || 'Cái', stock: parseFloat(p.stock) || 0 });
+            p.id = n; id = n;
+          }
+          seen.add(id);
+        });
+        return list;
+      }).then(res => {
+        fixingInvIds = false;
+        if (!res || !renamed.length) return;
+        renamed.forEach(r => logStockEvent('DIEUCHINH', r.to, r.name, r.unit, r.stock, r.stock, 'Tự sửa mã hàng bị trùng/trống: "' + r.from + '" → "' + r.to + '"'));
+        showNotification('Đã tự sửa ' + renamed.length + ' mã hàng bị trùng/trống: ' + renamed.map(r => r.name + ' → ' + r.to).join('; '), 'success');
+      });
+    }
+
     function cloudUpdateList(path, apply) {
       const meta = CLOUD_LISTS[path];
       if (!firebaseDb) {
@@ -1877,7 +1912,7 @@
       listenProductImages();
       listenGarageProfile();
       listenCustomerDirectory();
-      bindList('garage/inventory', true, () => { renderInventoryTable(); populateInventorySelector('ALL'); migrateInlineImages(); });
+      bindList('garage/inventory', true, () => { renderInventoryTable(); populateInventorySelector('ALL'); migrateInlineImages(); fixDuplicateInventoryIds(); });
       bindList('garage/invoices', true, () => { renderInvoiceList(); renderCustomerAndReports(); refreshMaintenanceDue(); });
       bindList('garage/stockLogs', true, () => { renderStockLogs(); updateInventoryOverviewStats(); });
       bindList('garage/staff', false, () => { renderStaffCards(); populateAdvisorSelect(); syncCurrentUserFromRoster(); });
@@ -3756,7 +3791,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.16-2';
+    const APP_VERSION = '2026.10.16-3';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -4427,7 +4462,7 @@
     async function handleSaveInventoryModal() {
       if (!checkStockManagePermission()) return;
       const editId = document.getElementById('inv-edit-id').value.trim();
-      const code = document.getElementById('inv-edit-code').value.trim().toUpperCase();
+      const code = document.getElementById('inv-edit-code').value.trim().toUpperCase().replace(/^[-–—.\s]+$/, '');
       const name = document.getElementById('inv-edit-name').value.trim();
       const cat = document.getElementById('inv-edit-cat').value;
       const unit = document.getElementById('inv-edit-unit').value.trim() || 'Cái';
