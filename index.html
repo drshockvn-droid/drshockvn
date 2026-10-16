@@ -982,6 +982,36 @@
     </div>
   </div>
 
+  <!-- ===== GIA RIENG THEO NHOM ZALO (dai ly uu tien) ===== -->
+  <div id="zalo-price-modal" class="fixed inset-0 z-[60] bg-black/85 hidden flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+    <div class="bg-gray-900 border border-gray-700 text-gray-100 rounded-t-3xl sm:rounded-2xl w-full max-w-2xl p-4 sm:p-5 shadow-2xl relative my-0 sm:my-auto max-h-[92vh] flex flex-col">
+      <div class="flex items-center justify-between border-b border-gray-800 pb-2.5 mb-3 gap-2">
+        <h3 class="text-sm sm:text-base font-bold text-emerald-300 flex items-center gap-2 min-w-0"><i class="fa-solid fa-tags"></i><span class="truncate">Giá riêng: <span id="zp-group-name" class="text-white"></span></span></h3>
+        <button onclick="zaloClosePriceModal()" class="w-8 h-8 shrink-0 rounded-full bg-gray-800 text-gray-400 hover:text-white flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+        <div class="bg-gray-800/40 p-2.5 rounded-xl border border-gray-800">
+          <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Giảm thêm cho cả bảng giá (%)</label>
+          <input type="number" id="zp-pct" min="0" max="50" step="0.5" placeholder="0" oninput="zaloRenderPriceRows()" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-sm text-white focus:outline-none focus:border-emerald-500">
+          <p class="text-[10px] text-gray-500 mt-1">Áp cho mọi món chưa đặt giá riêng (tính trên Giá Đại Lý chung, làm tròn nghìn).</p>
+        </div>
+        <div class="bg-gray-800/40 p-2.5 rounded-xl border border-gray-800">
+          <input type="text" id="zp-search" oninput="zaloRenderPriceRows()" placeholder="Tìm sản phẩm..." class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white mb-1.5 focus:outline-none focus:border-emerald-500">
+          <label class="text-[11px] text-gray-400 flex items-center gap-1.5"><input type="checkbox" id="zp-all" onchange="zaloRenderPriceRows()"> Hiện cả SP chưa có Giá Đại Lý chung</label>
+          <label class="text-[11px] text-gray-400 flex items-center gap-1.5 mt-1"><input type="checkbox" id="zp-only" onchange="zaloRenderPriceRows()"> Chỉ hiện món đã đặt giá riêng</label>
+        </div>
+      </div>
+      <div class="text-[10px] text-gray-500 grid grid-cols-[1fr_90px_120px] gap-2 px-2 pb-1"><span>Sản phẩm</span><span class="text-right">Giá ĐL chung</span><span class="text-right">Giá riêng nhóm</span></div>
+      <div id="zp-rows" class="flex-1 overflow-y-auto custom-scrollbar space-y-1 text-xs min-h-[120px]"></div>
+      <p class="text-[10px] text-gray-500 mt-2">Để trống ô = dùng giá chung (đã trừ % nếu có). Bot chỉ báo cho nhóm này đúng giá của nhóm, không lộ sang nhóm khác.</p>
+      <div class="grid grid-cols-3 gap-2 pt-2">
+        <button onclick="zaloClearPricing()" class="px-3 py-2.5 bg-gray-800 hover:bg-red-950/60 text-red-300 border border-gray-700 rounded-xl text-xs font-bold">Xoá giá riêng</button>
+        <button onclick="zaloClosePriceModal()" class="px-3 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 rounded-xl text-xs font-bold">Huỷ</button>
+        <button id="zp-save" onclick="zaloSavePricing()" class="px-3 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold"><i class="fa-solid fa-floppy-disk mr-1"></i>Lưu</button>
+      </div>
+    </div>
+  </div>
+
   <div id="inventory-modal" class="fixed inset-0 z-50 bg-black/85 hidden flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
     <div class="bg-gray-900 border border-gray-700 text-gray-100 rounded-t-3xl sm:rounded-2xl w-full max-w-lg p-4 sm:p-5 shadow-2xl relative my-0 sm:my-auto max-h-[90vh] overflow-y-auto custom-scrollbar">
       
@@ -3708,7 +3738,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.15-2';
+    const APP_VERSION = '2026.10.16-1';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -3992,9 +4022,11 @@
       r4.on('value', s => { zaloAllGroups = s.val() || {}; zaloRenderGroups(); });
       const r5 = firebaseDb.ref('garage/zaloGroups/enabled');
       r5.on('value', s => { zaloEnabledGroups = s.val() || {}; zaloRenderGroups(); });
-      zaloRefs = [r1, r2, r3, r4, r5];
+      const r6 = firebaseDb.ref('garage/zaloGroups/pricing');
+      r6.on('value', s => { zaloPricing = s.val() || {}; zaloRenderGroups(); });
+      zaloRefs = [r1, r2, r3, r4, r5, r6];
     }
-    let zaloAllGroups = {}, zaloEnabledGroups = {};
+    let zaloAllGroups = {}, zaloEnabledGroups = {}, zaloPricing = {};
     function zaloNorm(t) { return String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase(); }
     function zaloRenderGroups() {
       const box = document.getElementById('zalo-groups-list');
@@ -4014,7 +4046,8 @@
         return '<label class="flex items-center gap-2 p-1.5 rounded-lg cursor-pointer ' + (on ? 'bg-sky-950/50 border border-sky-800/60' : 'hover:bg-gray-800/70 border border-transparent') + '">' +
           '<input type="checkbox" ' + (on ? 'checked' : '') + ' onchange="zaloToggleGroup(\'' + esc(id) + '\', this)">' +
           '<span class="flex-1 min-w-0 truncate ' + (on ? 'text-white font-semibold' : 'text-gray-300') + '">' + esc(g.name) + '</span>' +
-          (g.missing ? '<span class="text-[10px] text-red-400 shrink-0">bot không còn trong nhóm</span>' : '<span class="text-[10px] text-gray-500 shrink-0">' + (g.members || '?') + ' người</span>') + '</label>';
+          (g.missing ? '<span class="text-[10px] text-red-400 shrink-0">bot không còn trong nhóm</span>' : '<span class="text-[10px] text-gray-500 shrink-0">' + (g.members || '?') + ' người</span>') +
+          (on ? zaloPricingBadge(id) : '') + '</label>';
       }).join('') : '<div class="text-gray-500">Không có nhóm khớp.</div>';
     }
     async function zaloToggleGroup(id, el) {
@@ -4028,6 +4061,78 @@
         el.checked = !el.checked;
         showNotification('Không lưu được (' + (e && e.code ? e.code : 'lỗi') + '). Kiểm tra đã dán Rules mới chưa.', 'error');
       }
+    }
+
+    // ===== GIÁ RIÊNG THEO NHÓM ZALO (đại lý ưu tiên) -> garage/zaloGroups/pricing/{groupId} =====
+    let zpGroupId = null, zpDraft = {};
+    function zaloPricingBadge(id) {
+      const p = zaloPricing[id] || {};
+      const n = Object.keys(p.prices || {}).length, pct = parseFloat(p.discountPct) || 0;
+      const label = (n || pct) ? ('💲 ' + (pct ? '-' + pct + '%' : '') + (pct && n ? ' · ' : '') + (n ? n + ' giá riêng' : '')) : '💲 Giá riêng';
+      return '<button type="button" onclick="event.preventDefault();event.stopPropagation();zaloOpenPriceModal(\'' + esc(id) + '\')" class="shrink-0 px-1.5 py-0.5 rounded-md text-[10px] font-bold border ' +
+        ((n || pct) ? 'bg-emerald-900/50 text-emerald-300 border-emerald-700/60' : 'bg-gray-800 text-gray-400 border-gray-700') + '">' + label + '</button>';
+    }
+    function zaloOpenPriceModal(id) {
+      if (!isAdminUser()) return;
+      zpGroupId = id;
+      const p = zaloPricing[id] || {};
+      zpDraft = Object.assign({}, p.prices || {});
+      const g = ((zaloAllGroups && zaloAllGroups.list) || {})[id] || zaloEnabledGroups[id] || {};
+      document.getElementById('zp-group-name').textContent = g.name || id;
+      document.getElementById('zp-pct').value = p.discountPct ? p.discountPct : '';
+      document.getElementById('zp-search').value = '';
+      document.getElementById('zp-only').checked = false;
+      document.getElementById('zp-all').checked = false;
+      document.getElementById('zalo-price-modal').classList.remove('hidden');
+      zaloRenderPriceRows();
+    }
+    function zaloClosePriceModal() { document.getElementById('zalo-price-modal').classList.add('hidden'); zpGroupId = null; }
+    function zaloRenderPriceRows() {
+      const box = document.getElementById('zp-rows');
+      const q = zaloNorm(document.getElementById('zp-search').value.trim());
+      const all = document.getElementById('zp-all').checked, only = document.getElementById('zp-only').checked;
+      const pct = Math.min(50, Math.max(0, parseFloat(document.getElementById('zp-pct').value) || 0));
+      const rows = inventoryList.filter(p => {
+        const k = imgKey(p.id), base = parseCurrencyNumber(p.dealerPrice) || 0, own = parseCurrencyNumber(zpDraft[k]) || 0;
+        if (only && !own) return false;
+        if (!all && !base && !own) return false;
+        return !q || zaloNorm(p.name + ' ' + p.id).includes(q);
+      }).slice(0, 300);
+      box.innerHTML = rows.length ? rows.map(p => {
+        const k = imgKey(p.id), base = parseCurrencyNumber(p.dealerPrice) || 0, own = parseCurrencyNumber(zpDraft[k]) || 0;
+        const auto = base ? (pct ? Math.round(base * (1 - pct / 100) / 1000) * 1000 : base) : 0;
+        return '<div class="grid grid-cols-[1fr_90px_120px] gap-2 items-center p-1.5 rounded-lg ' + (own ? 'bg-emerald-950/40 border border-emerald-800/50' : 'bg-gray-800/40 border border-gray-800') + '">' +
+          '<span class="min-w-0"><span class="block truncate text-gray-200">' + esc(p.name) + '</span><span class="text-[10px] text-gray-500">' + esc(p.id) + ' · ' + esc(p.unit || 'Cái') + '</span></span>' +
+          '<span class="text-right font-mono text-gray-400">' + (base ? formatMoney(base) : '—') + '</span>' +
+          '<input type="text" inputmode="numeric" data-k="' + esc(k) + '" value="' + (own ? formatMoney(own) : '') + '" placeholder="' + (auto ? formatMoney(auto) : 'không bán') + '" ' +
+          'onfocus="handleMoneyFocus(this)" oninput="zaloDraftPrice(this)" onblur="zaloDraftPrice(this);this.value=(parseCurrencyNumber(this.value)||0)?formatMoney(parseCurrencyNumber(this.value)):\'\'" ' +
+          'class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-right font-mono text-emerald-300 focus:outline-none focus:border-emerald-500">' +
+          '</div>';
+      }).join('') : '<div class="text-gray-500 p-2">Không có sản phẩm khớp.</div>';
+    }
+    function zaloDraftPrice(input) {
+      const k = input.getAttribute('data-k'), v = parseCurrencyNumber(input.value) || 0;
+      if (v > 0) zpDraft[k] = v; else delete zpDraft[k];
+    }
+    async function zaloSavePricing() {
+      if (!zpGroupId || !isAdminUser() || !firebaseDb) return;
+      const pct = Math.min(50, Math.max(0, parseFloat(document.getElementById('zp-pct').value) || 0));
+      const clean = {};
+      Object.keys(zpDraft).forEach(k => { const v = parseCurrencyNumber(zpDraft[k]) || 0; if (v > 0) clean[k] = v; });
+      const data = (pct || Object.keys(clean).length) ? { discountPct: pct || null, prices: Object.keys(clean).length ? clean : null, updatedAt: Date.now(), by: currentLoggedInUser.name || '' } : null;
+      const btn = document.getElementById('zp-save'); btn.disabled = true;
+      try {
+        await firebaseDb.ref('garage/zaloGroups/pricing/' + zpGroupId).set(data);
+        showNotification('Đã lưu giá riêng cho nhóm. Bot sẽ báo đổi giá cho nhóm này sau ~3 phút.', 'success');
+        zaloClosePriceModal();
+      } catch (e) {
+        showNotification('Không lưu được (' + (e && e.code ? e.code : 'lỗi') + ').', 'error');
+      } finally { btn.disabled = false; }
+    }
+    async function zaloClearPricing() {
+      if (!zpGroupId || !window.confirm('Xoá toàn bộ giá riêng của nhóm này? Nhóm sẽ dùng Giá Đại Lý chung.')) return;
+      zpDraft = {}; document.getElementById('zp-pct').value = '';
+      await zaloSavePricing();
     }
     async function zaloRefreshGroups() {
       if (!isAdminUser() || !firebaseDb) return;
