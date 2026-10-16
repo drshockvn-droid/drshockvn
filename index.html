@@ -970,6 +970,24 @@
           <div id="zalo-groups-list" class="max-h-56 overflow-y-auto custom-scrollbar space-y-1 text-xs"><div class="text-gray-500">Đang tải...</div></div>
           <p class="text-[10px] text-gray-500 mt-1.5">Tick để bật/tắt, bot áp dụng ngay không cần khởi động lại. Nên thêm dần 3–5 nhóm mỗi lần.</p>
         </div>
+        <details id="zalo-teach-box" class="bg-gray-800/40 p-2.5 rounded-xl border border-amber-800/40">
+          <summary class="cursor-pointer text-[11px] font-bold uppercase tracking-wider text-amber-300">🎓 Dạy AI báo giá <span id="zt-count" class="normal-case text-gray-400 font-normal"></span></summary>
+          <div class="mt-2 space-y-2">
+            <div>
+              <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Quy tắc báo giá (viết tự nhiên, mỗi ý 1 dòng)</label>
+              <textarea id="zt-rules" rows="6" placeholder="VD:&#10;- Phuộc bảo hành 12 tháng, nhớt không bảo hành.&#10;- Đơn từ 5 bộ phuộc miễn phí ship nội thành HCM, tỉnh khác ship COD.&#10;- Hỏi phuộc mà chưa nói đời xe/năm sản xuất thì hỏi lại đời xe trước khi báo.&#10;- Giá đã gồm VAT. Chốt đơn trước 15h giao trong ngày.&#10;- Xưng em, gọi đại lý là anh/chị, trả lời ngắn gọn." class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"></textarea>
+              <button onclick="zaloSaveRules()" class="mt-1 px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold"><i class="fa-solid fa-floppy-disk mr-1"></i>Lưu quy tắc</button>
+            </div>
+            <div class="border-t border-gray-800 pt-2">
+              <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Thêm câu trả lời mẫu</label>
+              <input id="zt-q" type="text" placeholder="Đại lý hỏi... VD: giá phuộc sau Fortuner 2020" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white mb-1 focus:outline-none focus:border-amber-500">
+              <textarea id="zt-a" rows="4" placeholder="Bot nên trả lời... (giá trong mẫu chỉ để minh hoạ, bot luôn lấy giá thật từ kho)" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"></textarea>
+              <button onclick="zaloAddExample()" class="mt-1 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-amber-300 border border-amber-600/50 rounded-lg text-xs font-bold"><i class="fa-solid fa-plus mr-1"></i>Thêm mẫu</button>
+              <div id="zt-examples" class="space-y-1 mt-2 max-h-56 overflow-y-auto custom-scrollbar text-xs"></div>
+            </div>
+            <p class="text-[10px] text-gray-500">Bot áp dụng ngay, không cần khởi động lại. Mẹo: ở mục "Bot trả lời đại lý gần đây", bấm ✏️ để sửa câu bot trả lời chưa hay thành mẫu chuẩn.</p>
+          </div>
+        </details>
         <div>
           <div class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mt-2 mb-1">Tin đã gửi gần đây</div>
           <div id="zalo-history" class="space-y-1.5 text-xs"></div>
@@ -3738,7 +3756,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.16-1';
+    const APP_VERSION = '2026.10.16-2';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -4013,10 +4031,12 @@
       });
       const r3 = firebaseDb.ref('garage/zaloBot/log').limitToLast(8);
       r3.on('value', s => {
-        const rows = Object.values(s.val() || {}).sort((a, b) => (b.at || 0) - (a.at || 0));
+        zaloQaRows = s.val() || {};
+        const rows = Object.entries(zaloQaRows).map(([k, v]) => Object.assign({ _k: k }, v)).sort((a, b) => (b.at || 0) - (a.at || 0));
         document.getElementById('zalo-qa').innerHTML = rows.length ? rows.map(r =>
           '<div class="p-2 rounded-lg bg-gray-800/50 border border-gray-800"><div class="text-[10px] text-gray-500">' + esc(r.group || '') + ' · ' + zaloFmtTime(r.at) + '</div>' +
-          '<div class="text-amber-200"><b>' + esc(r.from || 'Đại lý') + ':</b> ' + esc(r.q || '') + '</div><div class="text-gray-300 whitespace-pre-line mt-0.5">🤖 ' + esc(r.a || '') + '</div></div>').join('') : '<div class="text-gray-500">Chưa có câu hỏi nào.</div>';
+          '<div class="text-amber-200"><b>' + esc(r.from || 'Đại lý') + ':</b> ' + esc(r.q || '') + '</div><div class="text-gray-300 whitespace-pre-line mt-0.5">🤖 ' + esc(r.a || '') + '</div>' +
+          '<button onclick="zaloQaToExample(\'' + esc(r._k) + '\')" class="mt-1 px-2 py-0.5 bg-gray-800 hover:bg-gray-700 text-amber-300 border border-amber-600/40 rounded-md text-[10px] font-bold">✏️ Sửa thành mẫu</button></div>').join('') : '<div class="text-gray-500">Chưa có câu hỏi nào.</div>';
       });
       const r4 = firebaseDb.ref('garage/zaloBot/allGroups');
       r4.on('value', s => { zaloAllGroups = s.val() || {}; zaloRenderGroups(); });
@@ -4024,7 +4044,14 @@
       r5.on('value', s => { zaloEnabledGroups = s.val() || {}; zaloRenderGroups(); });
       const r6 = firebaseDb.ref('garage/zaloGroups/pricing');
       r6.on('value', s => { zaloPricing = s.val() || {}; zaloRenderGroups(); });
-      zaloRefs = [r1, r2, r3, r4, r5, r6];
+      const r7 = firebaseDb.ref('garage/zaloTeach');
+      let rulesLoaded = false;
+      r7.on('value', s => {
+        zaloTeach = s.val() || {};
+        if (!rulesLoaded) { document.getElementById('zt-rules').value = zaloTeach.rules || ''; rulesLoaded = true; }
+        zaloRenderExamples();
+      });
+      zaloRefs = [r1, r2, r3, r4, r5, r6, r7];
     }
     let zaloAllGroups = {}, zaloEnabledGroups = {}, zaloPricing = {};
     function zaloNorm(t) { return String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase(); }
@@ -4133,6 +4160,47 @@
       if (!zpGroupId || !window.confirm('Xoá toàn bộ giá riêng của nhóm này? Nhóm sẽ dùng Giá Đại Lý chung.')) return;
       zpDraft = {}; document.getElementById('zp-pct').value = '';
       await zaloSavePricing();
+    }
+
+    // ===== DẠY AI BÁO GIÁ -> garage/zaloTeach { rules, examples } =====
+    let zaloTeach = {}, zaloQaRows = {};
+    function zaloRenderExamples() {
+      const ex = Object.entries(zaloTeach.examples || {}).sort((a, b) => (b[1].at || 0) - (a[1].at || 0));
+      document.getElementById('zt-count').textContent = '(' + ((zaloTeach.rules || '').trim() ? 'có quy tắc · ' : '') + ex.length + ' mẫu)';
+      document.getElementById('zt-examples').innerHTML = ex.length ? ex.map(([k, e]) =>
+        '<div class="p-2 rounded-lg bg-gray-800/60 border border-gray-800"><div class="flex justify-between gap-2"><span class="text-amber-200"><b>Hỏi:</b> ' + esc(e.q) + '</span>' +
+        '<button onclick="zaloDeleteExample(\'' + esc(k) + '\')" class="shrink-0 text-gray-500 hover:text-red-400" title="Xoá mẫu"><i class="fa-solid fa-trash-can"></i></button></div>' +
+        '<div class="text-gray-300 whitespace-pre-line mt-0.5"><b>Đáp:</b> ' + esc(e.a) + '</div></div>').join('') : '<div class="text-gray-500">Chưa có mẫu nào.</div>';
+    }
+    async function zaloSaveRules() {
+      if (!isAdminUser() || !firebaseDb) return;
+      try {
+        await firebaseDb.ref('garage/zaloTeach').update({ rules: document.getElementById('zt-rules').value.trim().slice(0, 6000), rulesAt: Date.now(), rulesBy: currentLoggedInUser.name || '' });
+        showNotification('Đã lưu quy tắc báo giá, bot áp dụng ngay!', 'success');
+      } catch (e) { showNotification('Không lưu được (' + (e && e.code ? e.code : 'lỗi') + '). Kiểm tra đã dán Rules mới chưa.', 'error'); }
+    }
+    async function zaloAddExample() {
+      if (!isAdminUser() || !firebaseDb) return;
+      const q = document.getElementById('zt-q').value.trim(), a = document.getElementById('zt-a').value.trim();
+      if (!q || !a) { showNotification('Nhập đủ câu hỏi và câu trả lời mẫu!', 'warning'); return; }
+      try {
+        await firebaseDb.ref('garage/zaloTeach/examples').push({ q: q.slice(0, 400), a: a.slice(0, 1200), at: Date.now(), by: currentLoggedInUser.name || '' });
+        document.getElementById('zt-q').value = ''; document.getElementById('zt-a').value = '';
+        showNotification('Đã thêm mẫu, bot học ngay!', 'success');
+      } catch (e) { showNotification('Không lưu được (' + (e && e.code ? e.code : 'lỗi') + ').', 'error'); }
+    }
+    async function zaloDeleteExample(k) {
+      if (!window.confirm('Xoá câu trả lời mẫu này?')) return;
+      try { await firebaseDb.ref('garage/zaloTeach/examples/' + k).remove(); } catch (e) { showNotification('Không xoá được.', 'error'); }
+    }
+    function zaloQaToExample(k) {
+      const r = zaloQaRows[k]; if (!r) return;
+      const box = document.getElementById('zalo-teach-box'); box.open = true;
+      document.getElementById('zt-q').value = r.q || '';
+      document.getElementById('zt-a').value = r.a || '';
+      document.getElementById('zt-a').focus();
+      box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      showNotification('Sửa câu trả lời cho đúng ý anh rồi bấm "Thêm mẫu".', 'info');
     }
     async function zaloRefreshGroups() {
       if (!isAdminUser() || !firebaseDb) return;
