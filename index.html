@@ -500,6 +500,7 @@
                 <i class="fa-solid fa-plus text-xs"></i><span>+ Nhập Hàng (Phiếu)</span>
               </button>
               <button onclick="openModalAddInventory()" class="stock-manage-only px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 active:scale-95 text-amber-300 border border-amber-500/40 text-xs font-semibold rounded-xl shadow flex items-center gap-1 transition"><i class="fa-solid fa-box-open"></i><span>+ Mã Hàng Mới</span></button>
+              <button onclick="openZaloModal()" class="admin-only px-2.5 py-1.5 bg-sky-700/80 hover:bg-sky-600 active:scale-95 text-white text-xs font-semibold rounded-xl shadow flex items-center gap-1 transition" title="Gửi tin vào nhóm Zalo đại lý"><i class="fa-solid fa-comment-dots"></i><span class="hidden sm:inline">Zalo Đại Lý</span></button>
               <button id="btn-export-inventory-trigger" onclick="exportInventoryToExcel()" class="stock-manage-only px-2.5 py-1.5 bg-emerald-700/80 hover:bg-emerald-600 active:scale-95 text-white text-xs font-semibold rounded-xl shadow flex items-center gap-1 transition">
                 <i class="fa-solid fa-file-excel"></i><span class="hidden sm:inline">Xuất Kho</span>
               </button>
@@ -923,6 +924,120 @@
   </div>
 
   <!-- ================= MODAL SỬA / THÊM PHỤ TÙNG ================= -->
+  <!-- ===== ZALO DAI LY: soan tin gui vao nhom Zalo dai ly (bot doc va gui) ===== -->
+  <div id="zalo-modal" class="fixed inset-0 z-50 bg-black/85 hidden flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+    <div class="bg-gray-900 border border-gray-700 text-gray-100 rounded-t-3xl sm:rounded-2xl w-full max-w-lg p-4 sm:p-5 shadow-2xl relative my-0 sm:my-auto max-h-[90vh] overflow-y-auto custom-scrollbar">
+      <div class="flex items-center justify-between border-b border-gray-800 pb-2.5 mb-3">
+        <h3 class="text-sm sm:text-base font-bold text-sky-400 flex items-center gap-2"><i class="fa-solid fa-comment-dots"></i>Zalo Đại Lý</h3>
+        <button onclick="closeZaloModal()" class="w-8 h-8 rounded-full bg-gray-800 text-gray-400 hover:text-white flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="zalo-bot-status" class="text-xs p-2.5 rounded-xl border border-gray-800 bg-gray-800/40 mb-3">Đang kiểm tra bot...</div>
+      <div class="space-y-2.5 text-left">
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Loại tin</label>
+            <select id="zalo-kind" onchange="zaloKindChanged()" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-xs text-white focus:outline-none focus:border-sky-500">
+              <option value="promo">Chương trình / Khuyến mãi</option>
+              <option value="news">Sản phẩm mới / Thông báo</option>
+            </select>
+          </div>
+          <div id="zalo-until-wrap">
+            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Áp dụng đến ngày</label>
+            <input type="date" id="zalo-until" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-sky-500">
+          </div>
+        </div>
+        <textarea id="zalo-text" rows="6" placeholder="VD: 🔥 Tháng 11 – Mua 2 bộ phuộc Profender tặng 1 can nhớt Motul 4L. Áp dụng cho đại lý/garage đến hết 30/11." class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"></textarea>
+        <div class="flex items-center gap-3">
+          <div id="zalo-img-preview" onclick="document.getElementById('zalo-img-file').click()" class="w-16 h-16 shrink-0 rounded-xl bg-gray-800 border border-dashed border-gray-600 overflow-hidden flex items-center justify-center cursor-pointer text-gray-500"><i class="fa-solid fa-image"></i></div>
+          <div class="flex-1 flex flex-col gap-1.5">
+            <input type="file" id="zalo-img-file" accept="image/*" class="hidden" onchange="zaloImageSelected(this)">
+            <button type="button" onclick="document.getElementById('zalo-img-file').click()" class="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-sky-300 border border-sky-500/40 rounded-xl text-xs font-bold">Kèm 1 ảnh (không bắt buộc)</button>
+            <label class="text-[11px] text-gray-400 flex items-center gap-1.5"><input type="checkbox" id="zalo-sign" checked> Kèm chữ ký shop (SĐT, địa chỉ)</label>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2 pt-1">
+          <button onclick="zaloSendPriceList()" class="px-3 py-2.5 bg-gray-800 hover:bg-gray-700 active:scale-95 text-emerald-300 border border-emerald-500/40 rounded-xl text-xs font-bold"><i class="fa-solid fa-list mr-1"></i>Gửi bảng giá ngay</button>
+          <button id="zalo-send-btn" onclick="zaloSendPost()" class="px-3 py-2.5 bg-sky-600 hover:bg-sky-500 active:scale-95 text-white rounded-xl text-xs font-bold"><i class="fa-solid fa-paper-plane mr-1"></i>Gửi vào nhóm</button>
+        </div>
+        <p class="text-[10px] text-gray-500">Bảng giá chỉ gồm sản phẩm đã nhập <b class="text-emerald-300">Giá Đại Lý</b> (sửa ở nút bút chì từng phụ tùng). Bot gửi lần lượt từng nhóm, cách nhau khoảng 40 giây.</p>
+        <div class="bg-gray-800/40 p-2.5 rounded-xl border border-gray-800">
+          <div class="flex items-center justify-between gap-2 mb-1.5">
+            <div class="text-[10px] font-bold uppercase tracking-wider text-sky-300">Nhóm nhận tin <span id="zalo-groups-count" class="text-gray-400 normal-case"></span></div>
+            <button onclick="zaloRefreshGroups()" class="px-2 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 rounded-lg text-[10px] font-bold"><i class="fa-solid fa-rotate mr-1"></i>Làm mới danh sách</button>
+          </div>
+          <input type="text" id="zalo-groups-search" oninput="zaloRenderGroups()" placeholder="Tìm nhóm (không cần dấu)..." class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white mb-1.5 focus:outline-none focus:border-sky-500">
+          <label class="text-[11px] text-gray-400 flex items-center gap-1.5 mb-1.5"><input type="checkbox" id="zalo-groups-only" onchange="zaloRenderGroups()"> Chỉ hiện nhóm đang bật</label>
+          <div id="zalo-groups-list" class="max-h-56 overflow-y-auto custom-scrollbar space-y-1 text-xs"><div class="text-gray-500">Đang tải...</div></div>
+          <p class="text-[10px] text-gray-500 mt-1.5">Tick để bật/tắt, bot áp dụng ngay không cần khởi động lại. Nên thêm dần 3–5 nhóm mỗi lần.</p>
+        </div>
+        <details id="zalo-teach-box" class="bg-gray-800/40 p-2.5 rounded-xl border border-amber-800/40">
+          <summary class="cursor-pointer text-[11px] font-bold uppercase tracking-wider text-amber-300">🎓 Kiến thức cho AI <span id="zt-count" class="normal-case text-gray-400 font-normal"></span></summary>
+          <div class="mt-2 space-y-2">
+            <p class="text-[10px] text-gray-400">Gõ tự nhiên, mỗi ý 1 dòng. Bấm <b>Lưu kiến thức</b> là bot học ngay (không cần khởi động lại).</p>
+            <div id="zt-topics" class="space-y-2"></div>
+            <button onclick="zaloSaveRules()" class="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold"><i class="fa-solid fa-floppy-disk mr-1"></i>Lưu kiến thức</button>
+            <div class="border-t border-gray-800 pt-2">
+              <div class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">📱 Dạy nhanh qua Zalo</div>
+              <p class="text-[10px] text-gray-400">Nhắn riêng cho Zalo bot: <code class="text-amber-300">#day nội dung</code> (VD: <i>#day Roadfit bảo hành 24 tháng</i>). Xem lại: <code class="text-amber-300">#xemday</code>. <b>Chủ xưởng</b> còn nhắn tự nhiên để bot gửi tin vào nhóm (VD: <i>"Nhắn nhóm Nội Bộ: chiều 3h họp kho"</i>, <i>"Gửi bảng giá cho tất cả nhóm"</i>) – bot hỏi lại trước khi gửi. <b>Nhân viên</b> chỉ dạy AI.</p>
+              <div class="flex items-center gap-2 mt-1.5 flex-wrap">
+                <button onclick="zaloNewActivation('owner')" class="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-amber-300 border border-amber-600/50 rounded-lg text-[11px] font-bold">🔑 Mã cho Chủ xưởng</button>
+                <button onclick="zaloNewActivation('staff')" class="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-sky-300 border border-sky-600/50 rounded-lg text-[11px] font-bold">🔑 Mã cho Nhân viên</button>
+                <span id="zt-act" class="text-[11px] text-gray-300"></span>
+              </div>
+              <div id="zt-owners" class="mt-1.5 space-y-1 text-[11px]"></div>
+            </div>
+            <div class="border-t border-gray-800 pt-2">
+              <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Thêm câu trả lời mẫu</label>
+              <input id="zt-q" type="text" placeholder="Đại lý hỏi... VD: giá phuộc sau Fortuner 2020" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white mb-1 focus:outline-none focus:border-amber-500">
+              <textarea id="zt-a" rows="4" placeholder="Bot nên trả lời... (giá trong mẫu chỉ để minh hoạ, bot luôn lấy giá thật từ kho)" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"></textarea>
+              <button onclick="zaloAddExample()" class="mt-1 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-amber-300 border border-amber-600/50 rounded-lg text-xs font-bold"><i class="fa-solid fa-plus mr-1"></i>Thêm mẫu</button>
+              <div id="zt-examples" class="space-y-1 mt-2 max-h-56 overflow-y-auto custom-scrollbar text-xs"></div>
+            </div>
+            <p class="text-[10px] text-gray-500">Bot áp dụng ngay, không cần khởi động lại. Mẹo: ở mục "Bot trả lời đại lý gần đây", bấm ✏️ để sửa câu bot trả lời chưa hay thành mẫu chuẩn.</p>
+          </div>
+        </details>
+        <div>
+          <div class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mt-2 mb-1">Tin đã gửi gần đây</div>
+          <div id="zalo-history" class="space-y-1.5 text-xs"></div>
+        </div>
+        <div>
+          <div class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mt-2 mb-1">Bot trả lời đại lý gần đây</div>
+          <div id="zalo-qa" class="space-y-1.5 text-xs"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== GIA RIENG THEO NHOM ZALO (dai ly uu tien) ===== -->
+  <div id="zalo-price-modal" class="fixed inset-0 z-[60] bg-black/85 hidden flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+    <div class="bg-gray-900 border border-gray-700 text-gray-100 rounded-t-3xl sm:rounded-2xl w-full max-w-2xl p-4 sm:p-5 shadow-2xl relative my-0 sm:my-auto max-h-[92vh] flex flex-col">
+      <div class="flex items-center justify-between border-b border-gray-800 pb-2.5 mb-3 gap-2">
+        <h3 class="text-sm sm:text-base font-bold text-emerald-300 flex items-center gap-2 min-w-0"><i class="fa-solid fa-tags"></i><span class="truncate">Giá riêng: <span id="zp-group-name" class="text-white"></span></span></h3>
+        <button onclick="zaloClosePriceModal()" class="w-8 h-8 shrink-0 rounded-full bg-gray-800 text-gray-400 hover:text-white flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+        <div class="bg-gray-800/40 p-2.5 rounded-xl border border-gray-800">
+          <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Giảm thêm cho cả bảng giá (%)</label>
+          <input type="number" id="zp-pct" min="0" max="50" step="0.5" placeholder="0" oninput="zaloRenderPriceRows()" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-sm text-white focus:outline-none focus:border-emerald-500">
+          <p class="text-[10px] text-gray-500 mt-1">Áp cho mọi món chưa đặt giá riêng. % tính trên <b>giá niêm yết bán lẻ</b>: VD lẻ 5.000.000, ĐL 4.000.000 (CK 20%), giảm thêm 5% → 3.750.000 (CK 25%). Làm tròn nghìn.</p>
+        </div>
+        <div class="bg-gray-800/40 p-2.5 rounded-xl border border-gray-800">
+          <input type="text" id="zp-search" oninput="zaloRenderPriceRows()" placeholder="Tìm sản phẩm..." class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white mb-1.5 focus:outline-none focus:border-emerald-500">
+          <label class="text-[11px] text-gray-400 flex items-center gap-1.5"><input type="checkbox" id="zp-all" onchange="zaloRenderPriceRows()"> Hiện cả SP chưa có Giá Đại Lý chung</label>
+          <label class="text-[11px] text-gray-400 flex items-center gap-1.5 mt-1"><input type="checkbox" id="zp-only" onchange="zaloRenderPriceRows()"> Chỉ hiện món đã đặt giá riêng</label>
+        </div>
+      </div>
+      <div class="text-[10px] text-gray-500 grid grid-cols-[1fr_90px_120px] gap-2 px-2 pb-1"><span>Sản phẩm</span><span class="text-right">Giá ĐL chung</span><span class="text-right">Giá riêng nhóm</span></div>
+      <div id="zp-rows" class="flex-1 overflow-y-auto custom-scrollbar space-y-1 text-xs min-h-[120px]"></div>
+      <p class="text-[10px] text-gray-500 mt-2">Để trống ô = dùng giá chung (đã trừ % nếu có). Bot chỉ báo cho nhóm này đúng giá của nhóm, không lộ sang nhóm khác.</p>
+      <div class="grid grid-cols-3 gap-2 pt-2">
+        <button onclick="zaloClearPricing()" class="px-3 py-2.5 bg-gray-800 hover:bg-red-950/60 text-red-300 border border-gray-700 rounded-xl text-xs font-bold">Xoá giá riêng</button>
+        <button onclick="zaloClosePriceModal()" class="px-3 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 rounded-xl text-xs font-bold">Huỷ</button>
+        <button id="zp-save" onclick="zaloSavePricing()" class="px-3 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold"><i class="fa-solid fa-floppy-disk mr-1"></i>Lưu</button>
+      </div>
+    </div>
+  </div>
+
   <div id="inventory-modal" class="fixed inset-0 z-50 bg-black/85 hidden flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
     <div class="bg-gray-900 border border-gray-700 text-gray-100 rounded-t-3xl sm:rounded-2xl w-full max-w-lg p-4 sm:p-5 shadow-2xl relative my-0 sm:my-auto max-h-[90vh] overflow-y-auto custom-scrollbar">
       
@@ -1023,6 +1138,22 @@
               onfocus="handleMoneyFocus(this)" oninput="handleModalMoneyInput(this)" onblur="handleMoneyBlur(this)"
               class="w-full bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-xs sm:text-sm font-mono text-amber-400 font-bold focus:outline-none focus:border-red-500">
           </div>
+        </div>
+
+        <div class="bg-emerald-950/20 p-2.5 rounded-xl border border-emerald-800/40">
+          <label class="block text-[10px] font-bold uppercase tracking-wider text-emerald-300 mb-1">
+            <i class="fa-solid fa-handshake mr-0.5"></i>Giá Đại Lý / Garage (đ) <span class="normal-case text-gray-500 font-normal">— để trống = không báo lên nhóm Zalo đại lý</span>
+          </label>
+          <input type="text" inputmode="numeric" id="inv-edit-dealer" placeholder="Để trống nếu không bán sỉ" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+            onfocus="handleMoneyFocus(this)" oninput="handleModalMoneyInput(this)" onblur="handleMoneyBlur(this)"
+            class="w-full bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-xs sm:text-sm font-mono text-emerald-300 font-bold focus:outline-none focus:border-emerald-500">
+        </div>
+        <div>
+          <label class="block text-[10px] font-bold uppercase tracking-wider text-sky-300 mb-1">
+            <i class="fa-solid fa-images mr-0.5"></i>Link ảnh gửi khách <span class="normal-case text-gray-500 font-normal">— mỗi dòng 1 link (tối đa 3). Bot Zalo gửi kèm khi báo giá món này</span>
+          </label>
+          <textarea id="inv-edit-links" rows="2" placeholder="https://... (link ảnh .jpg/.png, Google Drive hoặc album Google Photos đã chia sẻ link)" autocomplete="off" spellcheck="false"
+            class="w-full bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-xs text-sky-200 focus:outline-none focus:border-sky-500"></textarea>
         </div>
 
         <div>
@@ -1429,6 +1560,41 @@
       return false;
     }
 
+    // Mã hàng trùng nhau / trống / "-" làm nút Sửa mở nhầm sản phẩm và nút Xóa xóa luôn sản phẩm khác.
+    // Tự đổi các mã lỗi thành mã mới duy nhất (chỉ máy Chủ Xưởng / Thủ kho làm, 1 lần).
+    let fixingInvIds = false;
+    function badInvId(id, seen) { id = String(id == null ? '' : id).trim(); return !id || id === '-' || seen.has(id); }
+    function fixDuplicateInventoryIds() {
+      if (fixingInvIds || !firebaseDb || !cloudReady['garage/inventory']) return;
+      if (!currentLoggedInUser || !['admin', 'stock'].includes(currentLoggedInUser.role)) return;
+      const seen0 = new Set(); let bad = false;
+      inventoryList.forEach(p => { if (badInvId(p.id, seen0)) bad = true; seen0.add(String(p.id == null ? '' : p.id).trim()); });
+      if (!bad) return;
+      fixingInvIds = true;
+      const renamed = [];
+      cloudUpdateList('garage/inventory', list => {
+        renamed.length = 0;
+        const all = new Set(list.map(p => String(p.id == null ? '' : p.id).trim()));
+        const seen = new Set();
+        list.forEach(p => {
+          let id = String(p.id == null ? '' : p.id).trim();
+          if (badInvId(id, seen)) {
+            let n; do { n = 'P' + Math.random().toString(36).slice(2, 7).toUpperCase(); } while (all.has(n));
+            all.add(n);
+            renamed.push({ from: id || '(trống)', to: n, name: p.name || '', unit: p.unit || 'Cái', stock: parseFloat(p.stock) || 0 });
+            p.id = n; id = n;
+          }
+          seen.add(id);
+        });
+        return list;
+      }).then(res => {
+        fixingInvIds = false;
+        if (!res || !renamed.length) return;
+        renamed.forEach(r => logStockEvent('DIEUCHINH', r.to, r.name, r.unit, r.stock, r.stock, 'Tự sửa mã hàng bị trùng/trống: "' + r.from + '" → "' + r.to + '"'));
+        showNotification('Đã tự sửa ' + renamed.length + ' mã hàng bị trùng/trống: ' + renamed.map(r => r.name + ' → ' + r.to).join('; '), 'success');
+      });
+    }
+
     function cloudUpdateList(path, apply) {
       const meta = CLOUD_LISTS[path];
       if (!firebaseDb) {
@@ -1761,7 +1927,7 @@
       listenProductImages();
       listenGarageProfile();
       listenCustomerDirectory();
-      bindList('garage/inventory', true, () => { renderInventoryTable(); populateInventorySelector('ALL'); migrateInlineImages(); });
+      bindList('garage/inventory', true, () => { renderInventoryTable(); populateInventorySelector('ALL'); migrateInlineImages(); fixDuplicateInventoryIds(); });
       bindList('garage/invoices', true, () => { renderInvoiceList(); renderCustomerAndReports(); refreshMaintenanceDue(); });
       bindList('garage/stockLogs', true, () => { renderStockLogs(); updateInventoryOverviewStats(); });
       bindList('garage/staff', false, () => { renderStaffCards(); populateAdvisorSelect(); syncCurrentUserFromRoster(); });
@@ -3510,7 +3676,7 @@
                 <span class="text-[10px] text-gray-400 block flex items-center justify-end">
                   <i class="fa-solid fa-tag text-amber-400 text-[9px] mr-1"></i>Giá Bán Lẻ
                 </span>
-                <span class="text-xs sm:text-sm font-black text-amber-400 font-mono">${formatMoney(p.price || 0)} đ</span>
+                <span class="text-xs sm:text-sm font-black text-amber-400 font-mono">${formatMoney(p.price || 0)} đ</span>${parseCurrencyNumber(p.dealerPrice) > 0 ? `<span class="block text-[10px] text-emerald-300 font-mono font-semibold"><i class="fa-solid fa-handshake text-[9px] mr-0.5"></i>ĐL: ${formatMoney(p.dealerPrice)} đ</span>` : ''}
               </div>
             </div>
           ` : `
@@ -3518,7 +3684,7 @@
               <span class="text-[11px] text-gray-400 flex items-center">
                 <i class="fa-solid fa-tag text-amber-400 text-[10px] mr-1.5"></i>Giá Bán Lẻ Niêm Yết
               </span>
-              <span class="text-xs sm:text-sm font-black text-amber-400 font-mono">${formatMoney(p.price || 0)} đ</span>
+              <span class="text-xs sm:text-sm font-black text-amber-400 font-mono">${formatMoney(p.price || 0)} đ</span>${parseCurrencyNumber(p.dealerPrice) > 0 ? `<span class="block text-[10px] text-emerald-300 font-mono font-semibold"><i class="fa-solid fa-handshake text-[9px] mr-0.5"></i>ĐL: ${formatMoney(p.dealerPrice)} đ</span>` : ''}
             </div>
           `;
 
@@ -3578,7 +3744,7 @@
                   <span class="px-2 py-0.5 rounded bg-amber-950/60 text-amber-300 border border-amber-500/30 text-xs font-bold">${p.unit || 'Cái'}</span>
                 </td>
                 <td class="py-2.5 px-3 text-right font-mono text-emerald-400 font-semibold">${formatMoney(p.costPrice || 0)} đ</td>
-                <td class="py-2.5 px-3 text-right font-mono font-bold text-amber-400">${formatMoney(p.price || 0)} đ</td>
+                <td class="py-2.5 px-3 text-right font-mono font-bold text-amber-400">${formatMoney(p.price || 0)} đ${parseCurrencyNumber(p.dealerPrice) > 0 ? `<span class="block text-[10px] text-emerald-300 font-mono font-semibold"><i class="fa-solid fa-handshake text-[9px] mr-0.5"></i>ĐL: ${formatMoney(p.dealerPrice)} đ</span>` : ''}</td>
                 <td class="py-2.5 px-3 text-center font-bold ${p.stock <= 2 ? 'text-red-500' : 'text-sky-400'}">${formatStockQty(p.stock)}</td>
                 <td class="py-2.5 px-3 text-center">
                   <div class="flex items-center justify-center gap-1.5">
@@ -3605,7 +3771,7 @@
                 <td class="py-2.5 px-3 text-center">
                   <span class="px-2 py-0.5 rounded bg-amber-950/60 text-amber-300 border border-amber-500/30 text-xs font-bold">${p.unit || 'Cái'}</span>
                 </td>
-                <td class="py-2.5 px-3 text-right font-mono font-bold text-amber-400">${formatMoney(p.price || 0)} đ</td>
+                <td class="py-2.5 px-3 text-right font-mono font-bold text-amber-400">${formatMoney(p.price || 0)} đ${parseCurrencyNumber(p.dealerPrice) > 0 ? `<span class="block text-[10px] text-emerald-300 font-mono font-semibold"><i class="fa-solid fa-handshake text-[9px] mr-0.5"></i>ĐL: ${formatMoney(p.dealerPrice)} đ</span>` : ''}</td>
                 <td class="py-2.5 px-3 text-center font-bold ${p.stock <= 2 ? 'text-red-500' : 'text-sky-400'}">${formatStockQty(p.stock)}</td>
               </tr>
             `;
@@ -3640,7 +3806,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.12-1';
+    const APP_VERSION = '2026.10.17-3';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -3876,6 +4042,344 @@
       }
     }
 
+    // ===== ZALO ĐẠI LÝ: soạn tin -> garage/zaloPosts, bot trên máy tính đọc và gửi vào nhóm =====
+    let zaloImage = '';
+    let zaloRefs = [];
+    let zaloStatusTimer = null;
+    function zaloFmtTime(ts) { return ts ? new Date(ts).toLocaleString('vi-VN', { hour12: false, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''; }
+    function openZaloModal() {
+      if (!isAdminUser()) { showNotification('Chỉ Chủ Xưởng được gửi tin vào nhóm đại lý!', 'warning'); return; }
+      if (!firebaseDb) { showNotification('Chưa kết nối đám mây, không gửi được!', 'error'); return; }
+      document.getElementById('zalo-modal').classList.remove('hidden');
+      zaloKindChanged();
+      let lastStatus = null;
+      const renderStatus = () => {
+        const st = lastStatus, box = document.getElementById('zalo-bot-status');
+        if (!box) return;
+        const alive = st && st.online && st.lastSeen && Date.now() - st.lastSeen < 3 * 60 * 1000;
+        if (!st) { box.innerHTML = '<span class="text-gray-400"><i class="fa-solid fa-circle text-gray-500 text-[8px] mr-1"></i>Bot chưa từng chạy. Tin soạn ở đây sẽ được gửi khi bot bật.</span>'; return; }
+        const groups = (st.groups || []).map(g => esc(g.name)).join(', ');
+        box.innerHTML = (alive
+          ? '<b class="text-emerald-400"><i class="fa-solid fa-circle text-[8px] mr-1"></i>Bot đang chạy</b>'
+          : '<b class="text-red-400"><i class="fa-solid fa-circle text-[8px] mr-1"></i>Bot đang tắt</b> <span class="text-gray-400">– tin sẽ chờ, bot bật lên sẽ gửi.</span>') +
+          '<div class="text-gray-400 mt-1">' + (st.note ? esc(st.note) + ' · ' : '') + 'Cập nhật ' + zaloFmtTime(st.lastSeen) + (st.host ? ' · máy ' + esc(st.host) : '') + '</div>' +
+          (groups ? '<div class="text-gray-400">Nhóm: <span class="text-gray-200">' + groups + '</span>' + (st.dailyPriceTime ? ' · Bảng giá tự động ' + esc(st.dailyPriceTime) : '') + '</div>' : '');
+      };
+      const r1 = firebaseDb.ref('garage/zaloBot/status');
+      r1.on('value', s => { lastStatus = s.val(); renderStatus(); });
+      zaloStatusTimer = setInterval(renderStatus, 30000);
+      const r2 = firebaseDb.ref('garage/zaloPosts').limitToLast(12);
+      r2.on('value', s => {
+        const rows = Object.values(s.val() || {}).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        const label = { pending: ['Chờ bot gửi', 'text-amber-300'], sending: ['Đang gửi...', 'text-sky-300'], sent: ['Đã gửi', 'text-emerald-400'], error: ['Lỗi', 'text-red-400'] };
+        document.getElementById('zalo-history').innerHTML = rows.length ? rows.map(r => {
+          const lb = label[r.status] || [r.status || '', 'text-gray-400'];
+          const title = r.kind === 'pricelist' ? '📋 Bảng giá đại lý' : esc(String(r.text || '').slice(0, 140));
+          return '<div class="p-2 rounded-lg bg-gray-800/50 border border-gray-800"><div class="flex justify-between gap-2"><span class="text-gray-200 whitespace-pre-line">' + title + (r.hadImage || r.image ? ' 🖼' : '') + '</span><b class="' + lb[1] + ' shrink-0">' + lb[0] + (r.status === 'sent' && r.groupsTotal ? ' ' + r.groupsOk + '/' + r.groupsTotal : '') + '</b></div>' +
+            '<div class="text-[10px] text-gray-500 mt-0.5">' + esc(r.createdBy || '') + ' · ' + zaloFmtTime(r.createdAt) + '</div>' + (r.error ? '<div class="text-[10px] text-red-400 mt-0.5">' + esc(r.error) + '</div>' : '') + '</div>';
+        }).join('') : '<div class="text-gray-500">Chưa có tin nào.</div>';
+      });
+      const r3 = firebaseDb.ref('garage/zaloBot/log').limitToLast(8);
+      r3.on('value', s => {
+        zaloQaRows = s.val() || {};
+        const rows = Object.entries(zaloQaRows).map(([k, v]) => Object.assign({ _k: k }, v)).sort((a, b) => (b.at || 0) - (a.at || 0));
+        document.getElementById('zalo-qa').innerHTML = rows.length ? rows.map(r =>
+          '<div class="p-2 rounded-lg bg-gray-800/50 border border-gray-800"><div class="text-[10px] text-gray-500">' + esc(r.group || '') + ' · ' + zaloFmtTime(r.at) + '</div>' +
+          '<div class="text-amber-200"><b>' + esc(r.from || 'Đại lý') + ':</b> ' + esc(r.q || '') + '</div><div class="text-gray-300 whitespace-pre-line mt-0.5">🤖 ' + esc(r.a || '') + '</div>' +
+          '<button onclick="zaloQaToExample(\'' + esc(r._k) + '\')" class="mt-1 px-2 py-0.5 bg-gray-800 hover:bg-gray-700 text-amber-300 border border-amber-600/40 rounded-md text-[10px] font-bold">✏️ Sửa thành mẫu</button></div>').join('') : '<div class="text-gray-500">Chưa có câu hỏi nào.</div>';
+      });
+      const r4 = firebaseDb.ref('garage/zaloBot/allGroups');
+      r4.on('value', s => { zaloAllGroups = s.val() || {}; zaloRenderGroups(); });
+      const r5 = firebaseDb.ref('garage/zaloGroups/enabled');
+      r5.on('value', s => { zaloEnabledGroups = s.val() || {}; zaloRenderGroups(); });
+      const r6 = firebaseDb.ref('garage/zaloGroups/pricing');
+      r6.on('value', s => { zaloPricing = s.val() || {}; zaloRenderGroups(); });
+      const r7 = firebaseDb.ref('garage/zaloTeach');
+      let rulesLoaded = false;
+      r7.on('value', s => {
+        zaloTeach = s.val() || {};
+        zaloRenderTopics(!rulesLoaded); rulesLoaded = true;
+        zaloRenderExamples(); zaloRenderOwners();
+      });
+      zaloRefs = [r1, r2, r3, r4, r5, r6, r7];
+    }
+    let zaloAllGroups = {}, zaloEnabledGroups = {}, zaloPricing = {};
+    function zaloNorm(t) { return String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase(); }
+    function zaloRenderGroups() {
+      const box = document.getElementById('zalo-groups-list');
+      if (!box) return;
+      const all = Object.assign({}, (zaloAllGroups && zaloAllGroups.list) || {});
+      Object.keys(zaloEnabledGroups).forEach(id => { if (!all[id]) all[id] = { name: (zaloEnabledGroups[id] && zaloEnabledGroups[id].name) || id, missing: true }; });
+      const q = zaloNorm(document.getElementById('zalo-groups-search').value.trim());
+      const only = document.getElementById('zalo-groups-only').checked;
+      const rows = Object.entries(all)
+        .filter(([id, g]) => (!q || zaloNorm(g.name).includes(q) || id.includes(q)) && (!only || zaloEnabledGroups[id]))
+        .sort((a, b) => (zaloEnabledGroups[b[0]] ? 1 : 0) - (zaloEnabledGroups[a[0]] ? 1 : 0) || String(a[1].name).localeCompare(String(b[1].name), 'vi'));
+      const nOn = Object.keys(zaloEnabledGroups).length;
+      document.getElementById('zalo-groups-count').textContent = '(' + nOn + ' đang bật / ' + Object.keys(all).length + ' nhóm)';
+      if (!Object.keys(all).length) { box.innerHTML = '<div class="text-gray-500">Chưa có danh sách. Bật bot trên máy tính, danh sách nhóm sẽ tự hiện ở đây.</div>'; return; }
+      box.innerHTML = rows.length ? rows.map(([id, g]) => {
+        const on = !!zaloEnabledGroups[id];
+        return '<label class="flex items-center gap-2 p-1.5 rounded-lg cursor-pointer ' + (on ? 'bg-sky-950/50 border border-sky-800/60' : 'hover:bg-gray-800/70 border border-transparent') + '">' +
+          '<input type="checkbox" ' + (on ? 'checked' : '') + ' onchange="zaloToggleGroup(\'' + esc(id) + '\', this)">' +
+          '<span class="flex-1 min-w-0 truncate ' + (on ? 'text-white font-semibold' : 'text-gray-300') + '">' + esc(g.name) + '</span>' +
+          (g.missing ? '<span class="text-[10px] text-red-400 shrink-0">bot không còn trong nhóm</span>' : '<span class="text-[10px] text-gray-500 shrink-0">' + (g.members || '?') + ' người</span>') +
+          (on ? zaloPricingBadge(id) : '') + '</label>';
+      }).join('') : '<div class="text-gray-500">Không có nhóm khớp.</div>';
+    }
+    async function zaloToggleGroup(id, el) {
+      if (!isAdminUser() || !firebaseDb) { el.checked = !el.checked; return; }
+      const g = ((zaloAllGroups && zaloAllGroups.list) || {})[id] || zaloEnabledGroups[id] || {};
+      if (el.checked && (g.members || 0) > 50 && !window.confirm('Nhóm "' + (g.name || id) + '" có ' + g.members + ' thành viên. Chắc chắn bật bot cho nhóm này?')) { el.checked = false; return; }
+      try {
+        await firebaseDb.ref('garage/zaloGroups/enabled/' + id).set(el.checked ? { name: g.name || id, enabledAt: Date.now(), by: currentLoggedInUser.name || '' } : null);
+        showNotification((el.checked ? 'Đã bật bot cho nhóm: ' : 'Đã tắt bot ở nhóm: ') + (g.name || id), 'success');
+      } catch (e) {
+        el.checked = !el.checked;
+        showNotification('Không lưu được (' + (e && e.code ? e.code : 'lỗi') + '). Kiểm tra đã dán Rules mới chưa.', 'error');
+      }
+    }
+
+    // ===== GIÁ RIÊNG THEO NHÓM ZALO (đại lý ưu tiên) -> garage/zaloGroups/pricing/{groupId} =====
+    let zpGroupId = null, zpDraft = {};
+    function zaloPricingBadge(id) {
+      const p = zaloPricing[id] || {};
+      const n = Object.keys(p.prices || {}).length, pct = parseFloat(p.discountPct) || 0;
+      const label = (n || pct) ? ('💲 ' + (pct ? '-' + pct + '%' : '') + (pct && n ? ' · ' : '') + (n ? n + ' giá riêng' : '')) : '💲 Giá riêng';
+      return '<button type="button" onclick="event.preventDefault();event.stopPropagation();zaloOpenPriceModal(\'' + esc(id) + '\')" class="shrink-0 px-1.5 py-0.5 rounded-md text-[10px] font-bold border ' +
+        ((n || pct) ? 'bg-emerald-900/50 text-emerald-300 border-emerald-700/60' : 'bg-gray-800 text-gray-400 border-gray-700') + '">' + label + '</button>';
+    }
+    function zaloOpenPriceModal(id) {
+      if (!isAdminUser()) return;
+      zpGroupId = id;
+      const p = zaloPricing[id] || {};
+      zpDraft = Object.assign({}, p.prices || {});
+      const g = ((zaloAllGroups && zaloAllGroups.list) || {})[id] || zaloEnabledGroups[id] || {};
+      document.getElementById('zp-group-name').textContent = g.name || id;
+      document.getElementById('zp-pct').value = p.discountPct ? p.discountPct : '';
+      document.getElementById('zp-search').value = '';
+      document.getElementById('zp-only').checked = false;
+      document.getElementById('zp-all').checked = false;
+      document.getElementById('zalo-price-modal').classList.remove('hidden');
+      zaloRenderPriceRows();
+    }
+    function zaloClosePriceModal() { document.getElementById('zalo-price-modal').classList.add('hidden'); zpGroupId = null; }
+    function zaloRenderPriceRows() {
+      const box = document.getElementById('zp-rows');
+      const q = zaloNorm(document.getElementById('zp-search').value.trim());
+      const all = document.getElementById('zp-all').checked, only = document.getElementById('zp-only').checked;
+      const pct = Math.min(50, Math.max(0, parseFloat(document.getElementById('zp-pct').value) || 0));
+      const rows = inventoryList.filter(p => {
+        const k = imgKey(p.id), base = parseCurrencyNumber(p.dealerPrice) || 0, own = parseCurrencyNumber(zpDraft[k]) || 0;
+        if (only && !own) return false;
+        if (!all && !base && !own) return false;
+        return !q || zaloNorm(p.name + ' ' + p.id).includes(q);
+      }).slice(0, 300);
+      box.innerHTML = rows.length ? rows.map(p => {
+        const k = imgKey(p.id), base = parseCurrencyNumber(p.dealerPrice) || 0, own = parseCurrencyNumber(zpDraft[k]) || 0;
+        const retail = parseCurrencyNumber(p.price) || 0;
+        const auto = zaloAutoDealerPrice(base, retail, pct);
+        const eff = own || auto;
+        const ckInfo = retail && eff ? ' · Lẻ ' + formatMoney(retail) + ' · CK ' + (Math.round((1 - eff / retail) * 1000) / 10) + '%' : '';
+        const warn = pct && base && !retail && !own ? ' <span class="text-amber-400" title="Chưa có giá bán lẻ: đang giảm % trên giá đại lý">⚠️ chưa có giá lẻ</span>' : '';
+        return '<div class="grid grid-cols-[1fr_90px_120px] gap-2 items-center p-1.5 rounded-lg ' + (own ? 'bg-emerald-950/40 border border-emerald-800/50' : 'bg-gray-800/40 border border-gray-800') + '">' +
+          '<span class="min-w-0"><span class="block truncate text-gray-200">' + esc(p.name) + '</span><span class="text-[10px] text-gray-500">' + esc(p.id) + ' · ' + esc(p.unit || 'Cái') + ckInfo + warn + '</span></span>' +
+          '<span class="text-right font-mono text-gray-400">' + (base ? formatMoney(base) : '—') + '</span>' +
+          '<input type="text" inputmode="numeric" data-k="' + esc(k) + '" value="' + (own ? formatMoney(own) : '') + '" placeholder="' + (auto ? formatMoney(auto) : 'không bán') + '" ' +
+          'onfocus="handleMoneyFocus(this)" oninput="zaloDraftPrice(this)" onblur="zaloDraftPrice(this);this.value=(parseCurrencyNumber(this.value)||0)?formatMoney(parseCurrencyNumber(this.value)):\'\'" ' +
+          'class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-right font-mono text-emerald-300 focus:outline-none focus:border-emerald-500">' +
+          '</div>';
+      }).join('') : '<div class="text-gray-500 p-2">Không có sản phẩm khớp.</div>';
+    }
+    // Giam them X% tinh tren GIA NIEM YET BAN LE: gia DL chung - gia le * X% (VD 4.000.000 - 5.000.000*5% = 3.750.000).
+    // Chua co gia le -> tam giam X% tren gia DL. Giong het cong thuc trong bot.
+    function zaloAutoDealerPrice(base, retail, pct) {
+      if (!base) return 0;
+      if (!pct) return base;
+      const v = retail > 0 ? base - retail * pct / 100 : base * (1 - pct / 100);
+      return Math.max(0, Math.round(v / 1000) * 1000);
+    }
+    function zaloDraftPrice(input) {
+      const k = input.getAttribute('data-k'), v = parseCurrencyNumber(input.value) || 0;
+      if (v > 0) zpDraft[k] = v; else delete zpDraft[k];
+    }
+    async function zaloSavePricing() {
+      if (!zpGroupId || !isAdminUser() || !firebaseDb) return;
+      const pct = Math.min(50, Math.max(0, parseFloat(document.getElementById('zp-pct').value) || 0));
+      const clean = {};
+      Object.keys(zpDraft).forEach(k => { const v = parseCurrencyNumber(zpDraft[k]) || 0; if (v > 0) clean[k] = v; });
+      const data = (pct || Object.keys(clean).length) ? { discountPct: pct || null, prices: Object.keys(clean).length ? clean : null, updatedAt: Date.now(), by: currentLoggedInUser.name || '' } : null;
+      const btn = document.getElementById('zp-save'); btn.disabled = true;
+      try {
+        await firebaseDb.ref('garage/zaloGroups/pricing/' + zpGroupId).set(data);
+        showNotification('Đã lưu giá riêng cho nhóm. Bot sẽ báo đổi giá cho nhóm này sau ~3 phút.', 'success');
+        zaloClosePriceModal();
+      } catch (e) {
+        showNotification('Không lưu được (' + (e && e.code ? e.code : 'lỗi') + ').', 'error');
+      } finally { btn.disabled = false; }
+    }
+    async function zaloClearPricing() {
+      if (!zpGroupId || !window.confirm('Xoá toàn bộ giá riêng của nhóm này? Nhóm sẽ dùng Giá Đại Lý chung.')) return;
+      zpDraft = {}; document.getElementById('zp-pct').value = '';
+      await zaloSavePricing();
+    }
+
+    // ===== DẠY AI BÁO GIÁ -> garage/zaloTeach { rules, examples } =====
+    let zaloTeach = {}, zaloQaRows = {};
+    function zaloRenderExamples() {
+      const ex = Object.entries(zaloTeach.examples || {}).sort((a, b) => (b[1].at || 0) - (a[1].at || 0));
+      const nTopic = ZT_TOPICS.filter(t => String(zaloTeachVal(t.k) || '').trim()).length;
+      document.getElementById('zt-count').textContent = '(' + nTopic + ' mục kiến thức · ' + ex.length + ' mẫu)';
+      document.getElementById('zt-examples').innerHTML = ex.length ? ex.map(([k, e]) =>
+        '<div class="p-2 rounded-lg bg-gray-800/60 border border-gray-800"><div class="flex justify-between gap-2"><span class="text-amber-200"><b>Hỏi:</b> ' + esc(e.q) + '</span>' +
+        '<button onclick="zaloDeleteExample(\'' + esc(k) + '\')" class="shrink-0 text-gray-500 hover:text-red-400" title="Xoá mẫu"><i class="fa-solid fa-trash-can"></i></button></div>' +
+        '<div class="text-gray-300 whitespace-pre-line mt-0.5"><b>Đáp:</b> ' + esc(e.a) + '</div></div>').join('') : '<div class="text-gray-500">Chưa có mẫu nào.</div>';
+    }
+    // Cac muc kien thuc: 'rules' giu ten cu (bao gia) de tuong thich; cac muc khac nam o topics/*
+    const ZT_TOPICS = [
+      { k: 'rules', icon: '💲', name: 'Báo giá & chiết khấu', ph: '- Giá đã gồm VAT.\n- Hỏi phuộc mà chưa nói đời xe thì hỏi lại đời xe trước khi báo.\n- Đơn từ 5 bộ chiết khấu thêm 2%.' },
+      { k: 'baohanh', icon: '🛡️', name: 'Chính sách bảo hành', ph: '- Phuộc Roadfit bảo hành 24 tháng hoặc 50.000 km.\n- Nhớt không bảo hành.\n- Đổi mới trong 7 ngày nếu lỗi nhà sản xuất.' },
+      { k: 'lapdat', icon: '🔧', name: 'Lắp đặt & kỹ thuật', ph: '- Lắp phuộc trước/sau mất khoảng 1–1,5 tiếng.\n- Sau khi lắp nên cân chỉnh thước lái.\n- Phuộc Profender chỉnh được 4 nấc.' },
+      { k: 'giaohang', icon: '🚚', name: 'Giao hàng & thanh toán', ph: '- Nội thành HCM giao trong ngày nếu chốt trước 15h.\n- Tỉnh gửi xe/chành, COD.\n- Chuyển khoản: ... ' },
+      { k: 'khac', icon: '📌', name: 'Thông tin khác', ph: '- Giờ làm việc: 8h–18h, Chủ nhật nghỉ chiều.\n- Garage: 9 đường số 7, Bình Hưng Hoà A, Bình Tân.' }
+    ];
+    function zaloTeachVal(k) { return k === 'rules' ? zaloTeach.rules : ((zaloTeach.topics || {})[k]); }
+    function zaloRenderTopics(force) {
+      const box = document.getElementById('zt-topics');
+      if (!box.children.length) {
+        box.innerHTML = ZT_TOPICS.map(t => '<div><label class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">' + t.icon + ' ' + t.name + '</label>' +
+          '<textarea id="zt-' + t.k + '" rows="3" oninput="this.dataset.dirty=1" placeholder="' + esc(t.ph).replace(/\n/g, '&#10;') + '" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"></textarea></div>').join('');
+      }
+      // Cap nhat tu dam may (VD vua day qua Zalo) nhung khong de len o dang go do
+      ZT_TOPICS.forEach(t => { const el = document.getElementById('zt-' + t.k); if (force || !el.dataset.dirty) el.value = zaloTeachVal(t.k) || ''; });
+    }
+    async function zaloSaveRules() {
+      if (!isAdminUser() || !firebaseDb) return;
+      const upd = { rulesAt: Date.now(), rulesBy: currentLoggedInUser.name || '' };
+      ZT_TOPICS.forEach(t => { const v = document.getElementById('zt-' + t.k).value.trim().slice(0, 8000); upd[t.k === 'rules' ? 'rules' : 'topics/' + t.k] = v || null; });
+      try {
+        await firebaseDb.ref('garage/zaloTeach').update(upd);
+        ZT_TOPICS.forEach(t => delete document.getElementById('zt-' + t.k).dataset.dirty);
+        showNotification('Đã lưu kiến thức cho AI, bot áp dụng ngay!', 'success');
+      } catch (e) { showNotification('Không lưu được (' + (e && e.code ? e.code : 'lỗi') + '). Kiểm tra đã dán Rules mới chưa.', 'error'); }
+    }
+    // Kich hoat Zalo duoc phep day bot bang lenh #day
+    function zaloRenderOwners() {
+      const act = zaloTeach.activation || {};
+      const live = act.code && Date.now() - (act.at || 0) < 30 * 60 * 1000;
+      document.getElementById('zt-act').innerHTML = live ? (act.level === 'staff' ? '<b class="text-sky-300">Mã NHÂN VIÊN</b>' : '<b class="text-amber-300">Mã CHỦ XƯỞNG</b>') + ' – nhắn riêng cho Zalo bot: <code class="text-amber-300 font-bold">#kichhoat ' + esc(act.code) + '</code> (hết hạn sau 30 phút)' : '';
+      const ow = Object.entries(zaloTeach.owners || {});
+      document.getElementById('zt-owners').innerHTML = ow.length ? ow.map(([uid, o]) => {
+        const isOwner = o.level !== 'staff';
+        return '<div class="flex items-center justify-between gap-2 p-1.5 rounded-lg bg-gray-800/60"><span>✅ ' + esc(o.name || uid) + ' ' +
+          (isOwner ? '<span class="px-1.5 rounded bg-amber-900/60 text-amber-300 text-[10px] font-bold">CHỦ XƯỞNG · dạy AI + gửi tin nhóm</span>' : '<span class="px-1.5 rounded bg-sky-900/60 text-sky-300 text-[10px] font-bold">NHÂN VIÊN · chỉ dạy AI</span>') + '</span>' +
+          '<span class="flex items-center gap-2 shrink-0"><button onclick="zaloSetOwnerLevel(\'' + esc(uid) + '\',\'' + (isOwner ? 'staff' : 'owner') + '\')" class="text-[10px] text-gray-400 hover:text-white underline">' + (isOwner ? 'Hạ xuống nhân viên' : 'Nâng lên chủ xưởng') + '</button>' +
+          '<button onclick="zaloRemoveOwner(\'' + esc(uid) + '\')" class="text-gray-500 hover:text-red-400" title="Bỏ quyền"><i class="fa-solid fa-xmark"></i></button></span></div>';
+      }).join('') : '<div class="text-gray-500">Chưa có Zalo nào được kích hoạt.</div>';
+    }
+    async function zaloNewActivation(level) {
+      if (!isAdminUser() || !firebaseDb) return;
+      level = level === 'staff' ? 'staff' : 'owner';
+      if (level === 'owner' && !window.confirm('Mã CHỦ XƯỞNG cho phép Zalo đó ra lệnh bot GỬI TIN VÀO CÁC NHÓM ĐẠI LÝ. Chỉ dùng cho Zalo của chính Chủ xưởng. Tiếp tục?')) return;
+      const code = String(Math.floor(100000 + Math.random() * 900000));
+      try { await firebaseDb.ref('garage/zaloTeach/activation').set({ code, at: Date.now(), level }); }
+      catch (e) { showNotification('Không tạo được mã (' + (e && e.code ? e.code : 'lỗi') + ').', 'error'); }
+    }
+    async function zaloSetOwnerLevel(uid, level) {
+      if (!isAdminUser() || !firebaseDb) return;
+      if (level === 'owner' && !window.confirm('Cho Zalo này quyền CHỦ XƯỞNG (được ra lệnh gửi tin vào nhóm)?')) return;
+      try { await firebaseDb.ref('garage/zaloTeach/owners/' + uid + '/level').set(level); } catch (e) { showNotification('Không đổi được quyền.', 'error'); }
+    }
+    async function zaloRemoveOwner(uid) {
+      if (!window.confirm('Bỏ quyền dạy bot của Zalo này?')) return;
+      try { await firebaseDb.ref('garage/zaloTeach/owners/' + uid).remove(); } catch (e) { showNotification('Không xoá được.', 'error'); }
+    }
+    async function zaloAddExample() {
+      if (!isAdminUser() || !firebaseDb) return;
+      const q = document.getElementById('zt-q').value.trim(), a = document.getElementById('zt-a').value.trim();
+      if (!q || !a) { showNotification('Nhập đủ câu hỏi và câu trả lời mẫu!', 'warning'); return; }
+      try {
+        await firebaseDb.ref('garage/zaloTeach/examples').push({ q: q.slice(0, 400), a: a.slice(0, 1200), at: Date.now(), by: currentLoggedInUser.name || '' });
+        document.getElementById('zt-q').value = ''; document.getElementById('zt-a').value = '';
+        showNotification('Đã thêm mẫu, bot học ngay!', 'success');
+      } catch (e) { showNotification('Không lưu được (' + (e && e.code ? e.code : 'lỗi') + ').', 'error'); }
+    }
+    async function zaloDeleteExample(k) {
+      if (!window.confirm('Xoá câu trả lời mẫu này?')) return;
+      try { await firebaseDb.ref('garage/zaloTeach/examples/' + k).remove(); } catch (e) { showNotification('Không xoá được.', 'error'); }
+    }
+    function zaloQaToExample(k) {
+      const r = zaloQaRows[k]; if (!r) return;
+      const box = document.getElementById('zalo-teach-box'); box.open = true;
+      document.getElementById('zt-q').value = r.q || '';
+      document.getElementById('zt-a').value = r.a || '';
+      document.getElementById('zt-a').focus();
+      box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      showNotification('Sửa câu trả lời cho đúng ý anh rồi bấm "Thêm mẫu".', 'info');
+    }
+    async function zaloRefreshGroups() {
+      if (!isAdminUser() || !firebaseDb) return;
+      try {
+        await firebaseDb.ref('garage/zaloGroups/refreshAt').set(Date.now());
+        showNotification('Đã yêu cầu bot cập nhật danh sách nhóm (cần bot đang chạy).', 'success');
+      } catch (e) { showNotification('Không gửi được yêu cầu (' + (e && e.code ? e.code : 'lỗi') + ').', 'error'); }
+    }
+    function closeZaloModal() {
+      document.getElementById('zalo-modal').classList.add('hidden');
+      zaloRefs.forEach(r => r.off());
+      zaloRefs = [];
+      clearInterval(zaloStatusTimer);
+    }
+    function zaloKindChanged() {
+      document.getElementById('zalo-until-wrap').style.visibility = document.getElementById('zalo-kind').value === 'promo' ? 'visible' : 'hidden';
+    }
+    function zaloSetPreview() {
+      const box = document.getElementById('zalo-img-preview');
+      box.innerHTML = zaloImage ? '<img src="' + zaloImage + '" class="w-full h-full object-cover">' : '<i class="fa-solid fa-image"></i>';
+    }
+    function zaloImageSelected(input) {
+      const file = input.files && input.files[0];
+      input.value = '';
+      if (!file) return;
+      if (!file.type || file.type.indexOf('image/') !== 0) { showNotification('Vui lòng chọn file hình ảnh!', 'warning'); return; }
+      compressImageFile(file, 1280, 0.82, data => { zaloImage = data; zaloSetPreview(); });
+    }
+    async function zaloPush(post) {
+      if (!isAdminUser() || !firebaseDb) return false;
+      try {
+        await firebaseDb.ref('garage/zaloPosts').push(Object.assign({ status: 'pending', createdBy: currentLoggedInUser.name || '', createdAt: Date.now() }, post));
+        return true;
+      } catch (e) {
+        showNotification('Không lưu được tin (' + (e && e.code ? e.code : 'lỗi') + '). Kiểm tra đã dán Rules mới chưa.', 'error');
+        return false;
+      }
+    }
+    async function zaloSendPost() {
+      const text = document.getElementById('zalo-text').value.trim();
+      if (!text) { showNotification('Vui lòng nhập nội dung tin!', 'warning'); document.getElementById('zalo-text').focus(); return; }
+      const kind = document.getElementById('zalo-kind').value;
+      const post = { kind: kind, text: text, signature: document.getElementById('zalo-sign').checked };
+      const until = document.getElementById('zalo-until').value;
+      if (kind === 'promo' && until) post.until = new Date(until + 'T23:59:59').getTime();
+      if (zaloImage) post.image = zaloImage;
+      if (!window.confirm('Gửi tin này vào TẤT CẢ nhóm Zalo đại lý?')) return;
+      const btn = document.getElementById('zalo-send-btn');
+      btn.disabled = true;
+      const ok = await zaloPush(post);
+      btn.disabled = false;
+      if (!ok) return;
+      document.getElementById('zalo-text').value = '';
+      document.getElementById('zalo-until').value = '';
+      zaloImage = ''; zaloSetPreview();
+      showNotification('Đã chuyển tin cho bot, bot sẽ gửi vào nhóm!', 'success');
+    }
+    async function zaloSendPriceList() {
+      const n = inventoryList.filter(p => parseCurrencyNumber(p.dealerPrice) > 0).length;
+      if (!n) { showNotification('Chưa có phụ tùng nào nhập Giá Đại Lý!', 'warning'); return; }
+      if (!window.confirm('Gửi bảng giá đại lý (' + n + ' sản phẩm) vào tất cả nhóm Zalo đại lý ngay bây giờ?')) return;
+      if (await zaloPush({ kind: 'pricelist' })) showNotification('Đã yêu cầu bot gửi bảng giá!', 'success');
+    }
+
     function openModalAddInventory() {
       if (!checkStockManagePermission()) return;
       document.getElementById('inv-modal-title').innerHTML = `<i class="fa-solid fa-box-open mr-1.5"></i>Thêm Mới Phụ Tùng`;
@@ -3887,6 +4391,8 @@
       document.getElementById('inv-edit-unit').value = 'Bộ';
       document.getElementById('inv-edit-cost').value = '';
       document.getElementById('inv-edit-price').value = '';
+      document.getElementById('inv-edit-dealer').value = '';
+      document.getElementById('inv-edit-links').value = '';
       setupStockField(0);
       currentInvImageData = '';
       currentInvImageChanged = false;
@@ -3908,6 +4414,8 @@
       document.getElementById('inv-edit-unit').value = p.unit || 'Cái';
       document.getElementById('inv-edit-cost').value = p.costPrice ? formatMoney(p.costPrice) : '';
       document.getElementById('inv-edit-price').value = p.price ? formatMoney(p.price) : '';
+      document.getElementById('inv-edit-dealer').value = p.dealerPrice ? formatMoney(p.dealerPrice) : '';
+      document.getElementById('inv-edit-links').value = p.photoLinks || '';
       setupStockField(p.stock || 0);
       currentInvImageData = getProductImage(p);
       currentInvImageChanged = false;
@@ -4036,12 +4544,14 @@
     async function handleSaveInventoryModal() {
       if (!checkStockManagePermission()) return;
       const editId = document.getElementById('inv-edit-id').value.trim();
-      const code = document.getElementById('inv-edit-code').value.trim().toUpperCase();
+      const code = document.getElementById('inv-edit-code').value.trim().toUpperCase().replace(/^[-–—.\s]+$/, '');
       const name = document.getElementById('inv-edit-name').value.trim();
       const cat = document.getElementById('inv-edit-cat').value;
       const unit = document.getElementById('inv-edit-unit').value.trim() || 'Cái';
       const costPrice = parseCurrencyNumber(document.getElementById('inv-edit-cost').value);
       const price = parseCurrencyNumber(document.getElementById('inv-edit-price').value);
+      const dealerPrice = parseCurrencyNumber(document.getElementById('inv-edit-dealer').value) || 0;
+      const photoLinks = document.getElementById('inv-edit-links').value.split(/\s+/).filter(x => /^https?:\/\//i.test(x)).slice(0, 3).join('\n');
 
       if (!name) {
         showNotification('Vui lòng nhập Tên phụ tùng!', 'warning');
@@ -4075,6 +4585,8 @@
         if (p.name !== name) noteDetails.push('Đổi tên');
         if (p.price !== price) noteDetails.push(`Giá bán: ${formatMoney(p.price)} -> ${formatMoney(price)}`);
         if (p.costPrice !== costPrice) noteDetails.push(`Giá vốn: ${formatMoney(p.costPrice)} -> ${formatMoney(costPrice)}`);
+        if ((p.photoLinks || '') !== photoLinks) noteDetails.push('Cập nhật link ảnh');
+        if ((parseCurrencyNumber(p.dealerPrice) || 0) !== dealerPrice) noteDetails.push(`Giá đại lý: ${formatMoney(p.dealerPrice || 0)} -> ${formatMoney(dealerPrice)}`);
         if (currentInvImageChanged) noteDetails.push(currentInvImageData ? 'Cập nhật hình ảnh' : 'Xóa hình ảnh');
         const imgChanged = currentInvImageChanged, imgData = currentInvImageData;
         const afterStock = factor ? Math.round(prevStock * factor * 10) / 10 : prevStock;
@@ -4098,6 +4610,8 @@
           adj = null;
           if (!t) return list;
           t.name = name; t.cat = cat; t.unit = unit; t.costPrice = costPrice; t.price = price;
+          if (dealerPrice > 0) t.dealerPrice = dealerPrice; else delete t.dealerPrice;
+          if (photoLinks) t.photoLinks = photoLinks; else delete t.photoLinks;
           if (factor) t.stock = Math.round((parseFloat(t.stock) || 0) * factor * 10) / 10;
           if (stockDelta) {
             const before = parseFloat(t.stock) || 0;
@@ -4124,6 +4638,8 @@
         const newImg = currentInvImageData || '';
         const openingStock = Math.max(0, stockDelta); // chỉ Chủ Xưởng mới có stockDelta khác 0
         const item = { id: newCode, name: name, cat: cat, unit: unit, costPrice: costPrice, price: price, stock: openingStock };
+        if (dealerPrice > 0) item.dealerPrice = dealerPrice;
+        if (photoLinks) item.photoLinks = photoLinks;
         if (newImg && inventoryList.some(i => i.id === newCode)) { showNotification(`Mã hàng "${newCode}" đã tồn tại, vui lòng dùng mã khác!`, 'error'); return; }
         // Lưu ảnh vào nhánh riêng trước; không được thì lưu kiểu cũ trong danh sách kho
         if (newImg && !(await saveProductImage(newCode, newImg))) item.image = newImg;
