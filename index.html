@@ -1147,6 +1147,13 @@
             onfocus="handleMoneyFocus(this)" oninput="handleModalMoneyInput(this)" onblur="handleMoneyBlur(this)"
             class="w-full bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-xs sm:text-sm font-mono text-emerald-300 font-bold focus:outline-none focus:border-emerald-500">
         </div>
+        <div>
+          <label class="block text-[10px] font-bold uppercase tracking-wider text-sky-300 mb-1">
+            <i class="fa-solid fa-images mr-0.5"></i>Link ảnh gửi khách <span class="normal-case text-gray-500 font-normal">— mỗi dòng 1 link (tối đa 3). Bot Zalo gửi kèm khi báo giá món này</span>
+          </label>
+          <textarea id="inv-edit-links" rows="2" placeholder="https://... (link ảnh .jpg/.png, Google Drive hoặc album Google Photos đã chia sẻ link)" autocomplete="off" spellcheck="false"
+            class="w-full bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-xs text-sky-200 focus:outline-none focus:border-sky-500"></textarea>
+        </div>
 
         <div>
           <label class="block text-[10px] font-bold uppercase tracking-wider text-sky-400 mb-1">
@@ -3798,7 +3805,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.17-1';
+    const APP_VERSION = '2026.10.17-2';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -4372,6 +4379,7 @@
       document.getElementById('inv-edit-cost').value = '';
       document.getElementById('inv-edit-price').value = '';
       document.getElementById('inv-edit-dealer').value = '';
+      document.getElementById('inv-edit-links').value = '';
       setupStockField(0);
       currentInvImageData = '';
       currentInvImageChanged = false;
@@ -4394,6 +4402,7 @@
       document.getElementById('inv-edit-cost').value = p.costPrice ? formatMoney(p.costPrice) : '';
       document.getElementById('inv-edit-price').value = p.price ? formatMoney(p.price) : '';
       document.getElementById('inv-edit-dealer').value = p.dealerPrice ? formatMoney(p.dealerPrice) : '';
+      document.getElementById('inv-edit-links').value = p.photoLinks || '';
       setupStockField(p.stock || 0);
       currentInvImageData = getProductImage(p);
       currentInvImageChanged = false;
@@ -4529,6 +4538,7 @@
       const costPrice = parseCurrencyNumber(document.getElementById('inv-edit-cost').value);
       const price = parseCurrencyNumber(document.getElementById('inv-edit-price').value);
       const dealerPrice = parseCurrencyNumber(document.getElementById('inv-edit-dealer').value) || 0;
+      const photoLinks = document.getElementById('inv-edit-links').value.split(/\s+/).filter(x => /^https?:\/\//i.test(x)).slice(0, 3).join('\n');
 
       if (!name) {
         showNotification('Vui lòng nhập Tên phụ tùng!', 'warning');
@@ -4562,6 +4572,7 @@
         if (p.name !== name) noteDetails.push('Đổi tên');
         if (p.price !== price) noteDetails.push(`Giá bán: ${formatMoney(p.price)} -> ${formatMoney(price)}`);
         if (p.costPrice !== costPrice) noteDetails.push(`Giá vốn: ${formatMoney(p.costPrice)} -> ${formatMoney(costPrice)}`);
+        if ((p.photoLinks || '') !== photoLinks) noteDetails.push('Cập nhật link ảnh');
         if ((parseCurrencyNumber(p.dealerPrice) || 0) !== dealerPrice) noteDetails.push(`Giá đại lý: ${formatMoney(p.dealerPrice || 0)} -> ${formatMoney(dealerPrice)}`);
         if (currentInvImageChanged) noteDetails.push(currentInvImageData ? 'Cập nhật hình ảnh' : 'Xóa hình ảnh');
         const imgChanged = currentInvImageChanged, imgData = currentInvImageData;
@@ -4587,6 +4598,7 @@
           if (!t) return list;
           t.name = name; t.cat = cat; t.unit = unit; t.costPrice = costPrice; t.price = price;
           if (dealerPrice > 0) t.dealerPrice = dealerPrice; else delete t.dealerPrice;
+          if (photoLinks) t.photoLinks = photoLinks; else delete t.photoLinks;
           if (factor) t.stock = Math.round((parseFloat(t.stock) || 0) * factor * 10) / 10;
           if (stockDelta) {
             const before = parseFloat(t.stock) || 0;
@@ -4614,6 +4626,7 @@
         const openingStock = Math.max(0, stockDelta); // chỉ Chủ Xưởng mới có stockDelta khác 0
         const item = { id: newCode, name: name, cat: cat, unit: unit, costPrice: costPrice, price: price, stock: openingStock };
         if (dealerPrice > 0) item.dealerPrice = dealerPrice;
+        if (photoLinks) item.photoLinks = photoLinks;
         if (newImg && inventoryList.some(i => i.id === newCode)) { showNotification(`Mã hàng "${newCode}" đã tồn tại, vui lòng dùng mã khác!`, 'error'); return; }
         // Lưu ảnh vào nhánh riêng trước; không được thì lưu kiểu cũ trong danh sách kho
         if (newImg && !(await saveProductImage(newCode, newImg))) item.image = newImg;
