@@ -978,10 +978,9 @@
             <button onclick="zaloSaveRules()" class="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold"><i class="fa-solid fa-floppy-disk mr-1"></i>Lưu kiến thức</button>
             <div class="border-t border-gray-800 pt-2">
               <div class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">📱 Dạy nhanh qua Zalo</div>
-              <p class="text-[10px] text-gray-400">Nhắn riêng cho Zalo bot: <code class="text-amber-300">#day nội dung</code> (VD: <i>#day Roadfit bảo hành 24 tháng</i>). Xem lại: <code class="text-amber-300">#xemday</code>. <b>Chủ xưởng</b> còn nhắn tự nhiên để bot gửi tin vào nhóm (VD: <i>"Nhắn nhóm Nội Bộ: chiều 3h họp kho"</i>, <i>"Gửi bảng giá cho tất cả nhóm"</i>) – bot hỏi lại trước khi gửi. <b>Nhân viên</b> chỉ dạy AI.</p>
+              <p class="text-[10px] text-gray-400">Nhắn riêng cho Zalo bot: <code class="text-amber-300">#day nội dung</code> (VD: <i>#day Roadfit bảo hành 24 tháng</i>). Xem lại: <code class="text-amber-300">#xemday</code>. Nhắn tự nhiên để bot gửi tin vào nhóm (VD: <i>"Nhắn nhóm Nội Bộ: chiều 3h họp kho"</i>, <i>"Gửi bảng giá cho tất cả nhóm"</i>) – bot hỏi lại trước khi gửi. <b>Chỉ Zalo của Chủ xưởng</b> được kích hoạt; nhân viên, quản lý kho không dạy AI, không ra lệnh được.</p>
               <div class="flex items-center gap-2 mt-1.5 flex-wrap">
-                <button onclick="zaloNewActivation('owner')" class="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-amber-300 border border-amber-600/50 rounded-lg text-[11px] font-bold">🔑 Mã cho Chủ xưởng</button>
-                <button onclick="zaloNewActivation('staff')" class="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-sky-300 border border-sky-600/50 rounded-lg text-[11px] font-bold">🔑 Mã cho Nhân viên</button>
+                <button onclick="zaloNewActivation('owner')" class="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-amber-300 border border-amber-600/50 rounded-lg text-[11px] font-bold">🔑 Tạo mã kích hoạt (Chủ xưởng)</button>
                 <span id="zt-act" class="text-[11px] text-gray-300"></span>
               </div>
               <div id="zt-owners" class="mt-1.5 space-y-1 text-[11px]"></div>
@@ -3806,7 +3805,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.17-3';
+    const APP_VERSION = '2026.10.17-4';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -4272,8 +4271,8 @@
       document.getElementById('zt-owners').innerHTML = ow.length ? ow.map(([uid, o]) => {
         const isOwner = o.level !== 'staff';
         return '<div class="flex items-center justify-between gap-2 p-1.5 rounded-lg bg-gray-800/60"><span>✅ ' + esc(o.name || uid) + ' ' +
-          (isOwner ? '<span class="px-1.5 rounded bg-amber-900/60 text-amber-300 text-[10px] font-bold">CHỦ XƯỞNG · dạy AI + gửi tin nhóm</span>' : '<span class="px-1.5 rounded bg-sky-900/60 text-sky-300 text-[10px] font-bold">NHÂN VIÊN · chỉ dạy AI</span>') + '</span>' +
-          '<span class="flex items-center gap-2 shrink-0"><button onclick="zaloSetOwnerLevel(\'' + esc(uid) + '\',\'' + (isOwner ? 'staff' : 'owner') + '\')" class="text-[10px] text-gray-400 hover:text-white underline">' + (isOwner ? 'Hạ xuống nhân viên' : 'Nâng lên chủ xưởng') + '</button>' +
+          (isOwner ? '<span class="px-1.5 rounded bg-amber-900/60 text-amber-300 text-[10px] font-bold">CHỦ XƯỞNG · dạy AI + gửi tin nhóm</span>' : '<span class="px-1.5 rounded bg-gray-700 text-gray-400 text-[10px] font-bold">KHÔNG CÒN QUYỀN – bấm ✕ để xoá</span>') + '</span>' +
+          '<span class="flex items-center gap-2 shrink-0">' +
           '<button onclick="zaloRemoveOwner(\'' + esc(uid) + '\')" class="text-gray-500 hover:text-red-400" title="Bỏ quyền"><i class="fa-solid fa-xmark"></i></button></span></div>';
       }).join('') : '<div class="text-gray-500">Chưa có Zalo nào được kích hoạt.</div>';
     }
