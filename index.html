@@ -3805,7 +3805,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.17-6';
+    const APP_VERSION = '2026.10.17-7';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -7572,15 +7572,28 @@
         targets = ids.filter(id => want.some(w => { const a = normText(nameOf(id)), b = normText(w); return a.includes(b) || b.includes(a); }));
         if (!targets.length) return { loi: 'Không tìm thấy nhóm khớp ' + JSON.stringify(want) + '.', nhom_dang_phuc_vu: ids.map(nameOf) };
       }
-      const bangGia = !!args.gui_bang_gia;
+      const quote = String(args.bao_gia_tu_khoa || '').trim();
+      const bangGia = !!args.gui_bang_gia && !quote;
       const text = String(args.noi_dung || '').trim();
-      if (!bangGia && !text) return { loi: 'Chưa có nội dung tin.' };
+      if (!bangGia && !quote && !text) return { loi: 'Chưa có nội dung tin.' };
+      // Khong cho AI tu viet gia vao tin: gia phai do bot lay tu kho theo GIA RIENG tung nhom
+      if (!bangGia && !quote && /\d{1,3}([.,]\d{3}){1,}|\d+\s*(k|tr|triệu|trieu)\b/i.test(text) && !args.gia_do_chu_xuong_go)
+        return { loi: 'Không tự ghi giá sản phẩm vào tin. Muốn báo giá sản phẩm/dòng xe thì gọi lại với bao_gia_tu_khoa (VD "fortuner") để bot tự lấy đúng tên và GIÁ ĐẠI LÝ RIÊNG của từng nhóm. Chỉ đặt gia_do_chu_xuong_go=true khi chính Chủ Xưởng gõ con số đó (VD giá khuyến mãi).' };
       if (bangGia) targets = targets.filter(id => !internal[id]);
       if (!targets.length) return { loi: 'Không gửi bảng giá đại lý vào nhóm nội bộ.' };
+      if (quote) {
+        const words = normText(quote).replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w && !['bao','gia','bg','cho','xe','dong','cua','cac','loai','san','pham','sp','hang','nhom'].includes(w));
+        const hits = (inventoryList || []).filter(it => it && !it.dealerHidden && ((parseCurrencyNumber(it.dealerPrice) || 0) > 0 || (parseCurrencyNumber(it.price) || 0) > 0)).filter(it => {
+          const hay = ' ' + normText((it.id || '') + ' ' + (it.name || '') + ' ' + (it.cat || '')).replace(/[^a-z0-9 ]/g, ' ') + ' ';
+          return words.every(w => w.length >= 3 ? hay.includes(w) : hay.includes(' ' + w + ' '));
+        });
+        if (!hits.length) return { loi: 'Không có sản phẩm nào trong kho khớp "' + quote + '".' };
+      }
       const lines = ['Gửi vào ' + targets.length + ' nhóm: ' + targets.map(nameOf).join(', ')];
-      lines.push(bangGia ? 'Nội dung: BẢNG GIÁ ĐẠI LÝ (giá riêng từng nhóm)' : 'Nội dung:\n' + text);
+      lines.push(quote ? 'Nội dung: ẢNH BÁO GIÁ "' + quote + '" (tên & giá lấy từ kho, đúng giá riêng từng nhóm; nhóm nội bộ nhận giá lẻ)' + (text ? '\nLời dẫn: ' + text : '')
+        : bangGia ? 'Nội dung: BẢNG GIÁ ĐẠI LÝ (giá riêng từng nhóm)' : 'Nội dung:\n' + text);
       aiConfirmCard('Gửi tin Zalo đại lý', lines, async () => {
-        const ok = await zaloPush(bangGia ? { kind: 'pricelist', targets } : { kind: 'news', text, signature: args.chu_ky !== false, targets });
+        const ok = await zaloPush(quote ? { kind: 'pricelist', keyword: quote, text, targets } : bangGia ? { kind: 'pricelist', targets } : { kind: 'news', text, signature: args.chu_ky !== false, targets });
         return ok ? '✅ Đã chuyển cho bot, bot sẽ gửi trong ít phút.' : '❌ Không gửi được.';
       }, 'Gửi ngay');
       return { da_hien_the_xac_nhan: true, so_nhom: targets.length, luu_y: 'Chưa gửi. Người dùng phải bấm "Gửi ngay" trên thẻ.' };
@@ -7627,8 +7640,8 @@
         description: 'Sửa giá bán lẻ / giá đại lý / giá nhập / số tồn kho của 1 sản phẩm. Hiện thẻ để Chủ Xưởng bấm xác nhận, KHÔNG tự lưu. CHỈ Chủ Xưởng.',
         params: { ma: ['string', 'Mã hàng'], ten: ['string', 'Tên nếu không có mã'], gia_ban: ['number', 'Giá bán lẻ mới'], gia_dai_ly: ['number', 'Giá đại lý mới (0 = bỏ bán sỉ)'], gia_nhap: ['number', 'Giá nhập mới'], ton_kho: ['number', 'Số tồn kho mới (số tuyệt đối)'], ly_do: ['string', 'Lý do'] }, required: [] },
       { name: 'gui_tin_zalo_nhom', fn: aiToolZaloSend,
-        description: 'Gửi tin hoặc bảng giá đại lý vào các nhóm Zalo bot đang phục vụ. Hiện thẻ để Chủ Xưởng bấm "Gửi ngay", KHÔNG tự gửi. CHỈ Chủ Xưởng. Viết nội dung lịch sự gửi đại lý, giữ nguyên số liệu.',
-        params: { noi_dung: ['string', 'Nội dung tin'], nhom: ['array', 'Tên nhóm (bỏ trống = tất cả)', { type: 'string' }], gui_bang_gia: ['boolean', 'Gửi bảng giá đại lý'], chu_ky: ['boolean', 'Kèm chữ ký shop (mặc định có)'] }, required: [] }
+        description: 'Gửi tin, bảng giá đại lý, hoặc BÁO GIÁ theo dòng xe/sản phẩm vào các nhóm Zalo bot đang phục vụ. Hiện thẻ để Chủ Xưởng bấm "Gửi ngay", KHÔNG tự gửi. CHỈ Chủ Xưởng. TUYỆT ĐỐI không tự viết tên/giá sản phẩm vào noi_dung (giá bán lẻ trong kho KHÁC giá đại lý của từng nhóm): muốn báo giá 1 dòng xe/hãng thì dùng bao_gia_tu_khoa, bot tự lấy đúng tên và giá riêng từng nhóm.',
+        params: { noi_dung: ['string', 'Nội dung tin (với báo giá: chỉ 1 câu dẫn ngắn, không ghi giá)'], nhom: ['array', 'Tên nhóm (bỏ trống = tất cả)', { type: 'string' }], gui_bang_gia: ['boolean', 'Gửi TOÀN BỘ bảng giá đại lý'], bao_gia_tu_khoa: ['string', 'Báo giá các sản phẩm khớp từ khoá, VD "fortuner", "tein hilux", "phuoc everest"'], gia_do_chu_xuong_go: ['boolean', 'true chỉ khi chính Chủ Xưởng gõ con số giá trong tin (VD giá khuyến mãi)'], chu_ky: ['boolean', 'Kèm chữ ký shop (mặc định có)'] }, required: [] }
     ];
 
     function aiSchema(t) {

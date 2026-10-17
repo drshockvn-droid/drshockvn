@@ -97,6 +97,14 @@
       "zaloBot": {
         ".read": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'",
         ".write": false
+      },
+      "zaloGroups": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'",
+        ".write": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'"
+      },
+      "zaloTeach": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'",
+        ".write": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'"
       }
     }
   }
