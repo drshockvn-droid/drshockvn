@@ -3805,7 +3805,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.17-5';
+    const APP_VERSION = '2026.10.17-6';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -7251,6 +7251,341 @@
       };
     }
 
+    // ---------------- CÔNG CỤ MỞ RỘNG: BÁO CÁO, KHO, KHÁCH HÀNG, THAO TÁC ----------------
+    const AI_DAY = 86400000;
+    function aiStartOfDay(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x.getTime(); }
+    function aiParseDay(s) { const t = parseViDateTime(s); if (t) return aiStartOfDay(t); const m = String(s || '').match(/(\d{4})-(\d{1,2})-(\d{1,2})/); return m ? new Date(+m[1], +m[2] - 1, +m[3]).getTime() : 0; }
+    // Khoang thoi gian tu ky / tu_ngay - den_ngay -> [t0, t1) + nhan
+    function aiRange(args) {
+      const now = new Date(), today = aiStartOfDay(now);
+      const a = aiParseDay(args.tu_ngay), b = aiParseDay(args.den_ngay);
+      if (a) return { t0: a, t1: (b || today) + AI_DAY, nhan: (args.tu_ngay || '') + ' → ' + (args.den_ngay || 'hôm nay') };
+      const ky = normText(args.ky || 'thang_nay').replace(/\s+/g, '_');
+      if (ky === 'hom_nay') return { t0: today, t1: today + AI_DAY, nhan: 'Hôm nay' };
+      if (ky === 'hom_qua') return { t0: today - AI_DAY, t1: today, nhan: 'Hôm qua' };
+      if (ky === 'tuan_nay') { const dow = (now.getDay() + 6) % 7; return { t0: today - dow * AI_DAY, t1: today + AI_DAY, nhan: 'Tuần này' }; }
+      if (ky === 'tuan_truoc') { const dow = (now.getDay() + 6) % 7; return { t0: today - (dow + 7) * AI_DAY, t1: today - dow * AI_DAY, nhan: 'Tuần trước' }; }
+      if (ky === '7_ngay' || ky === '7_ngay_qua') return { t0: today - 6 * AI_DAY, t1: today + AI_DAY, nhan: '7 ngày qua' };
+      if (ky === '30_ngay' || ky === '30_ngay_qua') return { t0: today - 29 * AI_DAY, t1: today + AI_DAY, nhan: '30 ngày qua' };
+      if (ky === 'thang_truoc') { const k = monthKey(new Date(now.getFullYear(), now.getMonth() - 1, 1)); const r = monthRange(k); return { t0: r[0], t1: r[1], nhan: monthLabel(k), month: k }; }
+      if (ky === 'nam_nay') return { t0: new Date(now.getFullYear(), 0, 1).getTime(), t1: today + AI_DAY, nhan: 'Năm ' + now.getFullYear() };
+      const m = String(args.ky || '').match(/(\d{1,2})[\/\-](\d{4})/);
+      if (m) { const k = m[2] + '-' + String(+m[1]).padStart(2, '0'); const r = monthRange(k); return { t0: r[0], t1: r[1], nhan: monthLabel(k), month: k }; }
+      const k = monthKey(now); const r = monthRange(k);
+      return { t0: r[0], t1: r[1], nhan: monthLabel(k) + ' (đến hôm nay)', month: k };
+    }
+
+    // ===== 1. BÁO CÁO KINH DOANH (chỉ Chủ xưởng) =====
+    function aiToolBusinessReport(args) {
+      if (!isAdminUser()) return { loi: 'Chỉ Chủ Xưởng mới xem được báo cáo doanh thu / lợi nhuận.' };
+      const R = aiRange(args || {});
+      const cm = finCostMap();
+      const A = finAnalyze(R.t0, R.t1, cm);
+      const len = R.t1 - R.t0;
+      const P = finAnalyze(R.t0 - len, R.t0, cm);
+      const gross = A.rev - A.cogs;
+      const out = {
+        ky: R.nhan, so_hoa_don: A.n, doanh_thu: Math.round(A.rev), tien_hang: Math.round(A.parts), tien_cong: Math.round(A.labor),
+        giam_gia: Math.round(A.discount), gia_von_hang_ban: Math.round(A.cogs), lai_gop: Math.round(gross),
+        ty_le_lai_gop: A.rev ? Math.round(gross / A.rev * 1000) / 10 + '%' : '0%',
+        trung_binh_moi_hoa_don: A.n ? Math.round(A.rev / A.n) : 0,
+        theo_nhom_khach: {
+          tai_xuong_khach_le: { doanh_thu: Math.round(A.seg.shop_retail.rev), lai_gop: Math.round(A.seg.shop_retail.rev - A.seg.shop_retail.cogs), so_hd: A.seg.shop_retail.n },
+          tai_xuong_dai_ly: { doanh_thu: Math.round(A.seg.shop_dealer.rev), lai_gop: Math.round(A.seg.shop_dealer.rev - A.seg.shop_dealer.cogs), so_hd: A.seg.shop_dealer.n },
+          gui_ship_khach_le: { doanh_thu: Math.round(A.seg.ship_retail.rev), lai_gop: Math.round(A.seg.ship_retail.rev - A.seg.ship_retail.cogs), so_hd: A.seg.ship_retail.n },
+          gui_ship_dai_ly: { doanh_thu: Math.round(A.seg.ship_dealer.rev), lai_gop: Math.round(A.seg.ship_dealer.rev - A.seg.ship_dealer.cogs), so_hd: A.seg.ship_dealer.n }
+        },
+        ky_truoc_cung_do_dai: { doanh_thu: Math.round(P.rev), lai_gop: Math.round(P.rev - P.cogs), so_hoa_don: P.n,
+          tang_giam_doanh_thu: P.rev ? Math.round((A.rev - P.rev) / P.rev * 1000) / 10 + '%' : 'không có dữ liệu kỳ trước' },
+        ban_chay_theo_doanh_thu: Object.values(A.items).sort((a, b) => b.net - a.net).slice(0, 8).map(x => ({ ten: x.name, sl: Math.round(x.qty * 10) / 10, doanh_thu: Math.round(x.net), lai_gop: x.known ? Math.round(x.net - x.cogs) : null })),
+        lai_nhieu_nhat: Object.values(A.items).filter(x => x.known).sort((a, b) => (b.net - b.cogs) - (a.net - a.cogs)).slice(0, 5).map(x => ({ ten: x.name, lai_gop: Math.round(x.net - x.cogs) })),
+        ban_duoi_gia_von: A.below.slice(0, 8).map(b => ({ hoa_don: b.inv, ten: b.name, gia_ban: b.unit, gia_von: b.cost, sl: b.qty })),
+        hoa_don_tai_xuong_khong_tinh_cong: A.noLabor.length,
+        mat_hang_chua_co_gia_von: Object.keys(A.missing).length
+      };
+      if (R.month && financeData[R.month]) {
+        const exps = convertToArray(financeData[R.month].expenses, []);
+        const tong = exps.reduce((s, e) => s + (+e.amount || 0), 0);
+        out.chi_phi_co_dinh_thang = tong;
+        out.loi_nhuan_rong_uoc_tinh = Math.round(gross - tong);
+        if (+financeData[R.month].kpi) out.kpi_doanh_thu_thang = +financeData[R.month].kpi;
+      }
+      out.ghi_chu = 'Lãi gộp = doanh thu - giá vốn hàng bán (theo giá nhập hiện tại trong kho). Tiền công tính là lãi 100%.';
+      return out;
+    }
+
+    // ===== 2. KHO THÔNG MINH =====
+    function aiSalesMap(days) {
+      const t0 = Date.now() - days * AI_DAY, m = {};
+      invoiceList.forEach(inv => {
+        const t = invTime(inv); if (!t || t < t0) return;
+        (inv.items || []).forEach(it => {
+          if (finIsLabor(it)) return;
+          const k = it.id || ('n:' + normText(it.name));
+          const r = m[k] = m[k] || { qty: 0, n: 0, last: 0 };
+          r.qty += parseFloat(it.qty) || 0; r.n++; if (t > r.last) r.last = t;
+        });
+      });
+      return m;
+    }
+    function aiLastSaleMap() {
+      const m = {};
+      invoiceList.forEach(inv => { const t = invTime(inv); if (!t) return; (inv.items || []).forEach(it => { if (it.id && (!m[it.id] || t > m[it.id])) m[it.id] = t; }); });
+      return m;
+    }
+    function aiToolStockAnalysis(args) {
+      const loai = normText(args.loai || 'tong_quan').replace(/\s+/g, '_');
+      const nhom = args.nhom ? String(args.nhom).toUpperCase() : '';
+      const DAYS = 90;
+      const sales = aiSalesMap(DAYS);
+      const lastSale = aiLastSaleMap();
+      const seeCost = aiCanSeeCost();
+      const list = inventoryList.filter(p => !nhom || (p.cat || 'KHAC') === nhom);
+      const row = p => {
+        const s = sales[p.id] || { qty: 0, n: 0 };
+        const stock = parseFloat(p.stock) || 0;
+        const perDay = s.qty / DAYS;
+        const o = { ma: p.id, ten: p.name, don_vi: p.unit || 'Cái', ton_kho: stock, ban_90_ngay: Math.round(s.qty * 10) / 10,
+          du_ban_khoang_ngay: perDay > 0 ? Math.round(stock / perDay) : null,
+          ngay_ban_gan_nhat: lastSale[p.id] ? new Date(lastSale[p.id]).toLocaleDateString('vi-VN') : 'chưa bán lần nào' };
+        if (seeCost) o.von_dang_nam = Math.round(stock * (parseCurrencyNumber(p.costPrice) || 0));
+        return o;
+      };
+      const out = { ky_tinh_toc_do_ban: DAYS + ' ngày gần nhất' };
+      if (loai === 'sap_het' || loai === 'tong_quan') {
+        out.sap_het = list.filter(p => (sales[p.id] || {}).qty > 0).map(row)
+          .filter(r => r.ton_kho <= 2 || (r.du_ban_khoang_ngay != null && r.du_ban_khoang_ngay < 21))
+          .sort((a, b) => (a.du_ban_khoang_ngay ?? 0) - (b.du_ban_khoang_ngay ?? 0)).slice(0, 20);
+      }
+      if (loai === 'het_hang' || loai === 'tong_quan') {
+        out.het_hang_nhung_van_ban_chay = list.filter(p => (parseFloat(p.stock) || 0) <= 0 && (sales[p.id] || {}).qty > 0).map(row).sort((a, b) => b.ban_90_ngay - a.ban_90_ngay).slice(0, 15);
+      }
+      if (loai === 'ton_lau' || loai === 'tong_quan') {
+        const nd = Math.max(30, parseInt(args.so_ngay, 10) || 90);
+        const cut = Date.now() - nd * AI_DAY;
+        const slow = list.filter(p => (parseFloat(p.stock) || 0) > 0 && !(lastSale[p.id] > cut)).map(row);
+        if (seeCost) slow.sort((a, b) => (b.von_dang_nam || 0) - (a.von_dang_nam || 0));
+        out['ton_lau_khong_ban_' + nd + '_ngay'] = slow.slice(0, 20);
+        out.so_ma_ton_lau = slow.length;
+        if (seeCost) out.tong_von_ton_lau = slow.reduce((s, r) => s + (r.von_dang_nam || 0), 0);
+      }
+      if (loai === 'goi_y_nhap' || loai === 'tong_quan') {
+        const cover = Math.max(7, parseInt(args.so_ngay_du_tru, 10) || 30);
+        out['goi_y_nhap_du_ban_' + cover + '_ngay'] = list.map(p => {
+          const s = sales[p.id]; if (!s || s.qty <= 0) return null;
+          const need = Math.ceil(s.qty / DAYS * cover - (parseFloat(p.stock) || 0));
+          if (need <= 0) return null;
+          const o = Object.assign(row(p), { nen_nhap_them: need });
+          if (seeCost) o.du_tinh_tien_nhap = need * (parseCurrencyNumber(p.costPrice) || 0);
+          return o;
+        }).filter(Boolean).sort((a, b) => b.ban_90_ngay - a.ban_90_ngay).slice(0, 25);
+      }
+      if (seeCost && loai === 'tong_quan') {
+        out.tong_von_ton_kho = Math.round(inventoryList.reduce((s, p) => s + Math.max(0, parseFloat(p.stock) || 0) * (parseCurrencyNumber(p.costPrice) || 0), 0));
+      }
+      return out;
+    }
+    function aiToolItemHistory(args) {
+      const q = String(args.ma || args.tu_khoa || '').trim();
+      if (!q) return { loi: 'Cần mã hàng hoặc tên sản phẩm.' };
+      let p = inventoryList.find(x => String(x.id).toUpperCase() === q.toUpperCase());
+      if (!p) p = smartFilterProducts(inventoryList, q)[0];
+      if (!p) return { loi: 'Không tìm thấy sản phẩm "' + q + '".' };
+      const logs = (stockLogList || []).filter(l => l.itemId === p.id).slice(0, 15).map(l => ({ thoi_gian: l.time, loai: l.type, truoc: l.beforeQty, sau: l.afterQty, ghi_chu: l.note || '', nguoi: l.user || l.by || '' }));
+      const sold = [];
+      sortInvoicesByTime(invoiceList, 'desc').forEach(inv => {
+        if (sold.length >= 10) return;
+        (inv.items || []).forEach(it => { if (it.id === p.id) sold.push({ ngay: inv.date, hoa_don: inv.id, khach: inv.name || '', bien_so: inv.plate || '', sl: it.qty, gia_ban: parseCurrencyNumber(it.price) || 0 }); });
+      });
+      const s90 = (aiSalesMap(90)[p.id] || { qty: 0 }).qty;
+      return { san_pham: aiProductOut(p), ban_90_ngay: s90, nhat_ky_kho: logs, lan_ban_gan_day: sold };
+    }
+
+    // ===== 3. KHÁCH HÀNG & NHẮC BẢO DƯỠNG =====
+    function aiReminderMsg(m) {
+      const who = m.name ? 'anh/chị ' + m.name : 'anh/chị';
+      return 'Dạ Dr.Shock VN chào ' + who + '! Xe ' + (m.car ? m.car + ' ' : '') + (m.plate || '') + ' ' +
+        (m.days < 0 ? 'đã quá hạn ' : 'sắp đến hạn ') + m.label.toLowerCase() + ' (hạn ' + m.dueText + '). ' +
+        'Anh/chị ghé xưởng 9 đường số 7, Bình Hưng Hoà A, Bình Tân để em kiểm tra miễn phí nhé. Đặt lịch: 0356795954 - 0798089886 ạ.';
+    }
+    function aiToolMaintenanceDue(args) {
+      const within = Math.max(0, parseInt(args.trong_vong_ngay, 10) || 14);
+      const DAY = AI_DAY, now = Date.now(), latest = {};
+      invoiceList.forEach(inv => {
+        const t = invTime(inv); if (!t) return;
+        const pn = normPlate(inv.plate), pd = String(inv.phone || '').replace(/\D/g, '');
+        const key = (pn && pn !== '0') ? 'P' + pn : (pd.length >= 9 ? 'T' + pd : '');
+        if (!key) return;
+        if (!latest[key] || t > latest[key].t) latest[key] = { t: t, inv: inv };
+      });
+      const out = [];
+      Object.keys(latest).forEach(k => {
+        const inv = latest[k].inv;
+        if (args.chi_khach_le && finIsDealer(inv)) return;
+        let months = 0, label = '';
+        (inv.items || []).forEach(it => MAINT_RULES.forEach(r => { if (r.re.test(it.name || '') && (!months || r.months < months)) { months = r.months; label = r.label; } }));
+        if (!months) { months = MAINT_DEFAULT_MONTHS; label = 'Bảo dưỡng định kỳ'; }
+        const due = new Date(latest[k].t); due.setMonth(due.getMonth() + months);
+        const days = Math.ceil((due.getTime() - now) / DAY);
+        if (days > within || days < -MAINT_MAX_OVERDUE_DAYS) return;
+        const m = { plate: inv.plate || '', name: inv.name || '', phone: inv.phone || '', car: inv.car || '', label, days, dueText: due.toLocaleDateString('vi-VN') };
+        out.push({ bien_so: m.plate, ten: m.name, sdt: m.phone, dong_xe: m.car, hang_muc: label, con_ngay: days, han: m.dueText,
+          lan_cuoi: inv.date, tin_nhan_mau: aiReminderMsg(m) });
+      });
+      out.sort((a, b) => a.con_ngay - b.con_ngay);
+      return { tong: out.length, trong_vong_ngay: within, khach: out.slice(0, 30), ghi_chu: 'con_ngay âm = đã quá hạn. tin_nhan_mau để nhân viên copy gửi Zalo/SMS cho khách.' };
+    }
+    function aiToolCustomerList(args) {
+      const loai = normText(args.loai || 'chi_tieu_nhieu').replace(/\s+/g, '_');
+      const R = args.ky ? aiRange(args) : { t0: 0, t1: Date.now() + AI_DAY, nhan: 'Toàn bộ lịch sử' };
+      const g = {};
+      invoiceList.forEach(inv => {
+        const t = invTime(inv); if (!t) return;
+        const pn = normPlate(inv.plate), pd = String(inv.phone || '').replace(/\D/g, '');
+        const key = pd.length >= 9 ? 'T' + pd : (pn && pn !== '0' ? 'P' + pn : 'N' + normText(inv.name));
+        const c = g[key] = g[key] || { ten: inv.name || '', sdt: inv.phone || '', bien_so: {}, dong_xe: {}, loai: inv.customerType || 'Khách lẻ', tong: 0, lan: 0, tong_ky: 0, lan_ky: 0, cuoi: 0, dau: t };
+        c.tong += inv.total || 0; c.lan++;
+        if (t >= R.t0 && t < R.t1) { c.tong_ky += inv.total || 0; c.lan_ky++; }
+        if (inv.plate) c.bien_so[inv.plate] = 1; if (inv.car) c.dong_xe[inv.car] = 1;
+        if (t > c.cuoi) { c.cuoi = t; if (inv.name) c.ten = inv.name; }
+        if (t < c.dau) c.dau = t;
+      });
+      let arr = Object.values(g);
+      if (args.chi_dai_ly) arr = arr.filter(c => /Garage|Đại lý/.test(c.loai));
+      const now = Date.now();
+      const fmt = c => ({ ten: c.ten, sdt: c.sdt, loai_khach: c.loai, bien_so: Object.keys(c.bien_so).slice(0, 3).join(', '), dong_xe: Object.keys(c.dong_xe).slice(0, 2).join(', '),
+        tong_chi_tieu: Math.round(c.tong), so_lan_den: c.lan, chi_tieu_trong_ky: Math.round(c.tong_ky), so_lan_trong_ky: c.lan_ky,
+        lan_cuoi: new Date(c.cuoi).toLocaleDateString('vi-VN'), so_ngay_chua_quay_lai: Math.floor((now - c.cuoi) / AI_DAY) });
+      if (loai === 'lau_khong_quay_lai') {
+        const nd = Math.max(60, parseInt(args.so_ngay, 10) || 180);
+        arr = arr.filter(c => now - c.cuoi > nd * AI_DAY && now - c.cuoi < 730 * AI_DAY).sort((a, b) => b.tong - a.tong);
+        return { loai: 'Khách lâu không quay lại (> ' + nd + ' ngày), xếp theo chi tiêu', tong: arr.length, khach: arr.slice(0, 25).map(fmt) };
+      }
+      if (loai === 'khach_moi') {
+        arr = arr.filter(c => c.dau >= R.t0 && c.dau < R.t1).sort((a, b) => b.tong_ky - a.tong_ky);
+        return { loai: 'Khách mới lần đầu đến trong ' + R.nhan, tong: arr.length, khach: arr.slice(0, 25).map(fmt) };
+      }
+      arr = arr.filter(c => c.lan_ky > 0).sort((a, b) => b.tong_ky - a.tong_ky);
+      const res = { loai: 'Khách chi tiêu nhiều nhất – ' + R.nhan, tong: arr.length, khach: arr.slice(0, 20).map(fmt) };
+      if (!isAdminUser()) res.khach.forEach(k => { delete k.tong_chi_tieu; });
+      return res;
+    }
+
+    // ===== 4. THAO TÁC THAY NGƯỜI (luôn cần người bấm xác nhận) =====
+    const aiPending = {};
+    function aiConfirmCard(title, lines, onOk, okLabel) {
+      const key = 'aip' + Date.now() + Math.random().toString(36).slice(2, 6);
+      aiPending[key] = onOk;
+      aiAppend(`<div class="w-full bg-gray-900 border border-orange-500/50 rounded-2xl p-3 text-xs space-y-2" id="${key}">
+        <div class="font-black text-orange-300"><i class="fa-solid fa-hand-pointer mr-1"></i>${aiEsc(title)}</div>
+        <div class="text-gray-200 whitespace-pre-line">${lines.map(aiEsc).join('\n')}</div>
+        <div class="flex gap-2"><button onclick="aiConfirmRun('${key}')" class="px-3 py-1.5 bg-orange-600 hover:bg-orange-500 text-white rounded-lg font-bold">${aiEsc(okLabel || 'Xác nhận')}</button>
+        <button onclick="aiConfirmCancel('${key}')" class="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg font-bold">Huỷ</button></div></div>`);
+      return key;
+    }
+    async function aiConfirmRun(key) {
+      const fn = aiPending[key]; if (!fn) return;
+      delete aiPending[key];
+      const box = document.getElementById(key);
+      if (box) box.querySelectorAll('button').forEach(b => { b.disabled = true; b.classList.add('opacity-50'); });
+      let msg;
+      try { msg = await fn(); } catch (e) { console.error(e); msg = '❌ Lỗi: ' + e.message; }
+      if (box && msg) { const d = document.createElement('div'); d.className = 'text-emerald-300 font-bold'; d.textContent = msg; box.appendChild(d); }
+    }
+    function aiConfirmCancel(key) {
+      delete aiPending[key];
+      const box = document.getElementById(key);
+      if (box) { box.querySelectorAll('button').forEach(b => b.remove()); const d = document.createElement('div'); d.className = 'text-gray-400'; d.textContent = 'Đã huỷ.'; box.appendChild(d); }
+    }
+
+    // 4a. Phiếu nhập kho từ ảnh hoá đơn / lời nói -> mở cửa sổ Nhập Hàng đã điền sẵn (người dùng tự bấm Lưu)
+    function aiToolDraftReceipt(args) {
+      if (!currentLoggedInUser || (currentLoggedInUser.role !== 'admin' && currentLoggedInUser.role !== 'stock')) return { loi: 'Chỉ Chủ Xưởng hoặc Quản Lý Kho được lập phiếu nhập.' };
+      openReceiptModal();
+      if (args.nha_cung_cap) document.getElementById('rc-supplier').value = String(args.nha_cung_cap);
+      if (args.ghi_chu) document.getElementById('rc-note').value = String(args.ghi_chu);
+      const added = [], missing = [], priceChanged = [];
+      (args.hang || []).forEach(h => {
+        let p = h.ma && inventoryList.find(x => String(x.id).toUpperCase() === String(h.ma).toUpperCase());
+        if (!p && h.ten) p = smartFilterProducts(inventoryList, h.ten)[0];
+        if (!p) { missing.push((h.ten || h.ma || '?') + (h.so_luong ? ' ×' + h.so_luong : '') + (h.gia_nhap ? ' @' + formatMoney(h.gia_nhap) : '')); return; }
+        const qty = Math.max(0.5, parseFloat(h.so_luong) || 1);
+        const cost = parseCurrencyNumber(h.gia_nhap) || parseCurrencyNumber(p.costPrice) || 0;
+        const ex = receiptDraft.items.find(i => i.id === p.id);
+        if (ex) ex.qty = Math.round((ex.qty + qty) * 10) / 10; else receiptDraft.items.push({ id: p.id, name: p.name, unit: p.unit || 'Cái', qty, cost });
+        const old = parseCurrencyNumber(p.costPrice) || 0;
+        if (h.gia_nhap && old && Math.abs(cost - old) / old > 0.02) priceChanged.push(p.name + ': ' + formatMoney(old) + ' → ' + formatMoney(cost));
+        added.push(p.id + ' ' + p.name + ' ×' + formatStockQty(qty) + ' @' + formatMoney(cost));
+      });
+      renderReceiptItems();
+      return { da_mo_phieu_nhap: true, da_dien: added, khong_khop_ma_kho: missing, gia_nhap_khac_lan_truoc: priceChanged,
+        tong_tien: receiptDraft.items.reduce((s, i) => s + i.qty * i.cost, 0),
+        luu_y: 'Phiếu nhập đang mở ở dạng NHÁP. Người dùng kiểm tra số lượng/giá rồi tự bấm Lưu để cộng kho. Hàng không khớp mã cần tạo "+ Mã Hàng Mới" trước.' };
+    }
+
+    // 4b. Sửa giá / tồn kho bằng lời (chỉ Chủ xưởng, có nút xác nhận)
+    function aiToolEditProduct(args) {
+      if (!isAdminUser()) return { loi: 'Chỉ Chủ Xưởng mới được sửa giá / tồn kho qua trợ lý.' };
+      const q = String(args.ma || args.ten || '').trim();
+      let p = inventoryList.find(x => String(x.id).toUpperCase() === q.toUpperCase());
+      if (!p && q) { const f = smartFilterProducts(inventoryList, q); if (f.length > 1 && !args.ma) return { loi: 'Có ' + f.length + ' sản phẩm khớp "' + q + '". Hỏi lại người dùng mã hàng cụ thể.', goi_y: f.slice(0, 6).map(x => x.id + ' ' + x.name) }; p = f[0]; }
+      if (!p) return { loi: 'Không tìm thấy sản phẩm "' + q + '".' };
+      const ch = {}, lines = [];
+      const fields = [['gia_ban', 'price', 'Giá bán lẻ'], ['gia_dai_ly', 'dealerPrice', 'Giá đại lý'], ['gia_nhap', 'costPrice', 'Giá nhập']];
+      fields.forEach(([a, f, label]) => { if (args[a] != null && args[a] !== '') { const v = parseCurrencyNumber(args[a]) || 0; ch[f] = v; lines.push(label + ': ' + formatMoney(parseCurrencyNumber(p[f]) || 0) + ' → ' + formatMoney(v) + ' đ'); } });
+      const before = parseFloat(p.stock) || 0;
+      let newStock = null;
+      if (args.ton_kho != null && args.ton_kho !== '') { newStock = Math.max(0, Math.round(parseFloat(args.ton_kho) * 10) / 10); lines.push('Tồn kho: ' + formatStockQty(before) + ' → ' + formatStockQty(newStock) + ' ' + (p.unit || 'Cái')); }
+      if (!lines.length) return { loi: 'Chưa nói rõ đổi giá gì / tồn kho bao nhiêu.' };
+      const reason = String(args.ly_do || 'Chủ Xưởng sửa qua Trợ lý AI');
+      aiConfirmCard('Sửa ' + p.id + ' – ' + p.name, lines.concat(['Lý do: ' + reason]), async () => {
+        const delta = newStock == null ? 0 : Math.round((newStock - before) * 10) / 10;
+        let adj = null, gone = false;
+        const res = await cloudUpdateList('garage/inventory', list => {
+          const t = list.find(i => i.id === p.id); gone = !t; adj = null;
+          if (!t) return list;
+          Object.keys(ch).forEach(f => { if (f === 'dealerPrice' && !ch[f]) delete t.dealerPrice; else t[f] = ch[f]; });
+          if (delta) { const b = parseFloat(t.stock) || 0; t.stock = Math.max(0, Math.round((b + delta) * 10) / 10); adj = { b, a: t.stock }; }
+          return list;
+        });
+        if (res === false) return '❌ Không lưu được lên đám mây.';
+        if (gone) return '❌ Sản phẩm không còn trong kho.';
+        logStockEvent('DIEUCHINH', p.id, p.name, p.unit || 'Cái', adj ? adj.b : before, adj ? adj.a : before, lines.join(', ') + ' – ' + reason);
+        renderInventoryTable(); populateInventorySelector('ALL');
+        return '✅ Đã lưu thay đổi cho ' + p.name + '.';
+      }, 'Lưu thay đổi');
+      return { da_hien_the_xac_nhan: true, thay_doi: lines, luu_y: 'Chưa lưu. Người dùng phải bấm "Lưu thay đổi" trên thẻ.' };
+    }
+
+    // 4c. Gửi tin vào nhóm Zalo đại lý (chỉ Chủ xưởng, có nút xác nhận) -> bot nhận qua garage/zaloPosts
+    async function aiToolZaloSend(args) {
+      if (!isAdminUser()) return { loi: 'Chỉ Chủ Xưởng mới được gửi tin vào nhóm Zalo.' };
+      if (!firebaseDb) return { loi: 'Chưa kết nối đám mây.' };
+      const snap = await firebaseDb.ref('garage/zaloGroups').once('value');
+      const v = snap.val() || {}, enabled = v.enabled || {}, internal = v.internal || {};
+      const ids = Object.keys(enabled);
+      if (!ids.length) return { loi: 'Bot chưa phục vụ nhóm nào (Zalo Đại Lý → chọn nhóm).' };
+      const nameOf = id => (enabled[id] && enabled[id].name) || id;
+      let targets = ids;
+      const want = Array.isArray(args.nhom) ? args.nhom : (args.nhom && normText(args.nhom) !== 'all' && normText(args.nhom) !== 'tat ca' ? [args.nhom] : []);
+      if (want.length) {
+        targets = ids.filter(id => want.some(w => { const a = normText(nameOf(id)), b = normText(w); return a.includes(b) || b.includes(a); }));
+        if (!targets.length) return { loi: 'Không tìm thấy nhóm khớp ' + JSON.stringify(want) + '.', nhom_dang_phuc_vu: ids.map(nameOf) };
+      }
+      const bangGia = !!args.gui_bang_gia;
+      const text = String(args.noi_dung || '').trim();
+      if (!bangGia && !text) return { loi: 'Chưa có nội dung tin.' };
+      if (bangGia) targets = targets.filter(id => !internal[id]);
+      if (!targets.length) return { loi: 'Không gửi bảng giá đại lý vào nhóm nội bộ.' };
+      const lines = ['Gửi vào ' + targets.length + ' nhóm: ' + targets.map(nameOf).join(', ')];
+      lines.push(bangGia ? 'Nội dung: BẢNG GIÁ ĐẠI LÝ (giá riêng từng nhóm)' : 'Nội dung:\n' + text);
+      aiConfirmCard('Gửi tin Zalo đại lý', lines, async () => {
+        const ok = await zaloPush(bangGia ? { kind: 'pricelist', targets } : { kind: 'news', text, signature: args.chu_ky !== false, targets });
+        return ok ? '✅ Đã chuyển cho bot, bot sẽ gửi trong ít phút.' : '❌ Không gửi được.';
+      }, 'Gửi ngay');
+      return { da_hien_the_xac_nhan: true, so_nhom: targets.length, luu_y: 'Chưa gửi. Người dùng phải bấm "Gửi ngay" trên thẻ.' };
+    }
+
     const AI_TOOLS = [
       { name: 'tra_cuu_xe', fn: aiToolFindVehicle,
         description: 'Tra lịch sử xe/khách đã từng ghé xưởng theo biển số, số điện thoại hoặc tên. Trả về số lần đến, lần gần nhất, ODO, các hạng mục đã thay.',
@@ -7268,7 +7603,32 @@
           odo: ['string', 'Số ODO km'], ghi_chu: ['string', 'Ghi chú'], loai_khach: ['string', '"le" hoặc "garage"'], hinh_thuc: ['string', '"xuong" hoặc "ship"'],
           hang_muc: ['array', 'Phụ tùng: [{ma, so_luong, ten?, don_gia?}]', { type: 'object', properties: { ma: { type: 'string' }, ten: { type: 'string' }, so_luong: { type: 'number' }, don_gia: { type: 'number' } } }],
           tien_cong: ['array', 'Tiền công: [{ten, don_gia}]', { type: 'object', properties: { ten: { type: 'string' }, don_gia: { type: 'number' } } }]
-        }, required: [] }
+        }, required: [] },
+      { name: 'bao_cao_kinh_doanh', fn: aiToolBusinessReport,
+        description: 'Báo cáo doanh thu, lãi gộp, số hoá đơn, mặt hàng bán chạy/lãi nhiều, bán dưới giá vốn, so với kỳ trước, chi phí & lợi nhuận ròng tháng. CHỈ Chủ Xưởng.',
+        params: { ky: ['string', 'hom_nay | hom_qua | tuan_nay | tuan_truoc | 7_ngay | 30_ngay | thang_nay | thang_truoc | nam_nay | "10/2026"'], tu_ngay: ['string', 'dd/mm/yyyy (tuỳ chọn)'], den_ngay: ['string', 'dd/mm/yyyy (tuỳ chọn)'] }, required: [] },
+      { name: 'phan_tich_kho', fn: aiToolStockAnalysis,
+        description: 'Phân tích kho theo tốc độ bán 90 ngày: hàng sắp hết, hết hàng nhưng bán chạy, tồn lâu không bán (vốn đọng), gợi ý số lượng nên nhập.',
+        params: { loai: ['string', 'tong_quan | sap_het | het_hang | ton_lau | goi_y_nhap'], nhom: ['string', 'PHUOC, NHOT, BOTHANG, ROTUYN, GAM, KHAC (tuỳ chọn)'], so_ngay: ['number', 'Với ton_lau: số ngày không bán (mặc định 90)'], so_ngay_du_tru: ['number', 'Với goi_y_nhap: muốn đủ bán bao nhiêu ngày (mặc định 30)'] }, required: [] },
+      { name: 'lich_su_ma_hang', fn: aiToolItemHistory,
+        description: 'Lịch sử 1 mã hàng: nhật ký nhập/xuất/điều chỉnh kho và các lần bán gần đây.',
+        params: { ma: ['string', 'Mã hàng'], tu_khoa: ['string', 'Hoặc tên sản phẩm'] }, required: [] },
+      { name: 'khach_den_han_bao_duong', fn: aiToolMaintenanceDue,
+        description: 'Danh sách khách/xe đến hạn hoặc quá hạn thay nhớt, kiểm tra phuộc/gầm, kèm tin nhắn nhắc khách soạn sẵn.',
+        params: { trong_vong_ngay: ['number', 'Đến hạn trong bao nhiêu ngày tới (mặc định 14)'], chi_khach_le: ['boolean', 'Bỏ khách garage/đại lý'] }, required: [] },
+      { name: 'danh_sach_khach', fn: aiToolCustomerList,
+        description: 'Thống kê khách: chi tiêu nhiều nhất trong kỳ, khách lâu không quay lại, khách mới.',
+        params: { loai: ['string', 'chi_tieu_nhieu | lau_khong_quay_lai | khach_moi'], ky: ['string', 'Kỳ như bao_cao_kinh_doanh (tuỳ chọn)'], so_ngay: ['number', 'Với lau_khong_quay_lai: số ngày (mặc định 180)'], chi_dai_ly: ['boolean', 'Chỉ khách garage/đại lý'] }, required: [] },
+      { name: 'lap_phieu_nhap_kho', fn: aiToolDraftReceipt,
+        description: 'Mở phiếu NHẬP KHO dạng nháp đã điền sẵn từ ảnh hoá đơn nhà cung cấp hoặc lời nói. Đọc kỹ từng dòng: tên/mã hàng, số lượng, đơn giá nhập. Người dùng tự bấm Lưu. Chủ Xưởng / Quản Lý Kho.',
+        params: { nha_cung_cap: ['string', 'Tên nhà cung cấp'], ghi_chu: ['string', 'Ghi chú (số hoá đơn...)'],
+          hang: ['array', 'Các dòng hàng', { type: 'object', properties: { ma: { type: 'string' }, ten: { type: 'string' }, so_luong: { type: 'number' }, gia_nhap: { type: 'number' } } }] }, required: ['hang'] },
+      { name: 'sua_gia_ton_kho', fn: aiToolEditProduct,
+        description: 'Sửa giá bán lẻ / giá đại lý / giá nhập / số tồn kho của 1 sản phẩm. Hiện thẻ để Chủ Xưởng bấm xác nhận, KHÔNG tự lưu. CHỈ Chủ Xưởng.',
+        params: { ma: ['string', 'Mã hàng'], ten: ['string', 'Tên nếu không có mã'], gia_ban: ['number', 'Giá bán lẻ mới'], gia_dai_ly: ['number', 'Giá đại lý mới (0 = bỏ bán sỉ)'], gia_nhap: ['number', 'Giá nhập mới'], ton_kho: ['number', 'Số tồn kho mới (số tuyệt đối)'], ly_do: ['string', 'Lý do'] }, required: [] },
+      { name: 'gui_tin_zalo_nhom', fn: aiToolZaloSend,
+        description: 'Gửi tin hoặc bảng giá đại lý vào các nhóm Zalo bot đang phục vụ. Hiện thẻ để Chủ Xưởng bấm "Gửi ngay", KHÔNG tự gửi. CHỈ Chủ Xưởng. Viết nội dung lịch sự gửi đại lý, giữ nguyên số liệu.',
+        params: { noi_dung: ['string', 'Nội dung tin'], nhom: ['array', 'Tên nhóm (bỏ trống = tất cả)', { type: 'string' }], gui_bang_gia: ['boolean', 'Gửi bảng giá đại lý'], chu_ky: ['boolean', 'Kèm chữ ký shop (mặc định có)'] }, required: [] }
     ];
 
     function aiSchema(t) {
@@ -7288,7 +7648,17 @@
       if (!t) return { loi: 'Không có công cụ ' + name };
       let res;
       try { res = t.fn(args || {}); } catch (e) { console.error(e); res = { loi: 'Lỗi khi chạy công cụ: ' + e.message }; }
+      if (res && typeof res.then === 'function') return res;
       aiRenderToolCard(name, args || {}, res);
+      return res;
+    }
+    async function aiRunToolAsync(name, args) {
+      let res = aiRunTool(name, args);
+      if (res && typeof res.then === 'function') {
+        try { res = await res; } catch (e) { console.error(e); res = { loi: 'Lỗi khi chạy công cụ: ' + e.message }; }
+        aiRenderToolCard(name, args || {}, res);
+      }
+      if (res && res.loi) aiAppend(`<div class="w-full bg-red-950/40 border border-red-500/30 rounded-2xl p-2 text-[11px] text-red-200"><i class="fa-solid fa-circle-exclamation mr-1"></i>${aiEsc(res.loi)}</div>`);
       return res;
     }
 
@@ -7306,6 +7676,12 @@
         '- Tư vấn (nhớt, phuộc...): kết hợp kiến thức kỹ thuật chung về xe (độ nhớt khuyến nghị, loại phuộc phù hợp nhu cầu) với sản phẩm ĐANG CÓ trong kho (gọi tim_kho / goi_y_theo_dong_xe). Ưu tiên đề xuất hàng còn tồn. Kiến thức chung chỉ là tham khảo, nhắc kiểm tra sách hướng dẫn xe khi không chắc.',
         '- Dựa vào lịch sử (ODO, số ngày từ lần trước) để nhắc hạng mục có thể đến hạn (VD nhớt ~5.000-10.000 km hoặc 6 tháng).',
         '- Lên đơn: chỉ gọi len_don_nhap khi nhân viên yêu cầu lên đơn/lên bill. Dùng đúng mã từ kho. Sau đó nhắc nhân viên kiểm tra phiếu ở tab 1 và tự bấm Xuất Hóa Đơn.',
+        '- Báo cáo doanh thu/lãi: gọi bao_cao_kinh_doanh (chỉ Chủ Xưởng). Tóm tắt số chính, so với kỳ trước, nêu 2-3 nhận xét/hành động cụ thể (hàng bán dưới giá vốn, hoá đơn thiếu tiền công...).',
+        '- Kho: hỏi hàng sắp hết / nên nhập gì / tồn lâu -> phan_tich_kho; lịch sử 1 mã -> lich_su_ma_hang.',
+        '- Khách: đến hạn bảo dưỡng -> khach_den_han_bao_duong (đưa tin nhắn mẫu để copy); khách chi tiêu nhiều / lâu không quay lại / khách mới -> danh_sach_khach.',
+        '- Ảnh HOÁ ĐƠN NHẬP HÀNG của nhà cung cấp: đọc từng dòng (tên, mã, SL, đơn giá) rồi gọi lap_phieu_nhap_kho. Ảnh XE thì làm như trên.',
+        '- Sửa giá/tồn (sua_gia_ton_kho) và gửi tin Zalo (gui_tin_zalo_nhom) chỉ HIỆN THẺ XÁC NHẬN; nói rõ người dùng cần bấm nút trên thẻ, không nói là đã lưu/đã gửi.',
+        isAdminUser() ? '- Người hỏi là CHỦ XƯỞNG: dùng được mọi công cụ.' : '- Người hỏi KHÔNG phải Chủ Xưởng: không xem được báo cáo doanh thu/lợi nhuận, không sửa giá, không gửi tin Zalo. Nếu được yêu cầu thì nói lịch sự là cần Chủ Xưởng.',
         aiCanSeeCost() ? '- Người hỏi được xem giá vốn.' : '- KHÔNG tiết lộ giá vốn/giá nhập/lợi nhuận cho người hỏi này.',
         '- Trả lời bằng tiếng Việt, ngắn gọn, dễ đọc trên điện thoại, dùng gạch đầu dòng. Tiền ghi dạng 1.250.000 đ. Giao diện đã hiện thẻ chi tiết từ công cụ nên không cần chép lại toàn bộ danh sách, chỉ nêu điểm chính và đề xuất.'
       ].join('\n');
@@ -7384,7 +7760,7 @@
       const prov = cfg.provider === 'claude' ? 'claude' : 'gemini';
       if (aiNative.provider !== prov) aiNative = { provider: prov, msgs: [], turnStarts: [] };
       aiNative.turnStarts.push(aiNative.msgs.length);
-      const userText = text || 'Đây là ảnh xe khách vừa tới. Hãy đọc biển số, nhận diện dòng xe, tra lịch sử và gợi ý sản phẩm hay thay.';
+      const userText = text || 'Phân tích ảnh này. Nếu là ẢNH XE: đọc biển số, nhận diện dòng xe, tra lịch sử và gợi ý sản phẩm hay thay. Nếu là HOÁ ĐƠN / PHIẾU GIAO HÀNG của nhà cung cấp: đọc từng dòng hàng và lập phiếu nhập kho nháp.';
       if (prov === 'gemini') {
         const parts = [];
         if (image) parts.push({ inline_data: { mime_type: image.mime, data: image.data } });
@@ -7405,7 +7781,8 @@
         if (res.text) finalText = res.text;
         if (!res.calls.length) break;
         aiSetTyping('Đang tra dữ liệu xưởng...');
-        const results = res.calls.map(c => ({ id: c.id, name: c.name, result: aiRunTool(c.name, c.args) }));
+        const results = [];
+        for (const c of res.calls) results.push({ id: c.id, name: c.name, result: await aiRunToolAsync(c.name, c.args) });
         sendResults(results);
         aiSetTyping('Đang soạn trả lời...');
       }
@@ -7554,7 +7931,8 @@
     function aiWelcome() {
       const c = aiActiveConfig();
       aiAddBot(c
-        ? `Chào **${(currentLoggedInUser && currentLoggedInUser.name) || 'bạn'}**! Mình có thể:\n- 📷 Chụp ảnh xe: đọc biển số, xem xe đã ghé xưởng chưa, gợi ý hàng hay thay\n- Tư vấn nhớt, phuộc... theo xe và hàng đang có trong kho\n- Lên đơn nhanh: VD "lên đơn thay nhớt 4 lít + công lắp phuộc"`
+        ? `Chào **${(currentLoggedInUser && currentLoggedInUser.name) || 'bạn'}**! Mình có thể:\n- 📷 Chụp ảnh xe: đọc biển số, xem lịch sử, gợi ý hàng hay thay\n- Tư vấn nhớt, phuộc... theo xe và hàng đang có trong kho\n- Lên đơn nhanh: VD "lên đơn thay nhớt 4 lít + công lắp phuộc"\n- 📦 Kho: "hàng nào sắp hết?", "nên nhập gì tháng này?", "hàng nào tồn lâu không bán?"\n- 🔧 Khách: "khách nào đến hạn thay nhớt tuần này?", "khách lâu không quay lại"\n- 🧾 Chụp **hoá đơn nhập hàng** → tự điền phiếu nhập kho` +
+          (isAdminUser() ? `\n- 📊 "Doanh thu, lãi tháng này?", "hôm nay bán bao nhiêu?"\n- ✏️ "Đổi giá đại lý phuộc PAG-6025 thành 6,2 triệu"\n- 📣 "Gửi tin nhóm Nội Bộ: chiều 3h họp kho" (luôn hỏi xác nhận trước khi lưu/gửi)` : '')
         : `Đang ở **chế độ cơ bản** (chưa cài API key AI).\n- Gõ **biển số** hoặc **SĐT** để xem lịch sử xe + hàng xe cùng dòng hay thay\n- Gõ tên phụ tùng hoặc dòng xe để tìm kho\n- Chụp ảnh đọc biển số và tư vấn tự do cần bật AI ở **tab 7. Cài Đặt** (Chủ Xưởng)`);
     }
 
