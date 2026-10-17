@@ -971,12 +971,19 @@
           <p class="text-[10px] text-gray-500 mt-1.5">Tick để bật/tắt, bot áp dụng ngay không cần khởi động lại. Nên thêm dần 3–5 nhóm mỗi lần.</p>
         </div>
         <details id="zalo-teach-box" class="bg-gray-800/40 p-2.5 rounded-xl border border-amber-800/40">
-          <summary class="cursor-pointer text-[11px] font-bold uppercase tracking-wider text-amber-300">🎓 Dạy AI báo giá <span id="zt-count" class="normal-case text-gray-400 font-normal"></span></summary>
+          <summary class="cursor-pointer text-[11px] font-bold uppercase tracking-wider text-amber-300">🎓 Kiến thức cho AI <span id="zt-count" class="normal-case text-gray-400 font-normal"></span></summary>
           <div class="mt-2 space-y-2">
-            <div>
-              <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Quy tắc báo giá (viết tự nhiên, mỗi ý 1 dòng)</label>
-              <textarea id="zt-rules" rows="6" placeholder="VD:&#10;- Phuộc bảo hành 12 tháng, nhớt không bảo hành.&#10;- Đơn từ 5 bộ phuộc miễn phí ship nội thành HCM, tỉnh khác ship COD.&#10;- Hỏi phuộc mà chưa nói đời xe/năm sản xuất thì hỏi lại đời xe trước khi báo.&#10;- Giá đã gồm VAT. Chốt đơn trước 15h giao trong ngày.&#10;- Xưng em, gọi đại lý là anh/chị, trả lời ngắn gọn." class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"></textarea>
-              <button onclick="zaloSaveRules()" class="mt-1 px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold"><i class="fa-solid fa-floppy-disk mr-1"></i>Lưu quy tắc</button>
+            <p class="text-[10px] text-gray-400">Gõ tự nhiên, mỗi ý 1 dòng. Bấm <b>Lưu kiến thức</b> là bot học ngay (không cần khởi động lại).</p>
+            <div id="zt-topics" class="space-y-2"></div>
+            <button onclick="zaloSaveRules()" class="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold"><i class="fa-solid fa-floppy-disk mr-1"></i>Lưu kiến thức</button>
+            <div class="border-t border-gray-800 pt-2">
+              <div class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">📱 Dạy nhanh qua Zalo</div>
+              <p class="text-[10px] text-gray-400">Nhắn riêng cho Zalo bot: <code class="text-amber-300">#day nội dung</code> (VD: <i>#day Roadfit bảo hành 24 tháng</i>). Xem lại: <code class="text-amber-300">#xemday</code>. Chỉ Zalo đã kích hoạt mới dạy được.</p>
+              <div class="flex items-center gap-2 mt-1.5 flex-wrap">
+                <button onclick="zaloNewActivation()" class="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-amber-300 border border-amber-600/50 rounded-lg text-[11px] font-bold">🔑 Tạo mã kích hoạt</button>
+                <span id="zt-act" class="text-[11px] text-gray-300"></span>
+              </div>
+              <div id="zt-owners" class="mt-1.5 space-y-1 text-[11px]"></div>
             </div>
             <div class="border-t border-gray-800 pt-2">
               <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Thêm câu trả lời mẫu</label>
@@ -1011,7 +1018,7 @@
         <div class="bg-gray-800/40 p-2.5 rounded-xl border border-gray-800">
           <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Giảm thêm cho cả bảng giá (%)</label>
           <input type="number" id="zp-pct" min="0" max="50" step="0.5" placeholder="0" oninput="zaloRenderPriceRows()" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-sm text-white focus:outline-none focus:border-emerald-500">
-          <p class="text-[10px] text-gray-500 mt-1">Áp cho mọi món chưa đặt giá riêng (tính trên Giá Đại Lý chung, làm tròn nghìn).</p>
+          <p class="text-[10px] text-gray-500 mt-1">Áp cho mọi món chưa đặt giá riêng. % tính trên <b>giá niêm yết bán lẻ</b>: VD lẻ 5.000.000, ĐL 4.000.000 (CK 20%), giảm thêm 5% → 3.750.000 (CK 25%). Làm tròn nghìn.</p>
         </div>
         <div class="bg-gray-800/40 p-2.5 rounded-xl border border-gray-800">
           <input type="text" id="zp-search" oninput="zaloRenderPriceRows()" placeholder="Tìm sản phẩm..." class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white mb-1.5 focus:outline-none focus:border-emerald-500">
@@ -3791,7 +3798,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.16-3';
+    const APP_VERSION = '2026.10.17-1';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -4083,8 +4090,8 @@
       let rulesLoaded = false;
       r7.on('value', s => {
         zaloTeach = s.val() || {};
-        if (!rulesLoaded) { document.getElementById('zt-rules').value = zaloTeach.rules || ''; rulesLoaded = true; }
-        zaloRenderExamples();
+        zaloRenderTopics(!rulesLoaded); rulesLoaded = true;
+        zaloRenderExamples(); zaloRenderOwners();
       });
       zaloRefs = [r1, r2, r3, r4, r5, r6, r7];
     }
@@ -4162,15 +4169,27 @@
       }).slice(0, 300);
       box.innerHTML = rows.length ? rows.map(p => {
         const k = imgKey(p.id), base = parseCurrencyNumber(p.dealerPrice) || 0, own = parseCurrencyNumber(zpDraft[k]) || 0;
-        const auto = base ? (pct ? Math.round(base * (1 - pct / 100) / 1000) * 1000 : base) : 0;
+        const retail = parseCurrencyNumber(p.price) || 0;
+        const auto = zaloAutoDealerPrice(base, retail, pct);
+        const eff = own || auto;
+        const ckInfo = retail && eff ? ' · Lẻ ' + formatMoney(retail) + ' · CK ' + (Math.round((1 - eff / retail) * 1000) / 10) + '%' : '';
+        const warn = pct && base && !retail && !own ? ' <span class="text-amber-400" title="Chưa có giá bán lẻ: đang giảm % trên giá đại lý">⚠️ chưa có giá lẻ</span>' : '';
         return '<div class="grid grid-cols-[1fr_90px_120px] gap-2 items-center p-1.5 rounded-lg ' + (own ? 'bg-emerald-950/40 border border-emerald-800/50' : 'bg-gray-800/40 border border-gray-800') + '">' +
-          '<span class="min-w-0"><span class="block truncate text-gray-200">' + esc(p.name) + '</span><span class="text-[10px] text-gray-500">' + esc(p.id) + ' · ' + esc(p.unit || 'Cái') + '</span></span>' +
+          '<span class="min-w-0"><span class="block truncate text-gray-200">' + esc(p.name) + '</span><span class="text-[10px] text-gray-500">' + esc(p.id) + ' · ' + esc(p.unit || 'Cái') + ckInfo + warn + '</span></span>' +
           '<span class="text-right font-mono text-gray-400">' + (base ? formatMoney(base) : '—') + '</span>' +
           '<input type="text" inputmode="numeric" data-k="' + esc(k) + '" value="' + (own ? formatMoney(own) : '') + '" placeholder="' + (auto ? formatMoney(auto) : 'không bán') + '" ' +
           'onfocus="handleMoneyFocus(this)" oninput="zaloDraftPrice(this)" onblur="zaloDraftPrice(this);this.value=(parseCurrencyNumber(this.value)||0)?formatMoney(parseCurrencyNumber(this.value)):\'\'" ' +
           'class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-right font-mono text-emerald-300 focus:outline-none focus:border-emerald-500">' +
           '</div>';
       }).join('') : '<div class="text-gray-500 p-2">Không có sản phẩm khớp.</div>';
+    }
+    // Giam them X% tinh tren GIA NIEM YET BAN LE: gia DL chung - gia le * X% (VD 4.000.000 - 5.000.000*5% = 3.750.000).
+    // Chua co gia le -> tam giam X% tren gia DL. Giong het cong thuc trong bot.
+    function zaloAutoDealerPrice(base, retail, pct) {
+      if (!base) return 0;
+      if (!pct) return base;
+      const v = retail > 0 ? base - retail * pct / 100 : base * (1 - pct / 100);
+      return Math.max(0, Math.round(v / 1000) * 1000);
     }
     function zaloDraftPrice(input) {
       const k = input.getAttribute('data-k'), v = parseCurrencyNumber(input.value) || 0;
@@ -4201,18 +4220,59 @@
     let zaloTeach = {}, zaloQaRows = {};
     function zaloRenderExamples() {
       const ex = Object.entries(zaloTeach.examples || {}).sort((a, b) => (b[1].at || 0) - (a[1].at || 0));
-      document.getElementById('zt-count').textContent = '(' + ((zaloTeach.rules || '').trim() ? 'có quy tắc · ' : '') + ex.length + ' mẫu)';
+      const nTopic = ZT_TOPICS.filter(t => String(zaloTeachVal(t.k) || '').trim()).length;
+      document.getElementById('zt-count').textContent = '(' + nTopic + ' mục kiến thức · ' + ex.length + ' mẫu)';
       document.getElementById('zt-examples').innerHTML = ex.length ? ex.map(([k, e]) =>
         '<div class="p-2 rounded-lg bg-gray-800/60 border border-gray-800"><div class="flex justify-between gap-2"><span class="text-amber-200"><b>Hỏi:</b> ' + esc(e.q) + '</span>' +
         '<button onclick="zaloDeleteExample(\'' + esc(k) + '\')" class="shrink-0 text-gray-500 hover:text-red-400" title="Xoá mẫu"><i class="fa-solid fa-trash-can"></i></button></div>' +
         '<div class="text-gray-300 whitespace-pre-line mt-0.5"><b>Đáp:</b> ' + esc(e.a) + '</div></div>').join('') : '<div class="text-gray-500">Chưa có mẫu nào.</div>';
     }
+    // Cac muc kien thuc: 'rules' giu ten cu (bao gia) de tuong thich; cac muc khac nam o topics/*
+    const ZT_TOPICS = [
+      { k: 'rules', icon: '💲', name: 'Báo giá & chiết khấu', ph: '- Giá đã gồm VAT.\n- Hỏi phuộc mà chưa nói đời xe thì hỏi lại đời xe trước khi báo.\n- Đơn từ 5 bộ chiết khấu thêm 2%.' },
+      { k: 'baohanh', icon: '🛡️', name: 'Chính sách bảo hành', ph: '- Phuộc Roadfit bảo hành 24 tháng hoặc 50.000 km.\n- Nhớt không bảo hành.\n- Đổi mới trong 7 ngày nếu lỗi nhà sản xuất.' },
+      { k: 'lapdat', icon: '🔧', name: 'Lắp đặt & kỹ thuật', ph: '- Lắp phuộc trước/sau mất khoảng 1–1,5 tiếng.\n- Sau khi lắp nên cân chỉnh thước lái.\n- Phuộc Profender chỉnh được 4 nấc.' },
+      { k: 'giaohang', icon: '🚚', name: 'Giao hàng & thanh toán', ph: '- Nội thành HCM giao trong ngày nếu chốt trước 15h.\n- Tỉnh gửi xe/chành, COD.\n- Chuyển khoản: ... ' },
+      { k: 'khac', icon: '📌', name: 'Thông tin khác', ph: '- Giờ làm việc: 8h–18h, Chủ nhật nghỉ chiều.\n- Garage: 9 đường số 7, Bình Hưng Hoà A, Bình Tân.' }
+    ];
+    function zaloTeachVal(k) { return k === 'rules' ? zaloTeach.rules : ((zaloTeach.topics || {})[k]); }
+    function zaloRenderTopics(force) {
+      const box = document.getElementById('zt-topics');
+      if (!box.children.length) {
+        box.innerHTML = ZT_TOPICS.map(t => '<div><label class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">' + t.icon + ' ' + t.name + '</label>' +
+          '<textarea id="zt-' + t.k + '" rows="3" oninput="this.dataset.dirty=1" placeholder="' + esc(t.ph).replace(/\n/g, '&#10;') + '" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"></textarea></div>').join('');
+      }
+      // Cap nhat tu dam may (VD vua day qua Zalo) nhung khong de len o dang go do
+      ZT_TOPICS.forEach(t => { const el = document.getElementById('zt-' + t.k); if (force || !el.dataset.dirty) el.value = zaloTeachVal(t.k) || ''; });
+    }
     async function zaloSaveRules() {
       if (!isAdminUser() || !firebaseDb) return;
+      const upd = { rulesAt: Date.now(), rulesBy: currentLoggedInUser.name || '' };
+      ZT_TOPICS.forEach(t => { const v = document.getElementById('zt-' + t.k).value.trim().slice(0, 8000); upd[t.k === 'rules' ? 'rules' : 'topics/' + t.k] = v || null; });
       try {
-        await firebaseDb.ref('garage/zaloTeach').update({ rules: document.getElementById('zt-rules').value.trim().slice(0, 6000), rulesAt: Date.now(), rulesBy: currentLoggedInUser.name || '' });
-        showNotification('Đã lưu quy tắc báo giá, bot áp dụng ngay!', 'success');
+        await firebaseDb.ref('garage/zaloTeach').update(upd);
+        ZT_TOPICS.forEach(t => delete document.getElementById('zt-' + t.k).dataset.dirty);
+        showNotification('Đã lưu kiến thức cho AI, bot áp dụng ngay!', 'success');
       } catch (e) { showNotification('Không lưu được (' + (e && e.code ? e.code : 'lỗi') + '). Kiểm tra đã dán Rules mới chưa.', 'error'); }
+    }
+    // Kich hoat Zalo duoc phep day bot bang lenh #day
+    function zaloRenderOwners() {
+      const act = zaloTeach.activation || {};
+      const live = act.code && Date.now() - (act.at || 0) < 30 * 60 * 1000;
+      document.getElementById('zt-act').innerHTML = live ? 'Nhắn riêng cho Zalo bot: <code class="text-amber-300 font-bold">#kichhoat ' + esc(act.code) + '</code> (hết hạn sau 30 phút)' : '';
+      const ow = Object.entries(zaloTeach.owners || {});
+      document.getElementById('zt-owners').innerHTML = ow.length ? ow.map(([uid, o]) => '<div class="flex items-center justify-between gap-2 p-1.5 rounded-lg bg-gray-800/60"><span>✅ ' + esc(o.name || uid) + '</span>' +
+        '<button onclick="zaloRemoveOwner(\'' + esc(uid) + '\')" class="text-gray-500 hover:text-red-400" title="Bỏ quyền dạy"><i class="fa-solid fa-xmark"></i></button></div>').join('') : '<div class="text-gray-500">Chưa có Zalo nào được dạy bot.</div>';
+    }
+    async function zaloNewActivation() {
+      if (!isAdminUser() || !firebaseDb) return;
+      const code = String(Math.floor(100000 + Math.random() * 900000));
+      try { await firebaseDb.ref('garage/zaloTeach/activation').set({ code, at: Date.now() }); }
+      catch (e) { showNotification('Không tạo được mã (' + (e && e.code ? e.code : 'lỗi') + ').', 'error'); }
+    }
+    async function zaloRemoveOwner(uid) {
+      if (!window.confirm('Bỏ quyền dạy bot của Zalo này?')) return;
+      try { await firebaseDb.ref('garage/zaloTeach/owners/' + uid).remove(); } catch (e) { showNotification('Không xoá được.', 'error'); }
     }
     async function zaloAddExample() {
       if (!isAdminUser() || !firebaseDb) return;
