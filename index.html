@@ -978,9 +978,9 @@
             <button onclick="zaloSaveRules()" class="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold"><i class="fa-solid fa-floppy-disk mr-1"></i>Lưu kiến thức</button>
             <div class="border-t border-gray-800 pt-2">
               <div class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">📱 Dạy nhanh qua Zalo</div>
-              <p class="text-[10px] text-gray-400">Nhắn riêng cho Zalo bot: <code class="text-amber-300">#day nội dung</code> (VD: <i>#day Roadfit bảo hành 24 tháng</i>). Xem lại: <code class="text-amber-300">#xemday</code>. Chỉ Zalo đã kích hoạt mới dạy được.</p>
+              <p class="text-[10px] text-gray-400">Nhắn riêng cho Zalo bot: <code class="text-amber-300">#day nội dung</code> (VD: <i>#day Roadfit bảo hành 24 tháng</i>). Xem lại: <code class="text-amber-300">#xemday</code>. Nhắn tự nhiên để bot gửi tin vào nhóm (VD: <i>"Nhắn nhóm Nội Bộ: chiều 3h họp kho"</i>, <i>"Gửi bảng giá cho tất cả nhóm"</i>) – bot hỏi lại trước khi gửi. <b>Chỉ Zalo của Chủ xưởng</b> được kích hoạt; nhân viên, quản lý kho không dạy AI, không ra lệnh được.</p>
               <div class="flex items-center gap-2 mt-1.5 flex-wrap">
-                <button onclick="zaloNewActivation()" class="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-amber-300 border border-amber-600/50 rounded-lg text-[11px] font-bold">🔑 Tạo mã kích hoạt</button>
+                <button onclick="zaloNewActivation('owner')" class="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-amber-300 border border-amber-600/50 rounded-lg text-[11px] font-bold">🔑 Tạo mã kích hoạt (Chủ xưởng)</button>
                 <span id="zt-act" class="text-[11px] text-gray-300"></span>
               </div>
               <div id="zt-owners" class="mt-1.5 space-y-1 text-[11px]"></div>
@@ -3805,7 +3805,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.17-2';
+    const APP_VERSION = '2026.10.17-5';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -4093,6 +4093,8 @@
       r5.on('value', s => { zaloEnabledGroups = s.val() || {}; zaloRenderGroups(); });
       const r6 = firebaseDb.ref('garage/zaloGroups/pricing');
       r6.on('value', s => { zaloPricing = s.val() || {}; zaloRenderGroups(); });
+      const r8 = firebaseDb.ref('garage/zaloGroups/internal');
+      r8.on('value', s => { zaloInternal = s.val() || {}; zaloRenderGroups(); });
       const r7 = firebaseDb.ref('garage/zaloTeach');
       let rulesLoaded = false;
       r7.on('value', s => {
@@ -4100,7 +4102,7 @@
         zaloRenderTopics(!rulesLoaded); rulesLoaded = true;
         zaloRenderExamples(); zaloRenderOwners();
       });
-      zaloRefs = [r1, r2, r3, r4, r5, r6, r7];
+      zaloRefs = [r1, r2, r3, r4, r5, r6, r7, r8];
     }
     let zaloAllGroups = {}, zaloEnabledGroups = {}, zaloPricing = {};
     function zaloNorm(t) { return String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase(); }
@@ -4123,7 +4125,7 @@
           '<input type="checkbox" ' + (on ? 'checked' : '') + ' onchange="zaloToggleGroup(\'' + esc(id) + '\', this)">' +
           '<span class="flex-1 min-w-0 truncate ' + (on ? 'text-white font-semibold' : 'text-gray-300') + '">' + esc(g.name) + '</span>' +
           (g.missing ? '<span class="text-[10px] text-red-400 shrink-0">bot không còn trong nhóm</span>' : '<span class="text-[10px] text-gray-500 shrink-0">' + (g.members || '?') + ' người</span>') +
-          (on ? zaloPricingBadge(id) : '') + '</label>';
+          (on ? zaloInternalBadge(id) + (zaloInternal[id] ? '' : zaloPricingBadge(id)) : '') + '</label>';
       }).join('') : '<div class="text-gray-500">Không có nhóm khớp.</div>';
     }
     async function zaloToggleGroup(id, el) {
@@ -4141,6 +4143,20 @@
 
     // ===== GIÁ RIÊNG THEO NHÓM ZALO (đại lý ưu tiên) -> garage/zaloGroups/pricing/{groupId} =====
     let zpGroupId = null, zpDraft = {};
+    // Nhom NOI BO (nhan vien): bot chi bao con/het hang + GIA BAN LE, khong bao gia dai ly / gia nhap, khong gui bang gia dai ly
+    let zaloInternal = {};
+    function zaloInternalBadge(id) {
+      const on = !!zaloInternal[id];
+      return '<button type="button" onclick="event.preventDefault();event.stopPropagation();zaloToggleInternal(\'' + esc(id) + '\')" title="Nhóm nội bộ nhân viên: chỉ báo còn/hết hàng + giá bán lẻ" class="shrink-0 px-1.5 py-0.5 rounded-md text-[10px] font-bold border ' +
+        (on ? 'bg-amber-900/60 text-amber-300 border-amber-700/60' : 'bg-gray-800 text-gray-400 border-gray-700') + '">' + (on ? '🏠 Nội bộ · giá lẻ' : '🏠 Nội bộ?') + '</button>';
+    }
+    async function zaloToggleInternal(id) {
+      if (!isAdminUser() || !firebaseDb) return;
+      const on = !zaloInternal[id];
+      if (on && !window.confirm('Đặt nhóm này là NHÓM NỘI BỘ?\n\nBot sẽ chỉ báo còn/hết hàng và GIÁ BÁN LẺ, không bao giờ báo giá đại lý hay giá nhập, và không gửi bảng giá / đổi giá đại lý vào nhóm này.')) return;
+      try { await firebaseDb.ref('garage/zaloGroups/internal/' + id).set(on ? true : null); }
+      catch (e) { showNotification('Không lưu được (' + (e && e.code ? e.code : 'lỗi') + ').', 'error'); }
+    }
     function zaloPricingBadge(id) {
       const p = zaloPricing[id] || {};
       const n = Object.keys(p.prices || {}).length, pct = parseFloat(p.discountPct) || 0;
@@ -4266,16 +4282,28 @@
     function zaloRenderOwners() {
       const act = zaloTeach.activation || {};
       const live = act.code && Date.now() - (act.at || 0) < 30 * 60 * 1000;
-      document.getElementById('zt-act').innerHTML = live ? 'Nhắn riêng cho Zalo bot: <code class="text-amber-300 font-bold">#kichhoat ' + esc(act.code) + '</code> (hết hạn sau 30 phút)' : '';
+      document.getElementById('zt-act').innerHTML = live ? (act.level === 'staff' ? '<b class="text-sky-300">Mã NHÂN VIÊN</b>' : '<b class="text-amber-300">Mã CHỦ XƯỞNG</b>') + ' – nhắn riêng cho Zalo bot: <code class="text-amber-300 font-bold">#kichhoat ' + esc(act.code) + '</code> (hết hạn sau 30 phút)' : '';
       const ow = Object.entries(zaloTeach.owners || {});
-      document.getElementById('zt-owners').innerHTML = ow.length ? ow.map(([uid, o]) => '<div class="flex items-center justify-between gap-2 p-1.5 rounded-lg bg-gray-800/60"><span>✅ ' + esc(o.name || uid) + '</span>' +
-        '<button onclick="zaloRemoveOwner(\'' + esc(uid) + '\')" class="text-gray-500 hover:text-red-400" title="Bỏ quyền dạy"><i class="fa-solid fa-xmark"></i></button></div>').join('') : '<div class="text-gray-500">Chưa có Zalo nào được dạy bot.</div>';
+      document.getElementById('zt-owners').innerHTML = ow.length ? ow.map(([uid, o]) => {
+        const isOwner = o.level !== 'staff';
+        return '<div class="flex items-center justify-between gap-2 p-1.5 rounded-lg bg-gray-800/60"><span>✅ ' + esc(o.name || uid) + ' ' +
+          (isOwner ? '<span class="px-1.5 rounded bg-amber-900/60 text-amber-300 text-[10px] font-bold">CHỦ XƯỞNG · dạy AI + gửi tin nhóm</span>' : '<span class="px-1.5 rounded bg-gray-700 text-gray-400 text-[10px] font-bold">KHÔNG CÒN QUYỀN – bấm ✕ để xoá</span>') + '</span>' +
+          '<span class="flex items-center gap-2 shrink-0">' +
+          '<button onclick="zaloRemoveOwner(\'' + esc(uid) + '\')" class="text-gray-500 hover:text-red-400" title="Bỏ quyền"><i class="fa-solid fa-xmark"></i></button></span></div>';
+      }).join('') : '<div class="text-gray-500">Chưa có Zalo nào được kích hoạt.</div>';
     }
-    async function zaloNewActivation() {
+    async function zaloNewActivation(level) {
       if (!isAdminUser() || !firebaseDb) return;
+      level = level === 'staff' ? 'staff' : 'owner';
+      if (level === 'owner' && !window.confirm('Mã CHỦ XƯỞNG cho phép Zalo đó ra lệnh bot GỬI TIN VÀO CÁC NHÓM ĐẠI LÝ. Chỉ dùng cho Zalo của chính Chủ xưởng. Tiếp tục?')) return;
       const code = String(Math.floor(100000 + Math.random() * 900000));
-      try { await firebaseDb.ref('garage/zaloTeach/activation').set({ code, at: Date.now() }); }
+      try { await firebaseDb.ref('garage/zaloTeach/activation').set({ code, at: Date.now(), level }); }
       catch (e) { showNotification('Không tạo được mã (' + (e && e.code ? e.code : 'lỗi') + ').', 'error'); }
+    }
+    async function zaloSetOwnerLevel(uid, level) {
+      if (!isAdminUser() || !firebaseDb) return;
+      if (level === 'owner' && !window.confirm('Cho Zalo này quyền CHỦ XƯỞNG (được ra lệnh gửi tin vào nhóm)?')) return;
+      try { await firebaseDb.ref('garage/zaloTeach/owners/' + uid + '/level').set(level); } catch (e) { showNotification('Không đổi được quyền.', 'error'); }
     }
     async function zaloRemoveOwner(uid) {
       if (!window.confirm('Bỏ quyền dạy bot của Zalo này?')) return;
