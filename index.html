@@ -1656,6 +1656,52 @@
       return Object.values(trace).map(t => [typeof type === 'function' ? type(t) : type, t.id, t.name, t.unit, t.before, t.after, typeof note === 'function' ? note(t) : note]);
     }
 
+    // ===== SỐ LƯỢNG THỰC TRỪ KHO CỦA TỪNG HÓA ĐƠN =====
+    // Kho không xuống dưới 0, nên khi bán vượt tồn thì số THỰC trừ có thể ít hơn số trên bill.
+    // Mỗi hóa đơn lưu lại số thực trừ (stockOut) để khi xóa / sửa chỉ hoàn đúng phần đã trừ,
+    // tránh lỗi cộng lặp tồn kho (VD: bán 2 cái khi tồn 0 rồi xóa bill -> trước đây kho bị cộng thêm 2 cái ảo).
+    // Lưu dạng mảng [{id, qty}] vì mã phụ tùng có thể chứa "/" hoặc "." (không dùng làm khóa Firebase được).
+    function findInvoiceProduct(it) {
+      return inventoryList.find(p => p.id === it.id || p.name.trim().toLowerCase() === String(it.name || '').trim().toLowerCase());
+    }
+    function invoiceProdQty(items) {
+      const m = {};
+      (items || []).forEach(it => {
+        const prod = findInvoiceProduct(it);
+        if (!prod) return;
+        m[prod.id] = Math.round(((m[prod.id] || 0) + (parseFloat(it.qty) || 1)) * 10) / 10;
+      });
+      return m;
+    }
+    function getInvoiceStockOut(inv) {
+      if (inv && inv.stockTracked) {
+        const m = {};
+        convertToArray(inv.stockOut, []).forEach(s => {
+          const q = s ? (parseFloat(s.qty) || 0) : 0;
+          if (s && s.id != null && q) m[s.id] = Math.round(((m[s.id] || 0) + q) * 10) / 10;
+        });
+        return m;
+      }
+      // Hóa đơn lập trước bản sửa này: không biết số thực trừ, coi như đã trừ đủ số trên bill
+      return invoiceProdQty(inv && inv.items);
+    }
+    function stockOutToList(m) {
+      return Object.keys(m).filter(k => m[k] > 0).map(k => ({ id: k, qty: Math.round(m[k] * 10) / 10 }));
+    }
+    function sameStockOut(a, b) {
+      const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+      for (const k of keys) if (Math.round((a[k] || 0) * 10) !== Math.round((b[k] || 0) * 10)) return false;
+      return true;
+    }
+    // Ghi lại số thực trừ lên hóa đơn (chỉ gọi khi khác với số đã ghi tạm)
+    function saveInvoiceStockOut(invId, outMap) {
+      return cloudUpdateList('garage/invoices', list => {
+        const t = list.find(i => i.id === invId);
+        if (t) { t.stockTracked = true; t.stockOut = stockOutToList(outMap); }
+        return list;
+      });
+    }
+
     // ===== ĐẾM LỆNH GHI ĐANG CHỜ GỬI LÊN ĐÁM MÂY =====
     // Transaction của Firebase KHÔNG được lưu lại khi tắt/tải lại trang -> cảnh báo trước khi rời trang.
     let pendingCloudWrites = 0;
@@ -2856,7 +2902,7 @@
     }
 
     let invoiceSaving = false;
-    async function handleSaveInvoice(skipLaborCheck) {
+    async function handleSaveInvoice(skipLaborCheck, skipStockCheck) {
       if (invoiceSaving) return;
       const plate = document.getElementById('quote-plate').value.trim();
       const name = document.getElementById('quote-name').value.trim();
@@ -2895,6 +2941,25 @@
         showConfirmModal('Bill chưa có tiền công', 'Xe lắp tại xưởng nhưng bill chưa có dòng tiền công. Tiền công gần như là lãi, nên ghi riêng. Bấm Hủy để quay lại thêm tiền công, hoặc xác nhận để vẫn lưu bill.', () => handleSaveInvoice(true));
         return;
       }
+      // Cảnh báo bán vượt tồn kho và bill trùng xe trong 3 giờ gần đây (dễ lập trùng bill như INV-141 / INV-142)
+      if (!skipStockCheck) {
+        const need = invoiceProdQty(currentQuoteItems);
+        const short = Object.keys(need).map(pid => {
+          const p = inventoryList.find(x => x.id === pid);
+          const have = p ? (parseFloat(p.stock) || 0) : 0;
+          return need[pid] > have ? `${p ? p.name : pid}: cần ${formatStockQty(need[pid])}, tồn ${formatStockQty(have)} ${(p && p.unit) || 'Cái'}` : null;
+        }).filter(Boolean);
+        const plateKey = plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const recent = plateKey && plateKey !== '0' ? invoiceList.filter(i =>
+          String(i.plate || '').toUpperCase().replace(/[^A-Z0-9]/g, '') === plateKey && Date.now() - invTime(i) < 3 * 3600000) : [];
+        if (short.length || recent.length) {
+          const parts = [];
+          if (recent.length) parts.push(`Xe ${plate.toUpperCase()} vừa có hóa đơn ${recent.map(i => i.id + ' (' + i.date + ')').join(', ')}. Kiểm tra có lập trùng bill không.`);
+          if (short.length) parts.push(`Không đủ tồn kho: ${short.join('; ')}. Kho chỉ trừ phần còn tồn, phần thiếu sẽ không bị hoàn lại khi xóa / sửa hóa đơn.`);
+          showConfirmModal(short.length ? 'Bán vượt tồn kho' : 'Có thể trùng hóa đơn', parts.join(' ') + ' Xác nhận để vẫn lưu bill.', () => handleSaveInvoice(true, true));
+          return;
+        }
+      }
       if (!cloudWritable(['garage/invoices', 'garage/inventory', 'garage/stockLogs'])) return;
 
       invoiceSaving = true;
@@ -2921,12 +2986,12 @@
         if (warrantyRecordCode) base.warrantyCode = warrantyRecordCode;
 
         // Số lượng trừ kho, cộng dồn nếu 1 mã xuất hiện nhiều dòng
+        const requestedOut = invoiceProdQty(currentQuoteItems);
         const deltas = {};
-        currentQuoteItems.forEach(item => {
-          const prod = inventoryList.find(p => p.id === item.id || p.name.trim().toLowerCase() === item.name.trim().toLowerCase());
-          if (!prod) return;
-          deltas[prod.id] = (deltas[prod.id] || 0) - (parseFloat(item.qty) || 1);
-        });
+        Object.keys(requestedOut).forEach(pid => { deltas[pid] = -requestedOut[pid]; });
+        // Ghi tạm số trừ = số trên bill; sau khi trừ kho xong sẽ sửa lại nếu kho không đủ
+        base.stockTracked = true;
+        base.stockOut = stockOutToList(requestedOut);
 
         // Mã hóa đơn được cấp ngay trên bản mới nhất ở đám mây -> 2 máy lập bill cùng lúc không bao giờ trùng mã / đè bill của nhau
         let newInv = null;
@@ -2941,8 +3006,15 @@
 
         if (Object.keys(deltas).length) {
           const trace = {};
-          await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas, null, trace));
-          logStockEvents(traceToLogs(trace, 'XUAT', `Xuất theo hóa đơn ${newInv.id} cho xe ${newInv.plate} (${newInv.serviceType} - ${newInv.customerType})`));
+          const stRes = await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas, null, trace));
+          const actualOut = {};
+          if (stRes !== false) Object.values(trace).forEach(t => { actualOut[t.id] = Math.round((t.before - t.after) * 10) / 10; });
+          if (!sameStockOut(actualOut, requestedOut)) {
+            await saveInvoiceStockOut(newInv.id, actualOut);
+            newInv.stockOut = stockOutToList(actualOut);
+          }
+          if (stRes !== false) logStockEvents(traceToLogs(trace, 'XUAT', t => `Xuất theo hóa đơn ${newInv.id} cho xe ${newInv.plate} (${newInv.serviceType} - ${newInv.customerType})` +
+            ((requestedOut[t.id] || 0) > (actualOut[t.id] || 0) ? ` - BÁN VƯỢT TỒN: bill ${formatStockQty(requestedOut[t.id])}, kho chỉ trừ được ${formatStockQty(actualOut[t.id] || 0)}` : '')));
         }
 
         if (warrantyRecordCode) await activateWarranty(newInv);
@@ -3408,29 +3480,31 @@
 
       const { subtotal, discount, total } = calculateEditInvoiceTotal();
 
-      const qtyMap = items => {
-        const m = {};
-        (items || []).forEach(it => { m[it.id] = (m[it.id] || 0) + (parseFloat(it.qty) || 0); });
-        return m;
-      };
       const newItems = JSON.parse(JSON.stringify(currentEditingInvoiceItems));
-      const newItemsMap = qtyMap(newItems);
+      const newItemsMap = invoiceProdQty(newItems);
 
-      // Chênh lệch số lượng được tính so với bản hóa đơn MỚI NHẤT trên đám mây (ngay trong transaction),
+      // Chênh lệch được tính so với bản hóa đơn MỚI NHẤT trên đám mây (ngay trong transaction),
       // không phải bản đang mở trên máy -> 2 máy cùng sửa 1 hóa đơn không làm kho bị trừ/cộng sai.
+      // Hoàn kho chỉ hoàn phần ĐÃ THỰC TRỪ (stockOut), không hoàn phần bán vượt tồn chưa từng trừ.
       let deltas = {};
+      let oldOut = {}, plannedOut = {};
       let missing = false;
       const res = await cloudUpdateList('garage/invoices', list => {
         const target = list.find(i => i.id === invId);
         missing = !target;
-        deltas = {};
+        deltas = {}; oldOut = {}; plannedOut = {};
         if (target) {
-          const oldItemsMap = qtyMap(target.items);
-          new Set([...Object.keys(oldItemsMap), ...Object.keys(newItemsMap)]).forEach(pId => {
-            const diff = Math.round(((newItemsMap[pId] || 0) - (oldItemsMap[pId] || 0)) * 10) / 10;
-            if (diff !== 0) deltas[pId] = -diff;
+          const oldItemsMap = invoiceProdQty(target.items);
+          oldOut = getInvoiceStockOut(target);
+          new Set([...Object.keys(oldItemsMap), ...Object.keys(newItemsMap), ...Object.keys(oldOut)]).forEach(pId => {
+            const o = oldItemsMap[pId] || 0, n = newItemsMap[pId] || 0, s = oldOut[pId] || 0;
+            if (Math.round(n * 10) === Math.round(o * 10)) { if (s) plannedOut[pId] = s; return; }
+            if (n < s) deltas[pId] = Math.round((s - n) * 10) / 10;        // hoàn lại phần đã trừ dư
+            else if (n > s) deltas[pId] = -Math.round((n - s) * 10) / 10;  // trừ thêm phần còn thiếu
+            if (n) plannedOut[pId] = n;
           });
-          Object.assign(target, { plate: plate, name: name, phone: phone, car: car, odo: odo, note: note, serviceType: serviceType, customerType: customerType, items: JSON.parse(JSON.stringify(newItems)), subtotal: subtotal, discount: discount, total: total });
+          Object.assign(target, { plate: plate, name: name, phone: phone, car: car, odo: odo, note: note, serviceType: serviceType, customerType: customerType, items: JSON.parse(JSON.stringify(newItems)), subtotal: subtotal, discount: discount, total: total,
+            stockTracked: true, stockOut: stockOutToList(plannedOut) });
         }
         return list;
       });
@@ -3442,10 +3516,22 @@
       }
       if (Object.keys(deltas).length) {
         const trace = {};
-        await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas, null, trace));
-        logStockEvents(traceToLogs(trace,
+        const stRes = await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas, null, trace));
+        // Số thực trừ sau khi sửa = số cũ + phần trừ thêm thực tế - phần hoàn lại
+        const actualOut = Object.assign({}, oldOut);
+        if (stRes !== false) {
+          Object.values(trace).forEach(t => {
+            actualOut[t.id] = Math.round(((oldOut[t.id] || 0) + (t.before - t.after)) * 10) / 10;
+          });
+        }
+        if (!sameStockOut(actualOut, plannedOut)) await saveInvoiceStockOut(invId, actualOut);
+        if (stRes !== false) logStockEvents(traceToLogs(trace,
           t => deltas[t.id] < 0 ? 'XUAT' : 'NHAP',
-          t => (deltas[t.id] < 0 ? 'Xuất thêm ' : 'Hoàn trả ') + formatStockQty(Math.abs(deltas[t.id])) + ' ' + t.unit + (deltas[t.id] < 0 ? '' : ' vào kho') + ' do sửa HĐ ' + invId));
+          t => {
+            const moved = Math.round(Math.abs(t.after - t.before) * 10) / 10;
+            const shortTxt = deltas[t.id] < 0 && moved < Math.abs(deltas[t.id]) ? ` (BÁN VƯỢT TỒN: cần ${formatStockQty(Math.abs(deltas[t.id]))})` : '';
+            return (deltas[t.id] < 0 ? 'Xuất thêm ' : 'Hoàn trả ') + formatStockQty(moved) + ' ' + t.unit + (deltas[t.id] < 0 ? '' : ' vào kho') + ' do sửa HĐ ' + invId + shortTxt;
+          }));
       }
 
       renderInvoiceList();
@@ -3473,12 +3559,8 @@
           const res = await cloudUpdateList('garage/invoices', list => {
             const target = list.find(i => i.id === id);
             existed = !!target;
-            deltas = {};
-            ((target && target.items) || []).forEach(item => {
-              const prod = inventoryList.find(p => p.id === item.id || p.name.trim().toLowerCase() === String(item.name || '').trim().toLowerCase());
-              if (!prod) return;
-              deltas[prod.id] = (deltas[prod.id] || 0) + (parseFloat(item.qty) || 1);
-            });
+            // Chỉ hoàn đúng số đã THỰC TRỪ khỏi kho (phần bán vượt tồn chưa từng trừ thì không cộng lại)
+            deltas = target ? getInvoiceStockOut(target) : {};
             return list.filter(i => i.id !== id);
           });
           if (res === false) return;
