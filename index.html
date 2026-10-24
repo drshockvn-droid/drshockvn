@@ -296,8 +296,39 @@
                   <span><i class="fa-solid fa-pen-to-square mr-1 text-amber-400"></i>Ghi Chú Tiếp Nhận</span>
                   <span class="text-[10px] text-gray-500 italic">Không bắt buộc</span>
                 </label>
-                <input type="text" id="quote-note" placeholder="VD: Khách dặn chỉnh êm, lấy xe trước 17h, giữ lại đồ zin..." 
+                <input type="text" id="quote-note" placeholder="VD: Khách dặn chỉnh êm, lấy xe trước 17h, giữ lại đồ zin..."
                   class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-xs sm:text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-amber-500">
+              </div>
+
+              <!-- TÌNH TRẠNG ĐƠN HÀNG (THANH TOÁN) -->
+              <div>
+                <label class="block text-[11px] text-gray-400 mb-1 font-semibold flex items-center justify-between">
+                  <span><i class="fa-solid fa-money-bill-wave mr-1 text-emerald-400"></i>Tình Trạng Đơn Hàng *</span>
+                  <span class="text-[10px] text-emerald-400 font-normal">Chọn 1 chạm</span>
+                </label>
+                <input type="hidden" id="quote-pay-status" value="paid">
+                <div class="grid grid-cols-2 gap-2">
+                  <button type="button" id="btn-pay-deposit" onclick="setPayStatus('deposit')"
+                    class="py-2 px-2.5 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 bg-gray-800 text-gray-300 hover:text-white border border-gray-700 active:scale-95">
+                    <i class="fa-solid fa-hand-holding-dollar"></i><span>Đặt cọc</span>
+                  </button>
+                  <button type="button" id="btn-pay-paid" onclick="setPayStatus('paid')"
+                    class="py-2 px-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow bg-emerald-600 text-white border border-emerald-500 active:scale-95">
+                    <i class="fa-solid fa-circle-check"></i><span>Đã thanh toán đủ</span>
+                  </button>
+                </div>
+                <div id="quote-deposit-box" class="hidden mt-2 bg-amber-950/30 border border-amber-500/40 rounded-xl p-2.5 space-y-1.5">
+                  <div class="flex items-center justify-between gap-2">
+                    <label for="quote-deposit" class="text-[11px] font-bold text-amber-300">Số tiền đặt cọc (đ)</label>
+                    <input type="text" inputmode="numeric" id="quote-deposit" value="0" autocomplete="off"
+                      onfocus="handleMoneyFocus(this)" oninput="formatLiveCurrency(this); updateDepositRemain()" onblur="handleMoneyBlur(this); updateDepositRemain()"
+                      class="w-36 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 text-right font-mono text-sm font-black text-amber-300 focus:outline-none focus:border-amber-500">
+                  </div>
+                  <div class="flex items-center justify-between text-[11px]">
+                    <span class="text-gray-400">Khách còn phải trả:</span>
+                    <span id="quote-deposit-remain" class="font-mono font-black text-red-400">0 đ</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -404,12 +435,15 @@
               </button>
             </div>
             <div class="relative">
-              <input type="text" id="invoice-search" oninput="debInvoiceSearch()" autocomplete="off" placeholder="Tìm biển số, tên khách, SĐT, dòng xe..." 
+              <input type="text" id="invoice-search" oninput="debInvoiceSearch()" autocomplete="off" placeholder="Tìm biển số, tên khách, SĐT, số HĐ, mã INV..."
                 class="w-full sm:w-64 bg-gray-800 border border-gray-700 rounded-xl pl-8 pr-3 py-2 text-xs text-white focus:outline-none focus:border-red-500">
               <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-gray-500 text-xs"></i>
             </div>
           </div>
-          
+
+          <!-- Lọc nhanh cho kế toán -->
+          <div id="invoice-acct-filters" class="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 mb-2.5 text-[11px]"></div>
+
           <div id="invoice-list-container" class="space-y-2">
           </div>
         </div>
@@ -887,6 +921,7 @@
           <div class="text-sm sm:text-base font-black text-red-600 pt-1 border-t border-dashed border-gray-300">
             TỔNG THANH TOÁN: <span id="inv-print-total">0 đ</span>
           </div>
+          <div id="inv-print-pay" class="text-[11px]"></div>
         </div>
 
         <div class="text-[10px] text-gray-600 italic border-t border-gray-200 pt-2">
@@ -1244,8 +1279,23 @@
 
         <div>
           <label class="block text-[10px] font-bold uppercase text-gray-400 mb-1">Ghi Chú Tiếp Nhận</label>
-          <input type="text" id="edit-inv-note" placeholder="Ghi chú thêm về xe..." 
+          <input type="text" id="edit-inv-note" placeholder="Ghi chú thêm về xe..."
             class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500">
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 bg-gray-800/40 p-3 rounded-xl border border-gray-800">
+          <div>
+            <label for="edit-inv-paystatus" class="block text-[10px] font-bold uppercase text-emerald-400 mb-1">Tình Trạng Đơn Hàng</label>
+            <select id="edit-inv-paystatus" onchange="document.getElementById('edit-inv-deposit-wrap').classList.toggle('invisible', this.value !== 'deposit')" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-white">
+              <option value="paid">Đã thanh toán đủ</option>
+              <option value="deposit">Đặt cọc</option>
+            </select>
+          </div>
+          <div id="edit-inv-deposit-wrap">
+            <label for="edit-inv-deposit" class="block text-[10px] font-bold uppercase text-amber-400 mb-1">Tiền đặt cọc (đ)</label>
+            <input type="text" inputmode="numeric" id="edit-inv-deposit" autocomplete="off" onfocus="handleMoneyFocus(this)" onblur="handleMoneyBlur(this)"
+              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-right font-mono font-bold text-amber-300">
+          </div>
         </div>
 
         <div>
@@ -1394,6 +1444,37 @@
   </div>
 
   <!-- ================= MODAL XÁC NHẬN ================= -->
+  <!-- ================= MODAL SỐ HÓA ĐƠN THUẾ (KẾ TOÁN) ================= -->
+  <div id="tax-invoice-modal" class="fixed inset-0 z-50 bg-black/85 hidden flex items-center justify-center p-4">
+    <div class="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-sm p-4 space-y-3 shadow-2xl text-xs">
+      <div class="flex items-center justify-between gap-2 border-b border-gray-800 pb-2.5">
+        <h3 class="text-sm font-bold text-sky-300 flex items-center gap-2"><i class="fa-solid fa-file-invoice-dollar"></i>Số Hóa Đơn Thuế</h3>
+        <button onclick="closeTaxInvoiceModal()" class="w-8 h-8 rounded-full bg-gray-800 text-gray-400 hover:text-white flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <input type="hidden" id="tax-inv-id">
+      <div class="bg-gray-800/60 border border-gray-700/60 rounded-xl p-2.5 flex items-center justify-between gap-2">
+        <span id="tax-inv-title" class="text-gray-200 font-semibold truncate"></span>
+        <span id="tax-inv-total" class="font-mono font-black text-red-400 shrink-0"></span>
+      </div>
+      <div>
+        <label for="tax-inv-no" class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Số hóa đơn (mã xuất của thuế) *</label>
+        <input type="text" id="tax-inv-no" autocomplete="off" placeholder="VD: 00001234" onkeydown="if(event.key==='Enter') saveTaxInvoice(false)"
+          class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-base font-mono font-black tracking-wider text-sky-300 uppercase focus:outline-none focus:border-sky-500">
+      </div>
+      <div>
+        <label for="tax-inv-date" class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Ngày xuất hóa đơn</label>
+        <input type="date" id="tax-inv-date" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500" style="color-scheme: dark">
+      </div>
+      <p id="tax-inv-meta" class="text-[10px] text-gray-500"></p>
+      <div class="flex items-center gap-2 pt-1">
+        <button id="tax-inv-clear" type="button" onclick="showConfirmModal('Bỏ số hóa đơn', 'Hóa đơn này sẽ trở lại trạng thái chưa xuất hóa đơn thuế. Tiếp tục?', () => saveTaxInvoice(true))"
+          class="hidden px-3 py-2.5 bg-gray-800 hover:bg-red-950/60 text-gray-400 hover:text-red-400 border border-gray-700 rounded-xl font-semibold"><i class="fa-solid fa-eraser mr-1"></i>Bỏ số HĐ</button>
+        <button type="button" onclick="closeTaxInvoiceModal()" class="ml-auto px-3 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 rounded-xl">Hủy</button>
+        <button type="button" onclick="saveTaxInvoice(false)" class="px-4 py-2.5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl shadow"><i class="fa-solid fa-floppy-disk mr-1"></i>Lưu</button>
+      </div>
+    </div>
+  </div>
+
   <div id="confirm-modal" class="fixed inset-0 z-[60] bg-black/85 hidden flex items-center justify-center p-4">
     <div class="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-sm p-4 text-center space-y-3 shadow-2xl">
       <div class="w-12 h-12 rounded-full bg-red-950/60 border border-red-500/40 text-red-500 flex items-center justify-center mx-auto text-xl">
@@ -2319,6 +2400,117 @@
       }
     }
 
+    // ===== TÌNH TRẠNG THANH TOÁN & HÓA ĐƠN THUẾ =====
+    // Hóa đơn lưu: payStatus 'deposit' | 'paid' (bill cũ không có = đã thanh toán đủ), deposit (tiền cọc),
+    // paidAt (lúc thu đủ phần còn lại), taxInvoiceNo / taxInvoiceDate / taxBy (số hóa đơn thuế do kế toán nhập).
+    const PAY_BTN_ON = 'py-2 px-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow text-white active:scale-95 ';
+    const PAY_BTN_OFF = 'py-2 px-2.5 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 bg-gray-800 text-gray-300 hover:text-white border border-gray-700 active:scale-95';
+    function setPayStatus(st) {
+      const isDep = st === 'deposit';
+      document.getElementById('quote-pay-status').value = isDep ? 'deposit' : 'paid';
+      document.getElementById('btn-pay-deposit').className = isDep ? PAY_BTN_ON + 'bg-amber-600 border border-amber-500' : PAY_BTN_OFF;
+      document.getElementById('btn-pay-paid').className = isDep ? PAY_BTN_OFF : PAY_BTN_ON + 'bg-emerald-600 border border-emerald-500';
+      document.getElementById('quote-deposit-box').classList.toggle('hidden', !isDep);
+      if (isDep) {
+        updateDepositRemain();
+        setTimeout(() => { const d = document.getElementById('quote-deposit'); if (d && !parseCurrencyNumber(d.value)) d.focus(); }, 50);
+      }
+    }
+    function updateDepositRemain(total) {
+      const el = document.getElementById('quote-deposit-remain');
+      if (!el) return;
+      if (total == null) {
+        const sub = currentQuoteItems.reduce((s, i) => s + (i.qty * i.price), 0);
+        total = Math.max(0, sub - parseCurrencyNumber(document.getElementById('quote-discount-input').value));
+      }
+      const dep = parseCurrencyNumber(document.getElementById('quote-deposit').value);
+      const remain = total - dep;
+      el.textContent = remain < 0 ? 'Cọc vượt tổng bill ' + formatMoney(-remain) + ' đ' : formatMoney(remain) + ' đ';
+    }
+    function invPayInfo(inv) {
+      const total = inv.total || 0;
+      if (inv.payStatus === 'deposit') {
+        const dep = Math.min(total, parseCurrencyNumber(inv.deposit) || 0);
+        return { deposit: true, dep: dep, remain: Math.max(0, total - dep), label: 'Đặt cọc' };
+      }
+      return { deposit: false, dep: 0, remain: 0, label: 'Đã thanh toán đủ' };
+    }
+    function hasTaxInvoice(inv) { return !!String(inv.taxInvoiceNo || '').trim(); }
+    function canManageAccounting() { return !!currentLoggedInUser && (currentLoggedInUser.role === 'admin' || currentLoggedInUser.role === 'stock'); }
+
+    // ----- Nhập / sửa số hóa đơn thuế -----
+    function openTaxInvoiceModal(id) {
+      if (!canManageAccounting()) { showNotification('Chỉ Chủ Xưởng hoặc Quản Lý Kho được nhập số hóa đơn!', 'warning'); return; }
+      const inv = invoiceList.find(i => i.id === id);
+      if (!inv) return;
+      document.getElementById('tax-inv-id').value = id;
+      document.getElementById('tax-inv-title').textContent = id + ' · ' + (inv.plate || '') + ' · ' + (inv.name || '');
+      document.getElementById('tax-inv-total').textContent = formatMoney(inv.total || 0) + ' đ';
+      document.getElementById('tax-inv-no').value = inv.taxInvoiceNo || '';
+      const d = inv.taxInvoiceDate ? new Date(inv.taxInvoiceDate) : new Date();
+      document.getElementById('tax-inv-date').value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      document.getElementById('tax-inv-clear').classList.toggle('hidden', !hasTaxInvoice(inv));
+      document.getElementById('tax-inv-meta').textContent = hasTaxInvoice(inv) && inv.taxBy ? 'Nhập bởi ' + inv.taxBy : '';
+      document.getElementById('tax-invoice-modal').classList.remove('hidden');
+      setTimeout(() => document.getElementById('tax-inv-no').focus(), 80);
+    }
+    function closeTaxInvoiceModal() { document.getElementById('tax-invoice-modal').classList.add('hidden'); }
+
+    async function saveTaxInvoice(clear) {
+      if (!canManageAccounting()) return;
+      const id = document.getElementById('tax-inv-id').value;
+      const no = clear ? '' : document.getElementById('tax-inv-no').value.trim().toUpperCase();
+      const dv = document.getElementById('tax-inv-date').value;
+      if (!clear && !no) { showNotification('Vui lòng nhập số hóa đơn!', 'warning'); document.getElementById('tax-inv-no').focus(); return; }
+      const dup = no && invoiceList.find(i => i.id !== id && String(i.taxInvoiceNo || '').trim().toUpperCase() === no);
+      if (dup && !window._taxDupOk) {
+        showConfirmModal('Số hóa đơn bị trùng', `Số hóa đơn ${no} đã gắn cho ${dup.id} (${dup.plate || ''} - ${dup.name || ''}). Vẫn lưu?`, () => { window._taxDupOk = true; saveTaxInvoice(false); });
+        return;
+      }
+      window._taxDupOk = false;
+      if (!cloudWritable(['garage/invoices'])) return;
+      const by = (currentLoggedInUser && currentLoggedInUser.name) || '';
+      const ts = dv ? new Date(dv + 'T12:00:00').getTime() : Date.now();
+      let found = false;
+      const res = await cloudUpdateList('garage/invoices', list => {
+        const t = list.find(i => i.id === id);
+        found = !!t;
+        if (t) {
+          if (no) { t.taxInvoiceNo = no; t.taxInvoiceDate = ts; t.taxBy = by; }
+          else { delete t.taxInvoiceNo; delete t.taxInvoiceDate; delete t.taxBy; }
+        }
+        return list;
+      });
+      if (res === false) return;
+      if (!found) { showNotification('Hóa đơn ' + id + ' không còn (đã bị xóa từ máy khác)!', 'error'); closeTaxInvoiceModal(); return; }
+      closeTaxInvoiceModal();
+      renderInvoiceList();
+      showNotification(no ? `Đã lưu số hóa đơn ${no} cho ${id}` : `Đã bỏ số hóa đơn của ${id}`, 'success');
+    }
+
+    // ----- Khách trả nốt phần còn lại của đơn đặt cọc -----
+    function markInvoicePaid(id) {
+      if (!canManageAccounting()) { showNotification('Chỉ Chủ Xưởng hoặc Quản Lý Kho được cập nhật thanh toán!', 'warning'); return; }
+      const inv = invoiceList.find(i => i.id === id);
+      if (!inv) return;
+      const p = invPayInfo(inv);
+      showConfirmModal('Xác nhận đã thanh toán đủ', `Hóa đơn ${id} (${inv.plate || ''} - ${inv.name || ''}): khách đã cọc ${formatMoney(p.dep)} đ, nay trả nốt ${formatMoney(p.remain)} đ?`, async () => {
+        if (!cloudWritable(['garage/invoices'])) return;
+        const by = (currentLoggedInUser && currentLoggedInUser.name) || '';
+        let found = false;
+        const res = await cloudUpdateList('garage/invoices', list => {
+          const t = list.find(i => i.id === id);
+          found = !!t;
+          if (t) { t.payStatus = 'paid'; t.paidAt = Date.now(); t.paidBy = by; }
+          return list;
+        });
+        if (res === false) return;
+        if (!found) { showNotification('Hóa đơn ' + id + ' không còn!', 'error'); return; }
+        renderInvoiceList();
+        showNotification(`Đã ghi nhận ${id} thanh toán đủ`, 'success');
+      });
+    }
+
     let _logSeq = 0;
     function makeStockLog(type, itemId, itemName, unit, beforeQty, afterQty, note) {
       const diff = Math.round((afterQty - beforeQty) * 10) / 10;
@@ -2424,7 +2616,7 @@
     }
     function smartFilterInvoices(list, query) {
       if (!normText(query)) return list;
-      return list.filter(i => looseMatch(makeHay([i.plate, i.name, i.phone, i.car, i.id, i.note, i.advisor]), query));
+      return list.filter(i => looseMatch(makeHay([i.plate, i.name, i.phone, i.car, i.id, i.note, i.advisor, i.taxInvoiceNo]), query));
     }
 
     let _soldCache = { key: '', map: {} };
@@ -2886,6 +3078,7 @@
       const finalTotal = Math.max(0, subtotal - discount);
       const totalElem = document.getElementById('quote-final-total');
       if (totalElem) totalElem.textContent = formatMoney(finalTotal) + ' đ';
+      updateDepositRemain(finalTotal);
       return { subtotal, discount, finalTotal };
     }
 
@@ -2900,6 +3093,8 @@
       document.getElementById('quote-discount-input').value = '0';
       setServiceType('Lắp tại xưởng');
       setCustomerType('Khách lẻ');
+      document.getElementById('quote-deposit').value = '0';
+      setPayStatus('paid');
       currentQuoteItems = [];
       renderQuoteItems();
       showNotification('Đã làm mới thông tin báo giá.', 'info');
@@ -2939,6 +3134,21 @@
       if (currentQuoteItems.length === 0) {
         showNotification('Vui lòng thêm ít nhất 1 dịch vụ hoặc phụ tùng vào bill!', 'warning');
         return;
+      }
+      const payStatus = document.getElementById('quote-pay-status').value === 'deposit' ? 'deposit' : 'paid';
+      const depositAmt = payStatus === 'deposit' ? parseCurrencyNumber(document.getElementById('quote-deposit').value) : 0;
+      if (payStatus === 'deposit') {
+        const billTotal = calculateQuoteTotal().finalTotal;
+        if (!depositAmt) {
+          showNotification('Đơn đặt cọc: vui lòng nhập số tiền khách đã cọc!', 'warning');
+          document.getElementById('quote-deposit').focus();
+          return;
+        }
+        if (depositAmt >= billTotal) {
+          showNotification('Tiền cọc bằng hoặc lớn hơn tổng bill. Nếu khách đã trả hết, chọn "Đã thanh toán đủ".', 'warning');
+          document.getElementById('quote-deposit').focus();
+          return;
+        }
       }
       // Nhắc khi bill lắp tại xưởng chưa có dòng tiền công
       if (!skipLaborCheck && !String(serviceType).includes('Gửi') && !currentQuoteItems.some(it => String(it.id || '').startsWith('LBR'))) {
@@ -2983,8 +3193,10 @@
           items: JSON.parse(JSON.stringify(currentQuoteItems)),
           subtotal: subtotal,
           discount: discount,
-          total: finalTotal
+          total: finalTotal,
+          payStatus: payStatus
         };
+        if (payStatus === 'deposit') base.deposit = depositAmt;
         // Mã bảo hành điện tử (chỉ khi đã kết nối đám mây để khách tra cứu được)
         const warrantyRecordCode = firebaseDb ? genWarrantyCode() : '';
         if (warrantyRecordCode) base.warrantyCode = warrantyRecordCode;
@@ -3222,6 +3434,14 @@
       document.getElementById('inv-print-subtotal').textContent = formatMoney(inv.subtotal) + ' đ';
       document.getElementById('inv-print-discount').textContent = formatMoney(inv.discount) + ' đ';
       document.getElementById('inv-print-total').textContent = formatMoney(inv.total) + ' đ';
+      const payBox = document.getElementById('inv-print-pay');
+      if (payBox) {
+        const p = invPayInfo(inv);
+        const taxLine = hasTaxInvoice(inv) ? `<div class="text-gray-600">Số hóa đơn: <b class="font-mono text-gray-800">${esc(inv.taxInvoiceNo)}</b>${inv.taxInvoiceDate ? ' (' + new Date(inv.taxInvoiceDate).toLocaleDateString('vi-VN') + ')' : ''}</div>` : '';
+        payBox.innerHTML = (p.deposit
+          ? `<div>Đã đặt cọc: <b class="text-amber-700">${formatMoney(p.dep)} đ</b></div><div class="font-black text-red-600">CÒN LẠI: ${formatMoney(p.remain)} đ</div>`
+          : `<div class="font-bold text-emerald-700">✔ Đã thanh toán đủ${parseCurrencyNumber(inv.deposit) ? ' (đã cọc trước ' + formatMoney(parseCurrencyNumber(inv.deposit)) + ' đ)' : ''}</div>`) + taxLine;
+      }
 
       const tbody = document.getElementById('inv-print-tbody');
       tbody.innerHTML = inv.items.map(i => `
@@ -3241,13 +3461,32 @@
       document.getElementById('invoice-modal').classList.add('hidden');
     }
 
+    let invoiceAcctFilter = 'ALL';
+    function setInvoiceAcctFilter(v) { invoiceAcctFilter = v; renderInvoiceList(); }
+    const INV_ACCT_FILTERS = [
+      ['ALL', 'Tất cả', '', () => true],
+      ['NOTAX', 'Chưa xuất HĐ thuế', 'fa-file-circle-exclamation', i => !hasTaxInvoice(i)],
+      ['TAX', 'Đã xuất HĐ thuế', 'fa-file-circle-check', i => hasTaxInvoice(i)],
+      ['DEPOSIT', 'Đang đặt cọc', 'fa-hand-holding-dollar', i => invPayInfo(i).deposit]
+    ];
+
     function renderInvoiceList() {
       const q = (document.getElementById('invoice-search') ? document.getElementById('invoice-search').value.toLowerCase() : '');
-      const filtered = sortInvoicesByTime(smartFilterInvoices(invoiceList, document.getElementById('invoice-search') ? document.getElementById('invoice-search').value : ''), invoiceSortDir);
+      const searched = sortInvoicesByTime(smartFilterInvoices(invoiceList, document.getElementById('invoice-search') ? document.getElementById('invoice-search').value : ''), invoiceSortDir);
+      const fDef = INV_ACCT_FILTERS.find(f => f[0] === invoiceAcctFilter) || INV_ACCT_FILTERS[0];
+      const filtered = searched.filter(fDef[3]);
+      const fBox = document.getElementById('invoice-acct-filters');
+      if (fBox) {
+        fBox.innerHTML = INV_ACCT_FILTERS.map(f => {
+          const on = f[0] === fDef[0], n = searched.filter(f[3]).length;
+          const tone = f[0] === 'NOTAX' && n && !on ? ' text-red-300 border-red-500/40' : '';
+          return `<button type="button" onclick="setInvoiceAcctFilter('${f[0]}')" class="shrink-0 px-2.5 py-1.5 rounded-xl border font-semibold flex items-center gap-1 transition active:scale-95 ${on ? 'bg-red-600 border-red-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700' + tone}">${f[2] ? `<i class="fa-solid ${f[2]} text-[10px]"></i>` : ''}${f[1]} <span class="font-mono ${on ? 'text-white/80' : 'text-gray-500'}">(${n})</span></button>`;
+        }).join('');
+      }
       const container = document.getElementById('invoice-list-container');
       if (!container) return;
       if (filtered.length === 0) {
-        container.innerHTML = `<div class="p-6 text-center text-xs text-gray-500 italic bg-gray-800/30 rounded-xl">Chưa có hóa đơn nào.</div>`;
+        container.innerHTML = `<div class="p-6 text-center text-xs text-gray-500 italic bg-gray-800/30 rounded-xl">${invoiceAcctFilter === 'ALL' ? 'Chưa có hóa đơn nào.' : 'Không có hóa đơn nào ở mục "' + fDef[1] + '".'}</div>`;
         return;
       }
 
@@ -3274,6 +3513,25 @@
           </div>
         `;
 
+        // Tình trạng thanh toán (dưới tổng tiền)
+        const pay = invPayInfo(inv);
+        const payBadge = pay.deposit
+          ? `<button type="button" ${canManageInvoices ? `onclick="markInvoicePaid('${inv.id}')" title="Bấm khi khách đã trả nốt phần còn lại"` : 'disabled'} class="mt-1 ml-auto block text-[10px] px-2 py-0.5 rounded-md bg-amber-950/80 text-amber-300 border border-amber-500/40 font-semibold ${canManageInvoices ? 'hover:bg-amber-900/80 active:scale-95' : 'cursor-default'}">
+              <i class="fa-solid fa-hand-holding-dollar mr-0.5"></i>Cọc ${formatMoney(pay.dep)} · còn <b class="text-red-300">${formatMoney(pay.remain)}</b>
+            </button>`
+          : `<span class="mt-1 inline-block text-[10px] px-2 py-0.5 rounded-md bg-emerald-950/70 text-emerald-300 border border-emerald-500/30 font-semibold"><i class="fa-solid fa-circle-check mr-0.5"></i>Đã thanh toán đủ</span>`;
+
+        // Hóa đơn thuế: chưa xuất -> nút để kế toán nhập số; đã xuất -> hiện số HĐ (bấm để sửa)
+        const taxNo = String(inv.taxInvoiceNo || '').trim();
+        const taxDate = inv.taxInvoiceDate ? new Date(inv.taxInvoiceDate).toLocaleDateString('vi-VN') : '';
+        const taxBtn = taxNo
+          ? `<button type="button" ${canManageInvoices ? `onclick="openTaxInvoiceModal('${inv.id}')"` : 'disabled'} title="${taxDate ? 'Xuất ngày ' + taxDate : ''}" class="mt-1.5 w-full text-[10px] px-2 py-1 rounded-lg bg-sky-950/70 text-sky-300 border border-sky-500/40 font-semibold flex items-center justify-center gap-1 ${canManageInvoices ? 'hover:bg-sky-900/70 active:scale-95' : 'cursor-default'}">
+              <i class="fa-solid fa-file-circle-check"></i>HĐ: <span class="font-mono font-black tracking-wide">${esc(taxNo)}</span>
+            </button>`
+          : `<button type="button" ${canManageInvoices ? `onclick="openTaxInvoiceModal('${inv.id}')" title="Bấm để nhập số hóa đơn thuế"` : 'disabled'} class="mt-1.5 w-full text-[10px] px-2 py-1 rounded-lg bg-gray-900 text-gray-400 border border-dashed border-gray-600 font-semibold flex items-center justify-center gap-1 ${canManageInvoices ? 'hover:text-sky-300 hover:border-sky-500/60 active:scale-95' : 'cursor-default'}">
+              <i class="fa-solid fa-file-circle-exclamation text-red-400"></i>Chưa xuất HĐ${canManageInvoices ? ' <i class="fa-solid fa-pen text-[9px] ml-0.5"></i>' : ''}
+            </button>`;
+
         return `
           <div class="bg-gray-800/60 border border-gray-700/60 rounded-xl p-3 flex items-center justify-between gap-2.5">
             <div class="min-w-0 flex-1">
@@ -3294,7 +3552,9 @@
             </div>
             <div class="text-right shrink-0">
               <p class="text-xs sm:text-sm font-black text-red-500">${formatMoney(inv.total)} đ</p>
+              ${payBadge}
               ${actionButtons}
+              ${taxBtn}
             </div>
           </div>
         `;
@@ -3323,6 +3583,10 @@
       document.getElementById('edit-inv-servicetype').value = inv.serviceType || 'Lắp tại xưởng';
       document.getElementById('edit-inv-customertype').value = inv.customerType || 'Khách lẻ';
       document.getElementById('edit-inv-discount').value = formatMoney(inv.discount || 0);
+      const isDep = invPayInfo(inv).deposit;
+      document.getElementById('edit-inv-paystatus').value = isDep ? 'deposit' : 'paid';
+      document.getElementById('edit-inv-deposit').value = formatMoney(parseCurrencyNumber(inv.deposit) || 0);
+      document.getElementById('edit-inv-deposit-wrap').classList.toggle('invisible', !isDep);
 
       currentEditingInvoiceItems = JSON.parse(JSON.stringify(inv.items || []));
 
@@ -3483,6 +3747,12 @@
       if (!cloudWritable(['garage/invoices', 'garage/inventory', 'garage/stockLogs'])) return;
 
       const { subtotal, discount, total } = calculateEditInvoiceTotal();
+      const editPay = document.getElementById('edit-inv-paystatus').value === 'deposit' ? 'deposit' : 'paid';
+      const editDep = parseCurrencyNumber(document.getElementById('edit-inv-deposit').value);
+      if (editPay === 'deposit' && (!editDep || editDep >= total)) {
+        showNotification(!editDep ? 'Đơn đặt cọc: vui lòng nhập số tiền cọc!' : 'Tiền cọc không được lớn hơn hoặc bằng tổng bill. Nếu khách đã trả hết, chọn "Đã thanh toán đủ".', 'warning');
+        return;
+      }
 
       const newItems = JSON.parse(JSON.stringify(currentEditingInvoiceItems));
       const newItemsMap = invoiceProdQty(newItems);
@@ -3509,6 +3779,11 @@
           });
           Object.assign(target, { plate: plate, name: name, phone: phone, car: car, odo: odo, note: note, serviceType: serviceType, customerType: customerType, items: JSON.parse(JSON.stringify(newItems)), subtotal: subtotal, discount: discount, total: total,
             stockTracked: true, stockOut: stockOutToList(plannedOut) });
+          if (editPay === 'deposit') { target.payStatus = 'deposit'; target.deposit = editDep; delete target.paidAt; delete target.paidBy; }
+          else {
+            if (target.payStatus === 'deposit') { target.paidAt = Date.now(); target.paidBy = (currentLoggedInUser && currentLoggedInUser.name) || ''; }
+            target.payStatus = 'paid';
+          }
         }
         return list;
       });
@@ -3891,7 +4166,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.21-1';
+    const APP_VERSION = '2026.10.24-1';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -5804,7 +6079,7 @@
         XLSX.utils.book_append_sheet(wb, wsOverview, 'Doanh_Thu_Tong_Quan');
 
         const invoiceRows = [
-          ['Mã Hóa Đơn', 'Thời Gian', 'Biển Số Xe', 'Tên Khách Hàng', 'Số Điện Thoại', 'Dòng Xe', 'Số ODO', 'Hình Thức', 'Đối Tượng', 'Ghi Chú', 'KTV Tiếp Nhận', 'Tên Phụ Tùng / Dịch Vụ', 'Số Lượng', 'Đơn Vị Tính', 'Đơn Giá (đ)', 'Thành Tiền Món (đ)', 'Giảm Giá Bill (đ)', 'Tổng Bill Thanh Toán (đ)']
+          ['Mã Hóa Đơn', 'Thời Gian', 'Biển Số Xe', 'Tên Khách Hàng', 'Số Điện Thoại', 'Dòng Xe', 'Số ODO', 'Hình Thức', 'Đối Tượng', 'Ghi Chú', 'KTV Tiếp Nhận', 'Tên Phụ Tùng / Dịch Vụ', 'Số Lượng', 'Đơn Vị Tính', 'Đơn Giá (đ)', 'Thành Tiền Món (đ)', 'Giảm Giá Bill (đ)', 'Tổng Bill Thanh Toán (đ)', 'Tình Trạng', 'Tiền Cọc (đ)', 'Còn Lại (đ)', 'Số HĐ Thuế', 'Ngày Xuất HĐ']
         ];
 
         if (invoiceList.length === 0) {
@@ -5816,7 +6091,7 @@
                 invoiceRows.push([
                   inv.id, inv.date, inv.plate, inv.name, inv.phone || '', inv.car, inv.odo || '', inv.serviceType || '', inv.customerType || '', inv.note || '', inv.advisor,
                   item.name, item.qty, item.unit || 'Cái', item.price, item.qty * item.price,
-                  itemIdx === 0 ? inv.discount : '', itemIdx === 0 ? inv.total : ''
+                  itemIdx === 0 ? inv.discount : '', itemIdx === 0 ? inv.total : '', ...invAcctCells(inv, itemIdx === 0)
                 ]);
               });
             }
@@ -5874,6 +6149,14 @@
       }
     }
 
+    // Cột kế toán cho file Excel hóa đơn (chỉ ghi ở dòng đầu mỗi bill)
+    function invAcctCells(inv, first) {
+      if (!first) return ['', '', '', '', ''];
+      const p = invPayInfo(inv);
+      return [p.label, p.deposit ? p.dep : '', p.deposit ? p.remain : 0, String(inv.taxInvoiceNo || '').trim() || 'Chưa xuất',
+        inv.taxInvoiceDate ? new Date(inv.taxInvoiceDate).toLocaleDateString('vi-VN') : ''];
+    }
+
     function exportInvoicesToExcel() {
       if (typeof XLSX === 'undefined') {
         showNotification('Thư viện Sheet chưa sẵn sàng!', 'warning');
@@ -5882,7 +6165,7 @@
       try {
         const wb = XLSX.utils.book_new();
         const rows = [
-          ['Mã HĐ', 'Ngày Giờ', 'Biển Số', 'Khách Hàng', 'SĐT', 'Dòng Xe', 'Số ODO', 'Hình Thức', 'Đối Tượng', 'Cố Vấn', 'Hạng Mục', 'SL', 'ĐVT', 'Đơn Giá (đ)', 'Thành Tiền (đ)', 'Giảm Giá Bill (đ)', 'Tổng Bill (đ)']
+          ['Mã HĐ', 'Ngày Giờ', 'Biển Số', 'Khách Hàng', 'SĐT', 'Dòng Xe', 'Số ODO', 'Hình Thức', 'Đối Tượng', 'Cố Vấn', 'Hạng Mục', 'SL', 'ĐVT', 'Đơn Giá (đ)', 'Thành Tiền (đ)', 'Giảm Giá Bill (đ)', 'Tổng Bill (đ)', 'Tình Trạng', 'Tiền Cọc (đ)', 'Còn Lại (đ)', 'Số HĐ Thuế', 'Ngày Xuất HĐ']
         ];
 
         invoiceList.forEach(inv => {
@@ -5891,7 +6174,7 @@
               rows.push([
                 inv.id, inv.date, inv.plate, inv.name, inv.phone || '', inv.car, inv.odo || '', inv.serviceType || '', inv.customerType || '', inv.advisor,
                 it.name, it.qty, it.unit || 'Cái', it.price, it.qty * it.price,
-                idx === 0 ? inv.discount : '', idx === 0 ? inv.total : ''
+                idx === 0 ? inv.discount : '', idx === 0 ? inv.total : '', ...invAcctCells(inv, idx === 0)
               ]);
             });
           }
@@ -7725,7 +8008,64 @@
       return { da_hien_the_xac_nhan: true, so_nhom: targets.length, luu_y: 'Chưa gửi. Người dùng phải bấm "Gửi ngay" trên thẻ.' };
     }
 
+    // 5. Tra cứu hoá đơn cho kế toán: theo tên khách, SĐT, biển số, số HĐ thuế, mã nội bộ INV, kỳ, tình trạng
+    function aiToolFindInvoices(args) {
+      args = args || {};
+      const taxQ = String(args.so_hd_thue || '').trim().toUpperCase().replace(/\s+/g, '');
+      const idQ = String(args.ma_hd || '').trim().toUpperCase().replace(/\s+/g, '');
+      const idNum = idQ.replace(/\D/g, '');
+      const nameQ = normText(args.ten_khach || '');
+      const phoneQ = String(args.sdt || '').replace(/\D/g, '');
+      const plateQ = normPlate(args.bien_so || '');
+      const tax = normText(args.hd_thue || '').replace(/\s+/g, '_');
+      const pay = normText(args.thanh_toan || '').replace(/\s+/g, '_');
+      const R = (args.ky || args.tu_ngay) ? aiRange(args) : null;
+      let list = invoiceList.slice();
+      if (taxQ) {
+        const exact = list.filter(i => String(i.taxInvoiceNo || '').toUpperCase().replace(/\s+/g, '') === taxQ);
+        list = exact.length ? exact : list.filter(i => String(i.taxInvoiceNo || '').toUpperCase().replace(/\s+/g, '').includes(taxQ));
+      }
+      if (idQ) list = list.filter(i => { const id = String(i.id || '').toUpperCase(); return id === idQ || (idNum && id.replace(/\D/g, '') === idNum); });
+      if (nameQ) { const toks = nameQ.split(/\s+/).filter(Boolean); list = list.filter(i => { const n = normText(i.name); return toks.every(t => n.includes(t)); }); }
+      if (phoneQ.length >= 3) list = list.filter(i => String(i.phone || '').replace(/\D/g, '').includes(phoneQ));
+      if (plateQ) list = list.filter(i => { const p = normPlate(i.plate); return p && (p === plateQ || (plateQ.length >= 4 && p.includes(plateQ))); });
+      if (R) list = list.filter(i => { const t = invTime(i); return t >= R.t0 && t < R.t1; });
+      if (tax === 'chua_xuat') list = list.filter(i => !hasTaxInvoice(i));
+      else if (tax === 'da_xuat') list = list.filter(i => hasTaxInvoice(i));
+      if (pay === 'dat_coc' || pay === 'con_no') list = list.filter(i => invPayInfo(i).deposit);
+      else if (pay === 'du' || pay === 'da_thanh_toan') list = list.filter(i => !invPayInfo(i).deposit);
+      if (!taxQ && !idQ && !nameQ && phoneQ.length < 3 && !plateQ && !R && !tax && !pay)
+        return { loi: 'Cần ít nhất 1 điều kiện: tên khách, SĐT, biển số, số HĐ thuế, mã INV, kỳ thời gian hoặc tình trạng.' };
+      list = sortInvoicesByTime(list, 'desc');
+      const sum = (arr, f) => arr.reduce((a, i) => a + f(i), 0);
+      return {
+        dieu_kien: Object.assign({}, args, R ? { khoang_thoi_gian: R.nhan } : {}),
+        tong_so_hd: list.length,
+        tong_tien: sum(list, i => i.total || 0),
+        so_hd_chua_xuat_hd_thue: list.filter(i => !hasTaxInvoice(i)).length,
+        tien_chua_xuat_hd_thue: sum(list.filter(i => !hasTaxInvoice(i)), i => i.total || 0),
+        so_hd_dang_dat_coc: list.filter(i => invPayInfo(i).deposit).length,
+        tong_con_phai_thu: sum(list, i => invPayInfo(i).remain),
+        hoa_don: list.slice(0, 30).map(i => {
+          const p = invPayInfo(i);
+          return { ma_hd: i.id, ngay: i.date, ten_khach: i.name || '', sdt: i.phone || '', bien_so: i.plate || '', dong_xe: i.car || '',
+            loai_khach: i.customerType || 'Khách lẻ', tong_tien: i.total || 0, tinh_trang: p.label, tien_coc: p.dep, con_lai: p.remain,
+            so_hd_thue: String(i.taxInvoiceNo || '').trim() || null,
+            ngay_xuat_hd_thue: i.taxInvoiceDate ? new Date(i.taxInvoiceDate).toLocaleDateString('vi-VN') : null,
+            hang_muc: (i.items || []).map(it => it.name + ' ×' + formatStockQty(it.qty)).join(', ') };
+        }),
+        ghi_chu: list.length > 30 ? 'Chỉ liệt kê 30 hoá đơn mới nhất; các con số tổng tính trên toàn bộ ' + list.length + ' hoá đơn.' : ''
+      };
+    }
+
     const AI_TOOLS = [
+      { name: 'tra_cuu_hoa_don', fn: aiToolFindInvoices,
+        description: 'Tra cứu / báo cáo HOÁ ĐƠN cho kế toán: tìm theo tên khách, SĐT, biển số, SỐ HOÁ ĐƠN THUẾ (mã xuất của thuế), mã hoá đơn NỘI BỘ (INV-xxx), kỳ thời gian; lọc hoá đơn chưa/đã xuất hoá đơn thuế, đơn đang đặt cọc còn phải thu. Trả về từng hoá đơn kèm tình trạng thanh toán, số HĐ thuế, và các con số tổng.',
+        params: { ten_khach: ['string', 'Tên khách / garage'], sdt: ['string', 'Số điện thoại'], bien_so: ['string', 'Biển số'],
+          so_hd_thue: ['string', 'Số hoá đơn thuế (mã xuất của thuế)'], ma_hd: ['string', 'Mã hoá đơn nội bộ, VD INV-141 hoặc 141'],
+          hd_thue: ['string', '"chua_xuat" | "da_xuat"'], thanh_toan: ['string', '"dat_coc" (còn phải thu) | "du"'],
+          ky: ['string', 'hom_nay | hom_qua | tuan_nay | tuan_truoc | 7_ngay | 30_ngay | thang_nay | thang_truoc | nam_nay | "10/2026"'],
+          tu_ngay: ['string', 'dd/mm/yyyy (tuỳ chọn)'], den_ngay: ['string', 'dd/mm/yyyy (tuỳ chọn)'] }, required: [] },
       { name: 'tra_cuu_xe', fn: aiToolFindVehicle,
         description: 'Tra lịch sử xe/khách đã từng ghé xưởng theo biển số, số điện thoại hoặc tên. Trả về số lần đến, lần gần nhất, ODO, các hạng mục đã thay.',
         params: { bien_so: ['string', 'Biển số xe, VD 51K-888.88'], sdt: ['string', 'Số điện thoại khách'], ten: ['string', 'Tên khách hoặc tên garage'] }, required: [] },
@@ -7818,6 +8158,7 @@
         '- Báo cáo doanh thu/lãi: gọi bao_cao_kinh_doanh (chỉ Chủ Xưởng). Tóm tắt số chính, so với kỳ trước, nêu 2-3 nhận xét/hành động cụ thể (hàng bán dưới giá vốn, hoá đơn thiếu tiền công...).',
         '- Kho: hỏi hàng sắp hết / nên nhập gì / tồn lâu -> phan_tich_kho; lịch sử 1 mã -> lich_su_ma_hang.',
         '- Khách: đến hạn bảo dưỡng -> khach_den_han_bao_duong (đưa tin nhắn mẫu để copy); khách chi tiêu nhiều / lâu không quay lại / khách mới -> danh_sach_khach.',
+        '- KẾ TOÁN hỏi về hoá đơn (tìm theo tên/SĐT/biển số/số hoá đơn thuế/mã INV nội bộ, hoá đơn chưa xuất HĐ thuế, đơn đặt cọc còn phải thu, trong kỳ nào) -> gọi tra_cuu_hoa_don. "Số hoá đơn" thường là số HĐ thuế; "mã hoá đơn"/"INV-..." là mã nội bộ; nếu không rõ thì thử cả hai. Báo số lượng, tổng tiền, số chưa xuất HĐ thuế, tổng còn phải thu.',
         '- Ảnh HOÁ ĐƠN NHẬP HÀNG của nhà cung cấp: đọc từng dòng (tên, mã, SL, đơn giá) rồi gọi lap_phieu_nhap_kho. Ảnh XE thì làm như trên.',
         '- Sửa giá/tồn (sua_gia_ton_kho) và gửi tin Zalo (gui_tin_zalo_nhom) chỉ HIỆN THẺ XÁC NHẬN; nói rõ người dùng cần bấm nút trên thẻ, không nói là đã lưu/đã gửi.',
         isAdminUser() ? '- Người hỏi là CHỦ XƯỞNG: dùng được mọi công cụ.' : '- Người hỏi KHÔNG phải Chủ Xưởng: không xem được báo cáo doanh thu/lợi nhuận, không sửa giá, không gửi tin Zalo. Nếu được yêu cầu thì nói lịch sự là cần Chủ Xưởng.',
@@ -7992,6 +8333,34 @@
 
     function aiRenderToolCard(name, args, res) {
       if (!res || res.loi) return;
+      if (name === 'tra_cuu_hoa_don') {
+        if (!res.tong_so_hd) { aiAppend(`<div class="w-full bg-gray-900 border border-gray-700 rounded-2xl p-2.5 text-xs text-gray-300"><i class="fa-solid fa-file-circle-question mr-1.5 text-gray-500"></i>Không tìm thấy hoá đơn nào khớp.</div>`, 'w-full'); return; }
+        const rows = res.hoa_don.slice(0, 12).map(h => `
+          <div class="py-1.5 border-t border-gray-800 first:border-0">
+            <div class="flex items-center justify-between gap-2">
+              <div class="min-w-0"><span class="font-mono font-bold text-amber-400">${aiEsc(h.ma_hd)}</span> <span class="text-white font-semibold">${aiEsc(h.ten_khach)}</span> <span class="text-gray-500">${aiEsc(h.bien_so)}</span></div>
+              <span class="font-mono font-black text-red-400 shrink-0">${formatMoney(h.tong_tien)} đ</span>
+            </div>
+            <div class="flex items-center justify-between gap-2 text-[10px] mt-0.5">
+              <span class="text-gray-400">${aiEsc(h.ngay)}${h.sdt ? ' · ' + aiEsc(h.sdt) : ''}</span>
+              <span class="flex items-center gap-1 shrink-0">
+                ${h.con_lai ? `<span class="px-1.5 rounded bg-amber-950 text-amber-300 border border-amber-500/30">Cọc · còn ${formatMoney(h.con_lai)}</span>` : `<span class="px-1.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-500/30">Đủ</span>`}
+                ${h.so_hd_thue ? `<span class="px-1.5 rounded bg-sky-950 text-sky-300 border border-sky-500/30 font-mono">HĐ ${aiEsc(h.so_hd_thue)}</span>` : `<span class="px-1.5 rounded bg-red-950 text-red-300 border border-red-500/30">Chưa xuất HĐ</span>`}
+                <button onclick="toggleAiPanel(false); viewInvoiceDetail('${aiEsc(h.ma_hd)}')" class="px-1.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700"><i class="fa-solid fa-eye"></i></button>
+              </span>
+            </div>
+          </div>`).join('');
+        aiAppend(`<div class="w-full bg-gray-900 border border-sky-500/40 rounded-2xl p-3 text-xs">
+          <div class="font-bold text-sky-300 mb-1.5"><i class="fa-solid fa-file-invoice-dollar mr-1.5"></i>${res.tong_so_hd} hoá đơn · <span class="font-mono">${formatMoney(res.tong_tien)} đ</span></div>
+          <div class="grid grid-cols-2 gap-1.5 mb-2 text-[10px]">
+            <div class="bg-red-950/40 border border-red-500/30 rounded-lg p-1.5"><div class="text-red-300">Chưa xuất HĐ thuế</div><div class="font-mono font-black text-white">${res.so_hd_chua_xuat_hd_thue} HĐ · ${formatMoney(res.tien_chua_xuat_hd_thue)} đ</div></div>
+            <div class="bg-amber-950/40 border border-amber-500/30 rounded-lg p-1.5"><div class="text-amber-300">Đặt cọc còn phải thu</div><div class="font-mono font-black text-white">${res.so_hd_dang_dat_coc} HĐ · ${formatMoney(res.tong_con_phai_thu)} đ</div></div>
+          </div>
+          ${rows}
+          ${res.tong_so_hd > 12 ? `<div class="text-[10px] text-gray-500 text-center pt-1.5">Hiện 12/${res.tong_so_hd} hoá đơn mới nhất</div>` : ''}
+        </div>`, 'w-full');
+        return;
+      }
       if (name === 'tra_cuu_xe') {
         if (!res.tim_thay) { aiAppend(`<div class="w-full bg-sky-950/40 border border-sky-500/30 rounded-2xl p-2.5 text-xs text-sky-200"><i class="fa-solid fa-user-plus mr-1.5"></i>Không có lịch sử: <b>khách mới</b>.</div>`); return; }
         res.xe.forEach((v, vi) => {
@@ -8070,7 +8439,7 @@
     function aiWelcome() {
       const c = aiActiveConfig();
       aiAddBot(c
-        ? `Chào **${(currentLoggedInUser && currentLoggedInUser.name) || 'bạn'}**! Mình có thể:\n- 📷 Chụp ảnh xe: đọc biển số, xem lịch sử, gợi ý hàng hay thay\n- Tư vấn nhớt, phuộc... theo xe và hàng đang có trong kho\n- Lên đơn nhanh: VD "lên đơn thay nhớt 4 lít + công lắp phuộc"\n- 📦 Kho: "hàng nào sắp hết?", "nên nhập gì tháng này?", "hàng nào tồn lâu không bán?"\n- 🔧 Khách: "khách nào đến hạn thay nhớt tuần này?", "khách lâu không quay lại"\n- 🧾 Chụp **hoá đơn nhập hàng** → tự điền phiếu nhập kho` +
+        ? `Chào **${(currentLoggedInUser && currentLoggedInUser.name) || 'bạn'}**! Mình có thể:\n- 📷 Chụp ảnh xe: đọc biển số, xem lịch sử, gợi ý hàng hay thay\n- Tư vấn nhớt, phuộc... theo xe và hàng đang có trong kho\n- Lên đơn nhanh: VD "lên đơn thay nhớt 4 lít + công lắp phuộc"\n- 📦 Kho: "hàng nào sắp hết?", "nên nhập gì tháng này?", "hàng nào tồn lâu không bán?"\n- 🔧 Khách: "khách nào đến hạn thay nhớt tuần này?", "khách lâu không quay lại"\n- 🧾 Chụp **hoá đơn nhập hàng** → tự điền phiếu nhập kho\n- 🧮 Kế toán: "hoá đơn của anh Minh", "số HĐ 00001234", "INV-141", "tháng này còn bill nào chưa xuất HĐ thuế?", "đơn đặt cọc còn phải thu"` +
           (isAdminUser() ? `\n- 📊 "Doanh thu, lãi tháng này?", "hôm nay bán bao nhiêu?"\n- ✏️ "Đổi giá đại lý phuộc PAG-6025 thành 6,2 triệu"\n- 📣 "Gửi tin nhóm Nội Bộ: chiều 3h họp kho" (luôn hỏi xác nhận trước khi lưu/gửi)` : '')
         : `Đang ở **chế độ cơ bản** (chưa cài API key AI).\n- Gõ **biển số** hoặc **SĐT** để xem lịch sử xe + hàng xe cùng dòng hay thay\n- Gõ tên phụ tùng hoặc dòng xe để tìm kho\n- Chụp ảnh đọc biển số và tư vấn tự do cần bật AI ở **tab 7. Cài Đặt** (Chủ Xưởng)`);
     }
