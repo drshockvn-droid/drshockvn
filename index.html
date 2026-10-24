@@ -2427,14 +2427,19 @@
       const remain = total - dep;
       el.textContent = remain < 0 ? 'Cọc vượt tổng bill ' + formatMoney(-remain) + ' đ' : formatMoney(remain) + ' đ';
     }
+    // deposit: đang đặt cọc (còn phải thu); hadDeposit: đơn có cọc (kể cả đã thu đủ)
+    // depositAt: ngày đặt cọc (= ngày lập bill nếu không ghi riêng); paidAt: ngày thu đủ phần còn lại
     function invPayInfo(inv) {
       const total = inv.total || 0;
+      const depRaw = parseCurrencyNumber(inv.deposit) || 0;
+      const dep = Math.min(total, depRaw);
+      const depositAt = depRaw ? (inv.depositAt || invTime(inv)) : 0;
       if (inv.payStatus === 'deposit') {
-        const dep = Math.min(total, parseCurrencyNumber(inv.deposit) || 0);
-        return { deposit: true, dep: dep, remain: Math.max(0, total - dep), label: 'Đặt cọc' };
+        return { deposit: true, hadDeposit: true, dep: dep, remain: Math.max(0, total - dep), depositAt: depositAt, paidAt: 0, label: 'Đặt cọc' };
       }
-      return { deposit: false, dep: 0, remain: 0, label: 'Đã thanh toán đủ' };
+      return { deposit: false, hadDeposit: dep > 0, dep: dep, remain: 0, depositAt: depositAt, paidAt: dep > 0 ? (inv.paidAt || 0) : 0, label: 'Đã thanh toán đủ' };
     }
+    function viDate(ts) { return ts ? new Date(ts).toLocaleDateString('vi-VN') : ''; }
     function hasTaxInvoice(inv) { return !!String(inv.taxInvoiceNo || '').trim(); }
     function canManageAccounting() { return !!currentLoggedInUser && (currentLoggedInUser.role === 'admin' || currentLoggedInUser.role === 'stock'); }
 
@@ -3196,7 +3201,7 @@
           total: finalTotal,
           payStatus: payStatus
         };
-        if (payStatus === 'deposit') base.deposit = depositAmt;
+        if (payStatus === 'deposit') { base.deposit = depositAmt; base.depositAt = Date.now(); }
         // Mã bảo hành điện tử (chỉ khi đã kết nối đám mây để khách tra cứu được)
         const warrantyRecordCode = firebaseDb ? genWarrantyCode() : '';
         if (warrantyRecordCode) base.warrantyCode = warrantyRecordCode;
@@ -3439,8 +3444,12 @@
         const p = invPayInfo(inv);
         const taxLine = hasTaxInvoice(inv) ? `<div class="text-gray-600">Số hóa đơn: <b class="font-mono text-gray-800">${esc(inv.taxInvoiceNo)}</b>${inv.taxInvoiceDate ? ' (' + new Date(inv.taxInvoiceDate).toLocaleDateString('vi-VN') + ')' : ''}</div>` : '';
         payBox.innerHTML = (p.deposit
-          ? `<div>Đã đặt cọc: <b class="text-amber-700">${formatMoney(p.dep)} đ</b></div><div class="font-black text-red-600">CÒN LẠI: ${formatMoney(p.remain)} đ</div>`
-          : `<div class="font-bold text-emerald-700">✔ Đã thanh toán đủ${parseCurrencyNumber(inv.deposit) ? ' (đã cọc trước ' + formatMoney(parseCurrencyNumber(inv.deposit)) + ' đ)' : ''}</div>`) + taxLine;
+          ? `<div>Đã đặt cọc: <b class="text-amber-700">${formatMoney(p.dep)} đ</b>${p.depositAt ? ' <span class="text-gray-500">(ngày ' + viDate(p.depositAt) + ')</span>' : ''}</div><div class="font-black text-red-600">CÒN LẠI: ${formatMoney(p.remain)} đ</div>`
+          : p.hadDeposit
+            ? `<div class="text-gray-700">Đặt cọc: <b>${formatMoney(p.dep)} đ</b>${p.depositAt ? ' ngày ' + viDate(p.depositAt) : ''}</div>
+               <div class="text-gray-700">Thanh toán phần còn lại: <b>${formatMoney(Math.max(0, (inv.total || 0) - p.dep))} đ</b>${p.paidAt ? ' ngày ' + viDate(p.paidAt) : ''}</div>
+               <div class="font-bold text-emerald-700">✔ Đã thanh toán đủ</div>`
+            : `<div class="font-bold text-emerald-700">✔ Đã thanh toán đủ</div>`) + taxLine;
       }
 
       const tbody = document.getElementById('inv-print-tbody');
@@ -3517,9 +3526,10 @@
         const pay = invPayInfo(inv);
         const payBadge = pay.deposit
           ? `<button type="button" ${canManageInvoices ? `onclick="markInvoicePaid('${inv.id}')" title="Bấm khi khách đã trả nốt phần còn lại"` : 'disabled'} class="mt-1 ml-auto block text-[10px] px-2 py-0.5 rounded-md bg-amber-950/80 text-amber-300 border border-amber-500/40 font-semibold ${canManageInvoices ? 'hover:bg-amber-900/80 active:scale-95' : 'cursor-default'}">
-              <i class="fa-solid fa-hand-holding-dollar mr-0.5"></i>Cọc ${formatMoney(pay.dep)} · còn <b class="text-red-300">${formatMoney(pay.remain)}</b>
+              <i class="fa-solid fa-hand-holding-dollar mr-0.5"></i>Cọc ${formatMoney(pay.dep)}${pay.depositAt ? ' (' + viDate(pay.depositAt) + ')' : ''} · còn <b class="text-red-300">${formatMoney(pay.remain)}</b>
             </button>`
-          : `<span class="mt-1 inline-block text-[10px] px-2 py-0.5 rounded-md bg-emerald-950/70 text-emerald-300 border border-emerald-500/30 font-semibold"><i class="fa-solid fa-circle-check mr-0.5"></i>Đã thanh toán đủ</span>`;
+          : `<span class="mt-1 inline-block text-[10px] px-2 py-0.5 rounded-md bg-emerald-950/70 text-emerald-300 border border-emerald-500/30 font-semibold"><i class="fa-solid fa-circle-check mr-0.5"></i>Đã thanh toán đủ${pay.paidAt ? ' ' + viDate(pay.paidAt) : ''}</span>
+             ${pay.hadDeposit ? `<div class="mt-0.5 text-[10px] text-gray-400"><i class="fa-solid fa-hand-holding-dollar mr-0.5 text-amber-400"></i>Cọc ${formatMoney(pay.dep)}${pay.depositAt ? ' ngày ' + viDate(pay.depositAt) : ''}</div>` : ''}`;
 
         // Hóa đơn thuế: chưa xuất -> nút để kế toán nhập số; đã xuất -> hiện số HĐ (bấm để sửa)
         const taxNo = String(inv.taxInvoiceNo || '').trim();
@@ -3779,7 +3789,7 @@
           });
           Object.assign(target, { plate: plate, name: name, phone: phone, car: car, odo: odo, note: note, serviceType: serviceType, customerType: customerType, items: JSON.parse(JSON.stringify(newItems)), subtotal: subtotal, discount: discount, total: total,
             stockTracked: true, stockOut: stockOutToList(plannedOut) });
-          if (editPay === 'deposit') { target.payStatus = 'deposit'; target.deposit = editDep; delete target.paidAt; delete target.paidBy; }
+          if (editPay === 'deposit') { target.payStatus = 'deposit'; target.deposit = editDep; if (!target.depositAt) target.depositAt = invTime(target) || Date.now(); delete target.paidAt; delete target.paidBy; }
           else {
             if (target.payStatus === 'deposit') { target.paidAt = Date.now(); target.paidBy = (currentLoggedInUser && currentLoggedInUser.name) || ''; }
             target.payStatus = 'paid';
@@ -4166,7 +4176,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.24-1';
+    const APP_VERSION = '2026.10.24-2';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -6079,7 +6089,7 @@
         XLSX.utils.book_append_sheet(wb, wsOverview, 'Doanh_Thu_Tong_Quan');
 
         const invoiceRows = [
-          ['Mã Hóa Đơn', 'Thời Gian', 'Biển Số Xe', 'Tên Khách Hàng', 'Số Điện Thoại', 'Dòng Xe', 'Số ODO', 'Hình Thức', 'Đối Tượng', 'Ghi Chú', 'KTV Tiếp Nhận', 'Tên Phụ Tùng / Dịch Vụ', 'Số Lượng', 'Đơn Vị Tính', 'Đơn Giá (đ)', 'Thành Tiền Món (đ)', 'Giảm Giá Bill (đ)', 'Tổng Bill Thanh Toán (đ)', 'Tình Trạng', 'Tiền Cọc (đ)', 'Còn Lại (đ)', 'Số HĐ Thuế', 'Ngày Xuất HĐ']
+          ['Mã Hóa Đơn', 'Thời Gian', 'Biển Số Xe', 'Tên Khách Hàng', 'Số Điện Thoại', 'Dòng Xe', 'Số ODO', 'Hình Thức', 'Đối Tượng', 'Ghi Chú', 'KTV Tiếp Nhận', 'Tên Phụ Tùng / Dịch Vụ', 'Số Lượng', 'Đơn Vị Tính', 'Đơn Giá (đ)', 'Thành Tiền Món (đ)', 'Giảm Giá Bill (đ)', 'Tổng Bill Thanh Toán (đ)', 'Tình Trạng', 'Tiền Cọc (đ)', 'Ngày Đặt Cọc', 'Còn Lại (đ)', 'Ngày Thanh Toán Đủ', 'Số HĐ Thuế', 'Ngày Xuất HĐ']
         ];
 
         if (invoiceList.length === 0) {
@@ -6151,9 +6161,9 @@
 
     // Cột kế toán cho file Excel hóa đơn (chỉ ghi ở dòng đầu mỗi bill)
     function invAcctCells(inv, first) {
-      if (!first) return ['', '', '', '', ''];
+      if (!first) return ['', '', '', '', '', '', ''];
       const p = invPayInfo(inv);
-      return [p.label, p.deposit ? p.dep : '', p.deposit ? p.remain : 0, String(inv.taxInvoiceNo || '').trim() || 'Chưa xuất',
+      return [p.label, p.hadDeposit ? p.dep : '', viDate(p.depositAt), p.remain, viDate(p.paidAt), String(inv.taxInvoiceNo || '').trim() || 'Chưa xuất',
         inv.taxInvoiceDate ? new Date(inv.taxInvoiceDate).toLocaleDateString('vi-VN') : ''];
     }
 
@@ -6165,7 +6175,7 @@
       try {
         const wb = XLSX.utils.book_new();
         const rows = [
-          ['Mã HĐ', 'Ngày Giờ', 'Biển Số', 'Khách Hàng', 'SĐT', 'Dòng Xe', 'Số ODO', 'Hình Thức', 'Đối Tượng', 'Cố Vấn', 'Hạng Mục', 'SL', 'ĐVT', 'Đơn Giá (đ)', 'Thành Tiền (đ)', 'Giảm Giá Bill (đ)', 'Tổng Bill (đ)', 'Tình Trạng', 'Tiền Cọc (đ)', 'Còn Lại (đ)', 'Số HĐ Thuế', 'Ngày Xuất HĐ']
+          ['Mã HĐ', 'Ngày Giờ', 'Biển Số', 'Khách Hàng', 'SĐT', 'Dòng Xe', 'Số ODO', 'Hình Thức', 'Đối Tượng', 'Cố Vấn', 'Hạng Mục', 'SL', 'ĐVT', 'Đơn Giá (đ)', 'Thành Tiền (đ)', 'Giảm Giá Bill (đ)', 'Tổng Bill (đ)', 'Tình Trạng', 'Tiền Cọc (đ)', 'Ngày Đặt Cọc', 'Còn Lại (đ)', 'Ngày Thanh Toán Đủ', 'Số HĐ Thuế', 'Ngày Xuất HĐ']
         ];
 
         invoiceList.forEach(inv => {
@@ -8008,6 +8018,15 @@
       return { da_hien_the_xac_nhan: true, so_nhom: targets.length, luu_y: 'Chưa gửi. Người dùng phải bấm "Gửi ngay" trên thẻ.' };
     }
 
+    function aiMoneyArg(v) {
+      if (v == null || v === '') return 0;
+      if (typeof v === 'number') return v > 0 ? Math.round(v) : 0;
+      const t = normText(v).replace(/\s+/g, '');
+      const m = t.match(/^(\d+(?:[.,]\d+)?)(k|nghin|ngan|tr|trieu|cu)?$/);
+      if (m && m[2]) { const n = parseFloat(m[1].replace(',', '.')); return Math.round(n * (/^(k|nghin|ngan)$/.test(m[2]) ? 1e3 : 1e6)); }
+      return parseCurrencyNumber(v);
+    }
+
     // 5. Tra cứu hoá đơn cho kế toán: theo tên khách, SĐT, biển số, số HĐ thuế, mã nội bộ INV, kỳ, tình trạng
     function aiToolFindInvoices(args) {
       args = args || {};
@@ -8020,6 +8039,7 @@
       const tax = normText(args.hd_thue || '').replace(/\s+/g, '_');
       const pay = normText(args.thanh_toan || '').replace(/\s+/g, '_');
       const R = (args.ky || args.tu_ngay) ? aiRange(args) : null;
+      const depQ = aiMoneyArg(args.tien_coc), totQ = aiMoneyArg(args.tong_tien);
       let list = invoiceList.slice();
       if (taxQ) {
         const exact = list.filter(i => String(i.taxInvoiceNo || '').toUpperCase().replace(/\s+/g, '') === taxQ);
@@ -8033,9 +8053,23 @@
       if (tax === 'chua_xuat') list = list.filter(i => !hasTaxInvoice(i));
       else if (tax === 'da_xuat') list = list.filter(i => hasTaxInvoice(i));
       if (pay === 'dat_coc' || pay === 'con_no') list = list.filter(i => invPayInfo(i).deposit);
+      else if (pay === 'co_coc' || pay === 'tat_ca_don_coc') list = list.filter(i => invPayInfo(i).hadDeposit);
+      else if (pay === 'coc_da_thu_du') list = list.filter(i => invPayInfo(i).hadDeposit && !invPayInfo(i).deposit);
       else if (pay === 'du' || pay === 'da_thanh_toan') list = list.filter(i => !invPayInfo(i).deposit);
-      if (!taxQ && !idQ && !nameQ && phoneQ.length < 3 && !plateQ && !R && !tax && !pay)
-        return { loi: 'Cần ít nhất 1 điều kiện: tên khách, SĐT, biển số, số HĐ thuế, mã INV, kỳ thời gian hoặc tình trạng.' };
+      // Số tiền: khớp đúng trước, không có thì lấy gần đúng (±10%)
+      let gan_dung = '';
+      const byAmount = (arr, q, f, label) => {
+        if (!q) return arr;
+        const exact = arr.filter(i => Math.abs(f(i) - q) < 1000);
+        if (exact.length) return exact;
+        const near = arr.filter(i => f(i) > 0 && Math.abs(f(i) - q) <= q * 0.1);
+        if (near.length) gan_dung += 'Không có ' + label + ' đúng ' + formatMoney(q) + ' đ, đang liệt kê ' + label + ' gần đúng (±10%). ';
+        return near;
+      };
+      list = byAmount(list, depQ, i => invPayInfo(i).hadDeposit ? invPayInfo(i).dep : 0, 'tiền cọc');
+      list = byAmount(list, totQ, i => i.total || 0, 'tổng bill');
+      if (!taxQ && !idQ && !nameQ && phoneQ.length < 3 && !plateQ && !R && !tax && !pay && !depQ && !totQ)
+        return { loi: 'Cần ít nhất 1 điều kiện: tên khách, SĐT, biển số, số HĐ thuế, mã INV, số tiền cọc / tổng bill, kỳ thời gian hoặc tình trạng.' };
       list = sortInvoicesByTime(list, 'desc');
       const sum = (arr, f) => arr.reduce((a, i) => a + f(i), 0);
       return {
@@ -8049,21 +8083,25 @@
         hoa_don: list.slice(0, 30).map(i => {
           const p = invPayInfo(i);
           return { ma_hd: i.id, ngay: i.date, ten_khach: i.name || '', sdt: i.phone || '', bien_so: i.plate || '', dong_xe: i.car || '',
-            loai_khach: i.customerType || 'Khách lẻ', tong_tien: i.total || 0, tinh_trang: p.label, tien_coc: p.dep, con_lai: p.remain,
+            loai_khach: i.customerType || 'Khách lẻ', tong_tien: i.total || 0, tinh_trang: p.hadDeposit && !p.deposit ? 'Đã thanh toán đủ (có đặt cọc)' : p.label,
+            tien_coc: p.hadDeposit ? p.dep : 0, ngay_dat_coc: viDate(p.depositAt) || null, con_lai: p.remain, ngay_thanh_toan_du: viDate(p.paidAt) || null,
             so_hd_thue: String(i.taxInvoiceNo || '').trim() || null,
             ngay_xuat_hd_thue: i.taxInvoiceDate ? new Date(i.taxInvoiceDate).toLocaleDateString('vi-VN') : null,
             hang_muc: (i.items || []).map(it => it.name + ' ×' + formatStockQty(it.qty)).join(', ') };
         }),
-        ghi_chu: list.length > 30 ? 'Chỉ liệt kê 30 hoá đơn mới nhất; các con số tổng tính trên toàn bộ ' + list.length + ' hoá đơn.' : ''
+        so_hd_co_dat_coc: list.filter(i => invPayInfo(i).hadDeposit).length,
+        ghi_chu: gan_dung + (list.length > 30 ? 'Chỉ liệt kê 30 hoá đơn mới nhất; các con số tổng tính trên toàn bộ ' + list.length + ' hoá đơn.' : '')
       };
     }
 
     const AI_TOOLS = [
       { name: 'tra_cuu_hoa_don', fn: aiToolFindInvoices,
-        description: 'Tra cứu / báo cáo HOÁ ĐƠN cho kế toán: tìm theo tên khách, SĐT, biển số, SỐ HOÁ ĐƠN THUẾ (mã xuất của thuế), mã hoá đơn NỘI BỘ (INV-xxx), kỳ thời gian; lọc hoá đơn chưa/đã xuất hoá đơn thuế, đơn đang đặt cọc còn phải thu. Trả về từng hoá đơn kèm tình trạng thanh toán, số HĐ thuế, và các con số tổng.',
+        description: 'Tra cứu / báo cáo HOÁ ĐƠN cho kế toán: tìm theo tên khách, SĐT, biển số, SỐ HOÁ ĐƠN THUẾ (mã xuất của thuế), mã hoá đơn NỘI BỘ (INV-xxx), kỳ thời gian; lọc hoá đơn chưa/đã xuất hoá đơn thuế, đơn đang đặt cọc còn phải thu. Tìm được theo SỐ TIỀN CỌC (tien_coc) hoặc tổng bill. Trả về từng hoá đơn kèm tình trạng thanh toán, tiền cọc, ngày đặt cọc, ngày thanh toán đủ, số HĐ thuế, và các con số tổng.',
         params: { ten_khach: ['string', 'Tên khách / garage'], sdt: ['string', 'Số điện thoại'], bien_so: ['string', 'Biển số'],
           so_hd_thue: ['string', 'Số hoá đơn thuế (mã xuất của thuế)'], ma_hd: ['string', 'Mã hoá đơn nội bộ, VD INV-141 hoặc 141'],
-          hd_thue: ['string', '"chua_xuat" | "da_xuat"'], thanh_toan: ['string', '"dat_coc" (còn phải thu) | "du"'],
+          hd_thue: ['string', '"chua_xuat" | "da_xuat"'],
+          thanh_toan: ['string', '"dat_coc" = đang cọc còn phải thu | "co_coc" = mọi đơn có đặt cọc (kể cả đã thu đủ) | "coc_da_thu_du" | "du"'],
+          tien_coc: ['number', 'Số tiền khách đặt cọc, VD 300000 (300k)'], tong_tien: ['number', 'Tổng tiền bill, VD 2500000'],
           ky: ['string', 'hom_nay | hom_qua | tuan_nay | tuan_truoc | 7_ngay | 30_ngay | thang_nay | thang_truoc | nam_nay | "10/2026"'],
           tu_ngay: ['string', 'dd/mm/yyyy (tuỳ chọn)'], den_ngay: ['string', 'dd/mm/yyyy (tuỳ chọn)'] }, required: [] },
       { name: 'tra_cuu_xe', fn: aiToolFindVehicle,
@@ -8158,7 +8196,7 @@
         '- Báo cáo doanh thu/lãi: gọi bao_cao_kinh_doanh (chỉ Chủ Xưởng). Tóm tắt số chính, so với kỳ trước, nêu 2-3 nhận xét/hành động cụ thể (hàng bán dưới giá vốn, hoá đơn thiếu tiền công...).',
         '- Kho: hỏi hàng sắp hết / nên nhập gì / tồn lâu -> phan_tich_kho; lịch sử 1 mã -> lich_su_ma_hang.',
         '- Khách: đến hạn bảo dưỡng -> khach_den_han_bao_duong (đưa tin nhắn mẫu để copy); khách chi tiêu nhiều / lâu không quay lại / khách mới -> danh_sach_khach.',
-        '- KẾ TOÁN hỏi về hoá đơn (tìm theo tên/SĐT/biển số/số hoá đơn thuế/mã INV nội bộ, hoá đơn chưa xuất HĐ thuế, đơn đặt cọc còn phải thu, trong kỳ nào) -> gọi tra_cuu_hoa_don. "Số hoá đơn" thường là số HĐ thuế; "mã hoá đơn"/"INV-..." là mã nội bộ; nếu không rõ thì thử cả hai. Báo số lượng, tổng tiền, số chưa xuất HĐ thuế, tổng còn phải thu.',
+        '- KẾ TOÁN hỏi về hoá đơn (tìm theo tên/SĐT/biển số/số hoá đơn thuế/mã INV nội bộ, hoá đơn chưa xuất HĐ thuế, đơn đặt cọc còn phải thu, trong kỳ nào) -> gọi tra_cuu_hoa_don. "Số hoá đơn" thường là số HĐ thuế; "mã hoá đơn"/"INV-..." là mã nội bộ; nếu không rõ thì thử cả hai. Báo số lượng, tổng tiền, số chưa xuất HĐ thuế, tổng còn phải thu. Hỏi theo tiền cọc (VD "khách cọc 300k tháng rồi") -> tien_coc=300000, ky=thang_truoc, thanh_toan="co_coc" để gồm cả đơn đã thu đủ; nêu ngày đặt cọc và ngày thanh toán đủ.',
         '- Ảnh HOÁ ĐƠN NHẬP HÀNG của nhà cung cấp: đọc từng dòng (tên, mã, SL, đơn giá) rồi gọi lap_phieu_nhap_kho. Ảnh XE thì làm như trên.',
         '- Sửa giá/tồn (sua_gia_ton_kho) và gửi tin Zalo (gui_tin_zalo_nhom) chỉ HIỆN THẺ XÁC NHẬN; nói rõ người dùng cần bấm nút trên thẻ, không nói là đã lưu/đã gửi.',
         isAdminUser() ? '- Người hỏi là CHỦ XƯỞNG: dùng được mọi công cụ.' : '- Người hỏi KHÔNG phải Chủ Xưởng: không xem được báo cáo doanh thu/lợi nhuận, không sửa giá, không gửi tin Zalo. Nếu được yêu cầu thì nói lịch sự là cần Chủ Xưởng.',
@@ -8342,9 +8380,9 @@
               <span class="font-mono font-black text-red-400 shrink-0">${formatMoney(h.tong_tien)} đ</span>
             </div>
             <div class="flex items-center justify-between gap-2 text-[10px] mt-0.5">
-              <span class="text-gray-400">${aiEsc(h.ngay)}${h.sdt ? ' · ' + aiEsc(h.sdt) : ''}</span>
+              <span class="text-gray-400">${aiEsc(h.ngay)}${h.sdt ? ' · ' + aiEsc(h.sdt) : ''}${h.tien_coc && !h.con_lai ? ` · <span class="text-amber-300">cọc ${formatMoney(h.tien_coc)}${h.ngay_dat_coc ? ' ngày ' + aiEsc(h.ngay_dat_coc) : ''}</span>` : (h.con_lai && h.ngay_dat_coc ? ` · <span class="text-amber-300">cọc ngày ${aiEsc(h.ngay_dat_coc)}</span>` : '')}</span>
               <span class="flex items-center gap-1 shrink-0">
-                ${h.con_lai ? `<span class="px-1.5 rounded bg-amber-950 text-amber-300 border border-amber-500/30">Cọc · còn ${formatMoney(h.con_lai)}</span>` : `<span class="px-1.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-500/30">Đủ</span>`}
+                ${h.con_lai ? `<span class="px-1.5 rounded bg-amber-950 text-amber-300 border border-amber-500/30">Cọc ${formatMoney(h.tien_coc)} · còn ${formatMoney(h.con_lai)}</span>` : `<span class="px-1.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-500/30">Đủ${h.ngay_thanh_toan_du ? ' ' + aiEsc(h.ngay_thanh_toan_du) : ''}</span>`}
                 ${h.so_hd_thue ? `<span class="px-1.5 rounded bg-sky-950 text-sky-300 border border-sky-500/30 font-mono">HĐ ${aiEsc(h.so_hd_thue)}</span>` : `<span class="px-1.5 rounded bg-red-950 text-red-300 border border-red-500/30">Chưa xuất HĐ</span>`}
                 <button onclick="toggleAiPanel(false); viewInvoiceDetail('${aiEsc(h.ma_hd)}')" class="px-1.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700"><i class="fa-solid fa-eye"></i></button>
               </span>
