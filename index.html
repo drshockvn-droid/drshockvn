@@ -180,7 +180,7 @@
 
       <!-- Navigation Tabs -->
       <div class="max-w-7xl mx-auto mt-2 flex items-center space-x-1.5 overflow-x-auto no-scrollbar pb-0.5 text-xs font-semibold">
-        <button onclick="switchTab('tab-quote')" id="nav-tab-quote" class="tab-btn px-3 py-1.5 rounded-lg whitespace-nowrap bg-red-600 text-white shadow shrink-0 active:scale-95 transition">
+        <button onclick="switchTab('tab-quote')" id="nav-tab-quote" class="tab-btn no-ketoan px-3 py-1.5 rounded-lg whitespace-nowrap bg-red-600 text-white shadow shrink-0 active:scale-95 transition">
           <i class="fa-solid fa-calculator mr-1"></i>1. Tiếp Nhận & Bill
         </button>
         <button onclick="switchTab('tab-invoices')" id="nav-tab-invoices" class="tab-btn px-3 py-1.5 rounded-lg whitespace-nowrap bg-gray-800 text-gray-300 hover:bg-gray-700 shrink-0 active:scale-95 transition">
@@ -203,6 +203,9 @@
         </button>
         <button onclick="switchTab('tab-stock-logs')" id="nav-tab-stock-logs" class="tab-btn admin-only px-3 py-1.5 rounded-lg whitespace-nowrap bg-gray-800 text-gray-300 hover:bg-gray-700 shrink-0 active:scale-95 transition">
           <i class="fa-solid fa-clock-rotate-left mr-1"></i>8. Lịch Sử Kho
+        </button>
+        <button onclick="switchTab('tab-debt')" id="nav-tab-debt" class="tab-btn debt-access hidden px-3 py-1.5 rounded-lg whitespace-nowrap bg-gray-800 text-gray-300 hover:bg-gray-700 shrink-0 active:scale-95 transition">
+          <i class="fa-solid fa-scale-balanced mr-1"></i>9. Công Nợ
         </button>
       </div>
     </header>
@@ -307,25 +310,29 @@
                   <span class="text-[10px] text-emerald-400 font-normal">Chọn 1 chạm</span>
                 </label>
                 <input type="hidden" id="quote-pay-status" value="paid">
-                <div class="grid grid-cols-2 gap-2">
+                <div class="grid grid-cols-3 gap-2">
                   <button type="button" id="btn-pay-deposit" onclick="setPayStatus('deposit')"
                     class="py-2 px-2.5 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 bg-gray-800 text-gray-300 hover:text-white border border-gray-700 active:scale-95">
                     <i class="fa-solid fa-hand-holding-dollar"></i><span>Đặt cọc</span>
                   </button>
+                  <button type="button" id="btn-pay-debt" onclick="setPayStatus('debt')"
+                    class="py-2 px-2.5 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 bg-gray-800 text-gray-300 hover:text-white border border-gray-700 active:scale-95">
+                    <i class="fa-solid fa-file-signature"></i><span>Ghi nợ</span>
+                  </button>
                   <button type="button" id="btn-pay-paid" onclick="setPayStatus('paid')"
                     class="py-2 px-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow bg-emerald-600 text-white border border-emerald-500 active:scale-95">
-                    <i class="fa-solid fa-circle-check"></i><span>Đã thanh toán đủ</span>
+                    <i class="fa-solid fa-circle-check"></i><span>Đã TT đủ</span>
                   </button>
                 </div>
                 <div id="quote-deposit-box" class="hidden mt-2 bg-amber-950/30 border border-amber-500/40 rounded-xl p-2.5 space-y-1.5">
                   <div class="flex items-center justify-between gap-2">
-                    <label for="quote-deposit" class="text-[11px] font-bold text-amber-300">Số tiền đặt cọc (đ)</label>
+                    <label for="quote-deposit" id="quote-deposit-label" class="text-[11px] font-bold text-amber-300">Số tiền đặt cọc (đ)</label>
                     <input type="text" inputmode="numeric" id="quote-deposit" value="0" autocomplete="off"
                       onfocus="handleMoneyFocus(this)" oninput="formatLiveCurrency(this); updateDepositRemain()" onblur="handleMoneyBlur(this); updateDepositRemain()"
                       class="w-36 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 text-right font-mono text-sm font-black text-amber-300 focus:outline-none focus:border-amber-500">
                   </div>
                   <div class="flex items-center justify-between text-[11px]">
-                    <span class="text-gray-400">Khách còn phải trả:</span>
+                    <span id="quote-deposit-remain-label" class="text-gray-400">Khách còn phải trả:</span>
                     <span id="quote-deposit-remain" class="font-mono font-black text-red-400">0 đ</span>
                   </div>
                 </div>
@@ -880,6 +887,46 @@
         </div>
       </section>
 
+      <!-- ================= TAB 9: CÔNG NỢ (CHỦ XƯỞNG & KẾ TOÁN) ================= -->
+      <section id="tab-debt" class="tab-content hidden space-y-3">
+        <div class="bg-gray-900 border border-gray-800 rounded-2xl p-3 sm:p-4 space-y-3.5">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-gray-800">
+            <div>
+              <h2 class="text-sm sm:text-base font-bold text-white flex items-center gap-2"><i class="fa-solid fa-scale-balanced text-orange-400"></i>Công Nợ Nhà Phân Phối & Đại Lý</h2>
+              <p class="text-xs text-gray-400 mt-0.5">Tự cộng từ phiếu nhập / hóa đơn "Ghi nợ". Tiền trả trừ dần vào khoản nợ cũ nhất trước.</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <button onclick="openDebtPartnerModal()" class="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 active:scale-95 text-amber-300 border border-amber-500/40 text-xs font-semibold rounded-xl flex items-center gap-1.5"><i class="fa-solid fa-user-plus"></i>Thêm / Số dư đầu kỳ</button>
+              <button onclick="exportDebtExcel()" class="px-3 py-1.5 bg-emerald-700/80 hover:bg-emerald-600 active:scale-95 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5"><i class="fa-solid fa-file-excel"></i>Xuất Excel</button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <button type="button" onclick="setDebtView('S')" id="debt-card-S" class="text-left rounded-2xl p-3.5 border transition">
+              <div class="flex items-center justify-between"><span class="text-[11px] font-bold uppercase tracking-wider text-red-300"><i class="fa-solid fa-truck-field mr-1"></i>Phải trả nhà phân phối</span><span id="debt-S-count" class="text-[10px] px-2 py-0.5 rounded-full bg-gray-900 text-gray-300 border border-gray-700"></span></div>
+              <div id="debt-S-total" class="text-lg sm:text-2xl font-black font-mono text-red-400 mt-1">0 đ</div>
+              <div id="debt-S-sub" class="text-[11px] text-gray-400 mt-0.5"></div>
+            </button>
+            <button type="button" onclick="setDebtView('D')" id="debt-card-D" class="text-left rounded-2xl p-3.5 border transition">
+              <div class="flex items-center justify-between"><span class="text-[11px] font-bold uppercase tracking-wider text-emerald-300"><i class="fa-solid fa-warehouse mr-1"></i>Phải thu đại lý / khách</span><span id="debt-D-count" class="text-[10px] px-2 py-0.5 rounded-full bg-gray-900 text-gray-300 border border-gray-700"></span></div>
+              <div id="debt-D-total" class="text-lg sm:text-2xl font-black font-mono text-emerald-400 mt-1">0 đ</div>
+              <div id="debt-D-sub" class="text-[11px] text-gray-400 mt-0.5"></div>
+            </button>
+          </div>
+
+          <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+            <div class="relative flex-1">
+              <input type="text" id="debt-search" oninput="renderDebtTab()" autocomplete="off" placeholder="Tìm tên NPP / đại lý, SĐT..."
+                class="w-full bg-gray-800 border border-gray-700 rounded-xl pl-8 pr-3 py-2 text-xs text-white focus:outline-none focus:border-red-500">
+              <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-gray-500 text-xs"></i>
+            </div>
+            <label class="flex items-center gap-1.5 text-xs text-gray-300 shrink-0"><input type="checkbox" id="debt-show-zero" onchange="renderDebtTab()" class="accent-red-600">Hiện cả đối tác đã hết nợ</label>
+          </div>
+
+          <div id="debt-list" class="space-y-2"></div>
+        </div>
+      </section>
+
     </main>
   </div>
 
@@ -1302,13 +1349,14 @@
         <div class="grid grid-cols-2 gap-2 bg-gray-800/40 p-3 rounded-xl border border-gray-800">
           <div>
             <label for="edit-inv-paystatus" class="block text-[10px] font-bold uppercase text-emerald-400 mb-1">Tình Trạng Đơn Hàng</label>
-            <select id="edit-inv-paystatus" onchange="document.getElementById('edit-inv-deposit-wrap').classList.toggle('invisible', this.value !== 'deposit')" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-white">
+            <select id="edit-inv-paystatus" onchange="syncEditPayUi()" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-white">
               <option value="paid">Đã thanh toán đủ</option>
               <option value="deposit">Đặt cọc</option>
+              <option value="debt">Ghi nợ (công nợ)</option>
             </select>
           </div>
           <div id="edit-inv-deposit-wrap">
-            <label for="edit-inv-deposit" class="block text-[10px] font-bold uppercase text-amber-400 mb-1">Tiền đặt cọc (đ)</label>
+            <label for="edit-inv-deposit" id="edit-inv-deposit-label" class="block text-[10px] font-bold uppercase text-amber-400 mb-1">Tiền đặt cọc (đ)</label>
             <input type="text" inputmode="numeric" id="edit-inv-deposit" autocomplete="off" onfocus="handleMoneyFocus(this)" onblur="handleMoneyBlur(this)"
               class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-right font-mono font-bold text-amber-300">
           </div>
@@ -1384,6 +1432,7 @@
           <select id="staff-modal-role" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-white focus:border-red-500">
             <option value="tech">Kỹ Thuật Viên (Tiếp nhận & Lên Bill)</option>
             <option value="stock">Quản Lý Kho (Quản lý phụ tùng & Sửa bill)</option>
+            <option value="ketoan">Kế Toán (Hóa đơn, số HĐ thuế & Công nợ)</option>
             <option value="admin">Chủ Xưởng (Toàn quyền quản trị)</option>
           </select>
         </div>
@@ -1417,7 +1466,7 @@
       </div>
       <div class="space-y-3 text-xs">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <input id="rc-supplier" type="text" placeholder="Nhà cung cấp (không bắt buộc)" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-red-500">
+          <input id="rc-supplier" type="text" list="rc-supplier-list" autocomplete="off" placeholder="Nhà cung cấp (bắt buộc nếu ghi nợ)" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-red-500">
           <input id="rc-note" type="text" placeholder="Ghi chú phiếu (không bắt buộc)" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-red-500">
         </div>
         <div class="bg-gray-800/40 p-2.5 rounded-xl border border-gray-800">
@@ -1440,6 +1489,28 @@
           <span class="text-gray-300 font-semibold">Tổng tiền hàng nhập:</span>
           <span id="rc-total" class="text-base font-black text-emerald-400 font-mono">0 đ</span>
         </div>
+        <datalist id="rc-supplier-list"></datalist>
+        <!-- Thanh toán cho nhà phân phối -->
+        <div class="bg-gray-800/40 p-2.5 rounded-xl border border-gray-800 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-400"><i class="fa-solid fa-money-bill-wave mr-1"></i>Thanh toán cho NPP</span>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <button type="button" id="rc-pay-paid" onclick="setReceiptPayMode('paid')" class="py-2 rounded-xl text-xs font-bold border">Đã trả đủ</button>
+            <button type="button" id="rc-pay-debt" onclick="setReceiptPayMode('debt')" class="py-2 rounded-xl text-xs font-bold border">Ghi nợ NPP</button>
+          </div>
+          <div id="rc-debt-box" class="hidden space-y-1.5">
+            <div class="flex items-center justify-between gap-2">
+              <label for="rc-paid-amount" class="text-[11px] text-gray-300">Đã trả trước (đ)</label>
+              <input type="text" inputmode="numeric" id="rc-paid-amount" value="0" autocomplete="off" onfocus="handleMoneyFocus(this)" oninput="updateReceiptTotals()" onblur="handleMoneyBlur(this); updateReceiptTotals()"
+                class="w-36 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 text-right font-mono font-bold text-emerald-300 focus:outline-none focus:border-emerald-500">
+            </div>
+            <div class="flex items-center justify-between text-[11px]">
+              <span class="text-gray-400">Ghi vào công nợ NPP:</span>
+              <span id="rc-debt-remain" class="font-mono font-black text-red-400">0 đ</span>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="mt-4 pt-3 border-t border-gray-800 flex items-center justify-end gap-2">
         <button type="button" onclick="closeReceiptModal()" class="px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs rounded-xl border border-gray-700">Hủy Bỏ</button>
@@ -1460,6 +1531,102 @@
   </div>
 
   <!-- ================= MODAL XÁC NHẬN ================= -->
+  <!-- ================= MODAL PHIẾU THU / PHIẾU CHI CÔNG NỢ ================= -->
+  <div id="debt-pay-modal" class="fixed inset-0 z-50 bg-black/85 hidden flex items-center justify-center p-4">
+    <div class="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-sm p-4 space-y-3 shadow-2xl text-xs">
+      <div class="flex items-center justify-between gap-2 border-b border-gray-800 pb-2.5">
+        <h3 id="dp-title" class="text-sm font-bold text-orange-400 flex items-center gap-2"></h3>
+        <button onclick="closeDebtModal('debt-pay-modal')" class="w-8 h-8 rounded-full bg-gray-800 text-gray-400 hover:text-white flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <input type="hidden" id="dp-pkey">
+      <div class="bg-gray-800/60 border border-gray-700/60 rounded-xl p-2.5 flex items-center justify-between gap-2">
+        <span id="dp-partner" class="text-white font-bold truncate"></span>
+        <span id="dp-balance" class="font-mono font-black shrink-0"></span>
+      </div>
+      <div>
+        <label for="dp-amount" class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Số tiền (đ) *</label>
+        <input type="text" inputmode="numeric" id="dp-amount" autocomplete="off" onfocus="handleMoneyFocus(this)" onblur="handleMoneyBlur(this)"
+          class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-right text-base font-mono font-black text-white focus:outline-none focus:border-orange-500">
+        <div class="flex gap-1.5 mt-1.5"><button type="button" id="dp-fill-all" class="px-2 py-1 rounded-lg bg-gray-800 border border-gray-700 text-gray-300 hover:text-white">Trả hết nợ</button></div>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label for="dp-date" class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Ngày</label>
+          <input type="date" id="dp-date" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-white focus:outline-none focus:border-orange-500" style="color-scheme: dark">
+        </div>
+        <div>
+          <label for="dp-method" class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Hình thức</label>
+          <select id="dp-method" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-white">
+            <option>Chuyển khoản</option><option>Tiền mặt</option><option>Cấn trừ</option><option>Khác</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label for="dp-note" class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Ghi chú</label>
+        <input type="text" id="dp-note" placeholder="VD: CK Vietcombank, trả HĐ INV-150..." class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-orange-500">
+      </div>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" onclick="closeDebtModal('debt-pay-modal')" class="px-3 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 rounded-xl">Hủy</button>
+        <button type="button" id="dp-save" onclick="saveDebtPayment()" class="px-4 py-2.5 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded-xl shadow"><i class="fa-solid fa-floppy-disk mr-1"></i>Lưu phiếu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODAL ĐỐI TÁC / SỐ DƯ ĐẦU KỲ ================= -->
+  <div id="debt-partner-modal" class="fixed inset-0 z-50 bg-black/85 hidden flex items-center justify-center p-4">
+    <div class="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-sm p-4 space-y-3 shadow-2xl text-xs">
+      <div class="flex items-center justify-between gap-2 border-b border-gray-800 pb-2.5">
+        <h3 id="dpt-title" class="text-sm font-bold text-amber-300 flex items-center gap-2"><i class="fa-solid fa-user-plus"></i>Đối tác & số dư đầu kỳ</h3>
+        <button onclick="closeDebtModal('debt-partner-modal')" class="w-8 h-8 rounded-full bg-gray-800 text-gray-400 hover:text-white flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <input type="hidden" id="dpt-key">
+      <div class="grid grid-cols-2 gap-2">
+        <button type="button" id="dpt-type-S" onclick="setDebtPartnerType('S')" class="py-2 rounded-xl font-bold border">Nhà phân phối</button>
+        <button type="button" id="dpt-type-D" onclick="setDebtPartnerType('D')" class="py-2 rounded-xl font-bold border">Đại lý / khách</button>
+      </div>
+      <div>
+        <label for="dpt-name" class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Tên *</label>
+        <input type="text" id="dpt-name" list="dpt-name-list" autocomplete="off" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-white font-semibold focus:outline-none focus:border-amber-500">
+        <datalist id="dpt-name-list"></datalist>
+      </div>
+      <div id="dpt-phone-wrap">
+        <label for="dpt-phone" class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Số điện thoại (đại lý: nên nhập, trùng SĐT trên hóa đơn)</label>
+        <input type="tel" id="dpt-phone" autocomplete="off" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-amber-500">
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label for="dpt-opening" class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Nợ đầu kỳ (đ)</label>
+          <input type="text" inputmode="numeric" id="dpt-opening" autocomplete="off" onfocus="handleMoneyFocus(this)" onblur="handleMoneyBlur(this)"
+            class="w-full bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-right font-mono font-black text-amber-300 focus:outline-none focus:border-amber-500">
+        </div>
+        <div>
+          <label for="dpt-opening-date" class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Tính đến ngày</label>
+          <input type="date" id="dpt-opening-date" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-white focus:outline-none focus:border-amber-500" style="color-scheme: dark">
+        </div>
+      </div>
+      <div>
+        <label for="dpt-note" class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Ghi chú</label>
+        <input type="text" id="dpt-note" placeholder="VD: hạn thanh toán 30 ngày, STK..." class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-amber-500">
+      </div>
+      <p class="text-[10px] text-gray-500">Nợ đầu kỳ là số nợ còn lại tính đến ngày trên, trước khi dùng app để theo dõi. Các phiếu nhập / hóa đơn ghi nợ sau đó sẽ được cộng tiếp.</p>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" onclick="closeDebtModal('debt-partner-modal')" class="px-3 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 rounded-xl">Hủy</button>
+        <button type="button" onclick="saveDebtPartner()" class="px-4 py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl shadow"><i class="fa-solid fa-floppy-disk mr-1"></i>Lưu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODAL SỔ CHI TIẾT CÔNG NỢ ================= -->
+  <div id="debt-ledger-modal" class="fixed inset-0 z-50 bg-black/85 hidden flex items-center justify-center p-3 overflow-y-auto">
+    <div class="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl p-4 space-y-3 shadow-2xl text-xs my-auto max-h-[92vh] overflow-y-auto custom-scrollbar">
+      <div class="flex items-center justify-between gap-2 border-b border-gray-800 pb-2.5">
+        <h3 id="dl-title" class="text-sm font-bold text-sky-300 flex items-center gap-2"></h3>
+        <button onclick="closeDebtModal('debt-ledger-modal')" class="w-8 h-8 rounded-full bg-gray-800 text-gray-400 hover:text-white flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="dl-body" class="space-y-3"></div>
+    </div>
+  </div>
+
   <!-- ================= MODAL SỐ HÓA ĐƠN THUẾ (KẾ TOÁN) ================= -->
   <div id="tax-invoice-modal" class="fixed inset-0 z-50 bg-black/85 hidden flex items-center justify-center p-4">
     <div class="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-sm p-4 space-y-3 shadow-2xl text-xs">
@@ -2029,8 +2196,9 @@
     }
 
     function setupFirebaseRealtimeListeners() {
-      if (!firebaseDb) return;
+      if (!firebaseDb) { debtReady = true; return; }
       setupReceiptListeners();
+      setupDebtListener();
 
       // Dữ liệu tài chính chỉ Chủ Xưởng được đọc (quy tắc database cũng chặn các vai trò khác)
       if (isAdminUser()) firebaseDb.ref('garage/aiReport/latest').on('value', snap => renderAiReport(snap.val()), () => {});
@@ -2120,7 +2288,7 @@
     }
 
     // ĐĂNG NHẬP (Firebase Authentication: email + mật khẩu)
-    const ROLE_TITLES = { admin: 'Chủ Xưởng (Admin)', stock: 'Quản Lý Phụ Tùng & Kho', tech: 'Kỹ Thuật Viên Tiếp Nhận' };
+    const ROLE_TITLES = { admin: 'Chủ Xưởng (Admin)', stock: 'Quản Lý Phụ Tùng & Kho', tech: 'Kỹ Thuật Viên Tiếp Nhận', ketoan: 'Kế Toán' };
 
     function renderLoginUserList() { /* không còn danh sách chọn tài khoản: đăng nhập bằng email */ }
 
@@ -2199,7 +2367,7 @@
       showNotification(`Xin chào ${currentLoggedInUser.name}!`, 'success');
       renderInvoiceList();
       renderInventoryTable();
-      switchTab('tab-quote');
+      switchTab(user.role === 'ketoan' ? 'tab-invoices' : 'tab-quote');
     }
 
     function applyCurrentUserHeader() {
@@ -2216,7 +2384,10 @@
       document.querySelectorAll('.admin-only').forEach(el => el.classList.toggle('hidden', user.role !== 'admin'));
       const isStockManager = (user.role === 'admin' || user.role === 'stock');
       document.querySelectorAll('.stock-manage-only').forEach(el => el.classList.toggle('hidden', !isStockManager));
+      document.querySelectorAll('.debt-access').forEach(el => el.classList.toggle('hidden', !canAccessDebt()));
+      document.querySelectorAll('.no-ketoan').forEach(el => el.classList.toggle('hidden', user.role === 'ketoan'));
     }
+    function canAccessDebt() { return !!currentLoggedInUser && (currentLoggedInUser.role === 'admin' || currentLoggedInUser.role === 'ketoan'); }
 
     // Khi danh sách nhân viên tải xong: lấy tên hiển thị, tự thêm hồ sơ cho chủ xưởng đầu tiên, dọn mã PIN cũ còn sót trên đám mây
     let _staffMaintained = false;
@@ -2260,6 +2431,7 @@
       }
 
       window.scrollTo({ top: 0, behavior: 'smooth' });
+      if (tabId === 'tab-debt') renderDebtTab();
       if (tabId === 'tab-reports' && typeof renderFinanceDash === 'function') setTimeout(() => { try { renderFinanceDash(); } catch (e) {} }, 30);
     }
 
@@ -2422,15 +2594,19 @@
     const PAY_BTN_ON = 'py-2 px-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow text-white active:scale-95 ';
     const PAY_BTN_OFF = 'py-2 px-2.5 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 bg-gray-800 text-gray-300 hover:text-white border border-gray-700 active:scale-95';
     function setPayStatus(st) {
-      const isDep = st === 'deposit';
-      document.getElementById('quote-pay-status').value = isDep ? 'deposit' : 'paid';
-      document.getElementById('btn-pay-deposit').className = isDep ? PAY_BTN_ON + 'bg-amber-600 border border-amber-500' : PAY_BTN_OFF;
-      document.getElementById('btn-pay-paid').className = isDep ? PAY_BTN_OFF : PAY_BTN_ON + 'bg-emerald-600 border border-emerald-500';
+      st = st === 'deposit' || st === 'debt' ? st : 'paid';
+      const isDep = st !== 'paid';
+      document.getElementById('quote-pay-status').value = st;
+      document.getElementById('btn-pay-deposit').className = st === 'deposit' ? PAY_BTN_ON + 'bg-amber-600 border border-amber-500' : PAY_BTN_OFF;
+      document.getElementById('btn-pay-debt').className = st === 'debt' ? PAY_BTN_ON + 'bg-red-600 border border-red-500' : PAY_BTN_OFF;
+      document.getElementById('btn-pay-paid').className = st === 'paid' ? PAY_BTN_ON + 'bg-emerald-600 border border-emerald-500' : PAY_BTN_OFF;
       document.getElementById('quote-deposit-box').classList.toggle('hidden', !isDep);
-      if (isDep) {
+      document.getElementById('quote-deposit-label').textContent = st === 'debt' ? 'Khách trả trước (đ, có thể để 0)' : 'Số tiền đặt cọc (đ)';
+      document.getElementById('quote-deposit-remain-label').textContent = st === 'debt' ? 'Ghi vào công nợ:' : 'Khách còn phải trả:';
+      if (st === 'deposit') {
         updateDepositRemain();
         setTimeout(() => { const d = document.getElementById('quote-deposit'); if (d && !parseCurrencyNumber(d.value)) d.focus(); }, 50);
-      }
+      } else if (st === 'debt') updateDepositRemain();
     }
     function updateDepositRemain(total) {
       const el = document.getElementById('quote-deposit-remain');
@@ -2441,12 +2617,20 @@
       }
       const dep = parseCurrencyNumber(document.getElementById('quote-deposit').value);
       const remain = total - dep;
-      el.textContent = remain < 0 ? 'Cọc vượt tổng bill ' + formatMoney(-remain) + ' đ' : formatMoney(remain) + ' đ';
+      el.textContent = remain < 0 ? 'Vượt tổng bill ' + formatMoney(-remain) + ' đ' : formatMoney(remain) + ' đ';
     }
     // deposit: đang đặt cọc (còn phải thu); hadDeposit: đơn có cọc (kể cả đã thu đủ)
     // depositAt: ngày đặt cọc (= ngày lập bill nếu không ghi riêng); paidAt: ngày thu đủ phần còn lại
     function invPayInfo(inv) {
       const total = inv.total || 0;
+      if (inv.payStatus === 'debt') {
+        const owed = invoiceDebtAmount(inv);
+        const st = debtStateOf('invoice', inv.id);
+        const remain = st ? Math.max(0, Math.round(st.remain)) : owed;
+        return { debt: true, deposit: false, hadDeposit: false, dep: parseCurrencyNumber(inv.prepaid) || 0, owed: owed, remain: remain,
+          settledAt: st && remain <= 0 ? st.settledAt : 0, depositAt: 0, paidAt: st && remain <= 0 ? st.settledAt : 0,
+          label: remain > 0 ? 'Ghi nợ' : 'Ghi nợ (đã thu đủ)' };
+      }
       const depRaw = parseCurrencyNumber(inv.deposit) || 0;
       const dep = Math.min(total, depRaw);
       const depositAt = depRaw ? (inv.depositAt || invTime(inv)) : 0;
@@ -2457,11 +2641,11 @@
     }
     function viDate(ts) { return ts ? new Date(ts).toLocaleDateString('vi-VN') : ''; }
     function hasTaxInvoice(inv) { return !!String(inv.taxInvoiceNo || '').trim(); }
-    function canManageAccounting() { return !!currentLoggedInUser && (currentLoggedInUser.role === 'admin' || currentLoggedInUser.role === 'stock'); }
+    function canManageAccounting() { return !!currentLoggedInUser && (currentLoggedInUser.role === 'admin' || currentLoggedInUser.role === 'stock' || currentLoggedInUser.role === 'ketoan'); }
 
     // ----- Nhập / sửa số hóa đơn thuế -----
     function openTaxInvoiceModal(id) {
-      if (!canManageAccounting()) { showNotification('Chỉ Chủ Xưởng hoặc Quản Lý Kho được nhập số hóa đơn!', 'warning'); return; }
+      if (!canManageAccounting()) { showNotification('Chỉ Chủ Xưởng, Quản Lý Kho hoặc Kế Toán được nhập số hóa đơn!', 'warning'); return; }
       const inv = invoiceList.find(i => i.id === id);
       if (!inv) return;
       document.getElementById('tax-inv-id').value = id;
@@ -2511,7 +2695,7 @@
 
     // ----- Khách trả nốt phần còn lại của đơn đặt cọc -----
     function markInvoicePaid(id) {
-      if (!canManageAccounting()) { showNotification('Chỉ Chủ Xưởng hoặc Quản Lý Kho được cập nhật thanh toán!', 'warning'); return; }
+      if (!canManageAccounting()) { showNotification('Chỉ Chủ Xưởng, Quản Lý Kho hoặc Kế Toán được cập nhật thanh toán!', 'warning'); return; }
       const inv = invoiceList.find(i => i.id === id);
       if (!inv) return;
       const p = invPayInfo(inv);
@@ -3156,8 +3340,13 @@
         showNotification('Vui lòng thêm ít nhất 1 dịch vụ hoặc phụ tùng vào bill!', 'warning');
         return;
       }
-      const payStatus = document.getElementById('quote-pay-status').value === 'deposit' ? 'deposit' : 'paid';
-      const depositAmt = payStatus === 'deposit' ? parseCurrencyNumber(document.getElementById('quote-deposit').value) : 0;
+      const psv = document.getElementById('quote-pay-status').value;
+      const payStatus = psv === 'deposit' || psv === 'debt' ? psv : 'paid';
+      const depositAmt = payStatus !== 'paid' ? parseCurrencyNumber(document.getElementById('quote-deposit').value) : 0;
+      if (payStatus === 'debt') {
+        if (!dealerKeyOf(phone, name)) { showNotification('Ghi nợ: cần tên khách / đại lý hoặc SĐT để theo dõi công nợ!', 'warning'); return; }
+        if (depositAmt >= calculateQuoteTotal().finalTotal) { showNotification('Số trả trước bằng hoặc lớn hơn tổng bill. Nếu khách đã trả hết, chọn "Đã TT đủ".', 'warning'); document.getElementById('quote-deposit').focus(); return; }
+      }
       if (payStatus === 'deposit') {
         const billTotal = calculateQuoteTotal().finalTotal;
         if (!depositAmt) {
@@ -3218,6 +3407,7 @@
           payStatus: payStatus
         };
         if (payStatus === 'deposit') { base.deposit = depositAmt; base.depositAt = Date.now(); }
+        if (payStatus === 'debt' && depositAmt) base.prepaid = depositAmt;
         // Mã bảo hành điện tử (chỉ khi đã kết nối đám mây để khách tra cứu được)
         const warrantyRecordCode = firebaseDb ? genWarrantyCode() : '';
         if (warrantyRecordCode) base.warrantyCode = warrantyRecordCode;
@@ -3459,7 +3649,11 @@
       if (payBox) {
         const p = invPayInfo(inv);
         const taxLine = hasTaxInvoice(inv) ? `<div class="text-gray-600">Số hóa đơn: <b class="font-mono text-gray-800">${esc(inv.taxInvoiceNo)}</b>${inv.taxInvoiceDate ? ' (' + new Date(inv.taxInvoiceDate).toLocaleDateString('vi-VN') + ')' : ''}</div>` : '';
-        payBox.innerHTML = (p.deposit
+        payBox.innerHTML = (p.debt
+          ? (p.dep ? `<div>Đã trả trước: <b>${formatMoney(p.dep)} đ</b></div>` : '') +
+            (p.remain > 0 ? `<div class="font-black text-red-600">GHI NỢ: ${formatMoney(p.remain)} đ</div>`
+                          : `<div class="font-bold text-emerald-700">✔ Công nợ ${formatMoney(p.owed)} đ đã thanh toán đủ${p.settledAt ? ' ngày ' + viDate(p.settledAt) : ''}</div>`)
+          : p.deposit
           ? `<div>Đã đặt cọc: <b class="text-amber-700">${formatMoney(p.dep)} đ</b>${p.depositAt ? ' <span class="text-gray-500">(ngày ' + viDate(p.depositAt) + ')</span>' : ''}</div><div class="font-black text-red-600">CÒN LẠI: ${formatMoney(p.remain)} đ</div>`
           : p.hadDeposit
             ? `<div class="text-gray-700">Đặt cọc: <b>${formatMoney(p.dep)} đ</b>${p.depositAt ? ' ngày ' + viDate(p.depositAt) : ''}</div>
@@ -3492,7 +3686,8 @@
       ['ALL', 'Tất cả', '', () => true],
       ['NOTAX', 'Chưa xuất HĐ thuế', 'fa-file-circle-exclamation', i => !hasTaxInvoice(i)],
       ['TAX', 'Đã xuất HĐ thuế', 'fa-file-circle-check', i => hasTaxInvoice(i)],
-      ['DEPOSIT', 'Đang đặt cọc', 'fa-hand-holding-dollar', i => invPayInfo(i).deposit]
+      ['DEPOSIT', 'Đang đặt cọc', 'fa-hand-holding-dollar', i => invPayInfo(i).deposit],
+      ['DEBT', 'Ghi nợ còn phải thu', 'fa-file-signature', i => { const p = invPayInfo(i); return p.debt && p.remain > 0; }]
     ];
 
     function renderInvoiceList() {
@@ -3539,23 +3734,34 @@
         `;
 
         // Tình trạng thanh toán (dưới tổng tiền)
+        const canAcct = canManageAccounting();
         const pay = invPayInfo(inv);
-        const payBadge = pay.deposit
-          ? `<button type="button" ${canManageInvoices ? `onclick="markInvoicePaid('${inv.id}')" title="Bấm khi khách đã trả nốt phần còn lại"` : 'disabled'} class="mt-1 ml-auto block text-[10px] px-2 py-0.5 rounded-md bg-amber-950/80 text-amber-300 border border-amber-500/40 font-semibold ${canManageInvoices ? 'hover:bg-amber-900/80 active:scale-95' : 'cursor-default'}">
+        let payBadge;
+        if (pay.debt) {
+          const canCollect = canAccessDebt() && pay.remain > 0;
+          payBadge = pay.remain > 0
+            ? `<button type="button" ${canCollect ? `onclick="openDebtPayForInvoice('${inv.id}')" title="Ghi phiếu thu khi khách / đại lý trả nợ"` : 'disabled'} class="mt-1 ml-auto block text-[10px] px-2 py-0.5 rounded-md bg-red-950/80 text-red-300 border border-red-500/40 font-semibold ${canCollect ? 'hover:bg-red-900/80 active:scale-95' : 'cursor-default'}">
+                <i class="fa-solid fa-file-signature mr-0.5"></i>Ghi nợ · còn <b>${formatMoney(pay.remain)}</b>
+              </button>${pay.dep ? `<div class="mt-0.5 text-[10px] text-gray-400">Trả trước ${formatMoney(pay.dep)}</div>` : ''}`
+            : `<span class="mt-1 inline-block text-[10px] px-2 py-0.5 rounded-md bg-emerald-950/70 text-emerald-300 border border-emerald-500/30 font-semibold"><i class="fa-solid fa-circle-check mr-0.5"></i>Nợ đã thu đủ${pay.settledAt ? ' ' + viDate(pay.settledAt) : ''}</span>`;
+        } else if (pay.deposit) {
+          payBadge = `<button type="button" ${canAcct ? `onclick="markInvoicePaid('${inv.id}')" title="Bấm khi khách đã trả nốt phần còn lại"` : 'disabled'} class="mt-1 ml-auto block text-[10px] px-2 py-0.5 rounded-md bg-amber-950/80 text-amber-300 border border-amber-500/40 font-semibold ${canAcct ? 'hover:bg-amber-900/80 active:scale-95' : 'cursor-default'}">
               <i class="fa-solid fa-hand-holding-dollar mr-0.5"></i>Cọc ${formatMoney(pay.dep)}${pay.depositAt ? ' (' + viDate(pay.depositAt) + ')' : ''} · còn <b class="text-red-300">${formatMoney(pay.remain)}</b>
-            </button>`
-          : `<span class="mt-1 inline-block text-[10px] px-2 py-0.5 rounded-md bg-emerald-950/70 text-emerald-300 border border-emerald-500/30 font-semibold"><i class="fa-solid fa-circle-check mr-0.5"></i>Đã thanh toán đủ${pay.paidAt ? ' ' + viDate(pay.paidAt) : ''}</span>
+            </button>`;
+        } else {
+          payBadge = `<span class="mt-1 inline-block text-[10px] px-2 py-0.5 rounded-md bg-emerald-950/70 text-emerald-300 border border-emerald-500/30 font-semibold"><i class="fa-solid fa-circle-check mr-0.5"></i>Đã thanh toán đủ${pay.paidAt ? ' ' + viDate(pay.paidAt) : ''}</span>
              ${pay.hadDeposit ? `<div class="mt-0.5 text-[10px] text-gray-400"><i class="fa-solid fa-hand-holding-dollar mr-0.5 text-amber-400"></i>Cọc ${formatMoney(pay.dep)}${pay.depositAt ? ' ngày ' + viDate(pay.depositAt) : ''}</div>` : ''}`;
+        }
 
         // Hóa đơn thuế: chưa xuất -> nút để kế toán nhập số; đã xuất -> hiện số HĐ (bấm để sửa)
         const taxNo = String(inv.taxInvoiceNo || '').trim();
         const taxDate = inv.taxInvoiceDate ? new Date(inv.taxInvoiceDate).toLocaleDateString('vi-VN') : '';
         const taxBtn = taxNo
-          ? `<button type="button" ${canManageInvoices ? `onclick="openTaxInvoiceModal('${inv.id}')"` : 'disabled'} title="${taxDate ? 'Xuất ngày ' + taxDate : ''}" class="mt-1.5 w-full text-[10px] px-2 py-1 rounded-lg bg-sky-950/70 text-sky-300 border border-sky-500/40 font-semibold flex items-center justify-center gap-1 ${canManageInvoices ? 'hover:bg-sky-900/70 active:scale-95' : 'cursor-default'}">
+          ? `<button type="button" ${canAcct ? `onclick="openTaxInvoiceModal('${inv.id}')"` : 'disabled'} title="${taxDate ? 'Xuất ngày ' + taxDate : ''}" class="mt-1.5 w-full text-[10px] px-2 py-1 rounded-lg bg-sky-950/70 text-sky-300 border border-sky-500/40 font-semibold flex items-center justify-center gap-1 ${canAcct ? 'hover:bg-sky-900/70 active:scale-95' : 'cursor-default'}">
               <i class="fa-solid fa-file-circle-check"></i>HĐ: <span class="font-mono font-black tracking-wide">${esc(taxNo)}</span>
             </button>`
-          : `<button type="button" ${canManageInvoices ? `onclick="openTaxInvoiceModal('${inv.id}')" title="Bấm để nhập số hóa đơn thuế"` : 'disabled'} class="mt-1.5 w-full text-[10px] px-2 py-1 rounded-lg bg-gray-900 text-gray-400 border border-dashed border-gray-600 font-semibold flex items-center justify-center gap-1 ${canManageInvoices ? 'hover:text-sky-300 hover:border-sky-500/60 active:scale-95' : 'cursor-default'}">
-              <i class="fa-solid fa-file-circle-exclamation text-red-400"></i>Chưa xuất HĐ${canManageInvoices ? ' <i class="fa-solid fa-pen text-[9px] ml-0.5"></i>' : ''}
+          : `<button type="button" ${canAcct ? `onclick="openTaxInvoiceModal('${inv.id}')" title="Bấm để nhập số hóa đơn thuế"` : 'disabled'} class="mt-1.5 w-full text-[10px] px-2 py-1 rounded-lg bg-gray-900 text-gray-400 border border-dashed border-gray-600 font-semibold flex items-center justify-center gap-1 ${canAcct ? 'hover:text-sky-300 hover:border-sky-500/60 active:scale-95' : 'cursor-default'}">
+              <i class="fa-solid fa-file-circle-exclamation text-red-400"></i>Chưa xuất HĐ${canAcct ? ' <i class="fa-solid fa-pen text-[9px] ml-0.5"></i>' : ''}
             </button>`;
 
         return `
@@ -3585,6 +3791,7 @@
           </div>
         `;
       }).join('');
+      if (typeof renderDebtTab === 'function') renderDebtTab();
     }
 
     function viewInvoiceDetail(id) {
@@ -3609,10 +3816,10 @@
       document.getElementById('edit-inv-servicetype').value = inv.serviceType || 'Lắp tại xưởng';
       document.getElementById('edit-inv-customertype').value = inv.customerType || 'Khách lẻ';
       document.getElementById('edit-inv-discount').value = formatMoney(inv.discount || 0);
-      const isDep = invPayInfo(inv).deposit;
-      document.getElementById('edit-inv-paystatus').value = isDep ? 'deposit' : 'paid';
-      document.getElementById('edit-inv-deposit').value = formatMoney(parseCurrencyNumber(inv.deposit) || 0);
-      document.getElementById('edit-inv-deposit-wrap').classList.toggle('invisible', !isDep);
+      const ps = inv.payStatus === 'debt' ? 'debt' : (invPayInfo(inv).deposit ? 'deposit' : 'paid');
+      document.getElementById('edit-inv-paystatus').value = ps;
+      document.getElementById('edit-inv-deposit').value = formatMoney(parseCurrencyNumber(ps === 'debt' ? inv.prepaid : inv.deposit) || 0);
+      syncEditPayUi();
 
       currentEditingInvoiceItems = JSON.parse(JSON.stringify(inv.items || []));
 
@@ -3624,6 +3831,12 @@
 
       renderEditInvoiceItems();
       document.getElementById('edit-invoice-modal').classList.remove('hidden');
+    }
+
+    function syncEditPayUi() {
+      const v = document.getElementById('edit-inv-paystatus').value;
+      document.getElementById('edit-inv-deposit-wrap').classList.toggle('invisible', v === 'paid');
+      document.getElementById('edit-inv-deposit-label').textContent = v === 'debt' ? 'Khách trả trước (đ)' : 'Tiền đặt cọc (đ)';
     }
 
     function closeEditInvoiceModal() {
@@ -3773,8 +3986,13 @@
       if (!cloudWritable(['garage/invoices', 'garage/inventory', 'garage/stockLogs'])) return;
 
       const { subtotal, discount, total } = calculateEditInvoiceTotal();
-      const editPay = document.getElementById('edit-inv-paystatus').value === 'deposit' ? 'deposit' : 'paid';
+      const epv = document.getElementById('edit-inv-paystatus').value;
+      const editPay = epv === 'deposit' || epv === 'debt' ? epv : 'paid';
       const editDep = parseCurrencyNumber(document.getElementById('edit-inv-deposit').value);
+      if (editPay === 'debt') {
+        if (!dealerKeyOf(phone, name)) { showNotification('Ghi nợ: cần tên khách / đại lý hoặc SĐT!', 'warning'); return; }
+        if (editDep >= total) { showNotification('Số trả trước bằng hoặc lớn hơn tổng bill. Nếu khách đã trả hết, chọn "Đã thanh toán đủ".', 'warning'); return; }
+      }
       if (editPay === 'deposit' && (!editDep || editDep >= total)) {
         showNotification(!editDep ? 'Đơn đặt cọc: vui lòng nhập số tiền cọc!' : 'Tiền cọc không được lớn hơn hoặc bằng tổng bill. Nếu khách đã trả hết, chọn "Đã thanh toán đủ".', 'warning');
         return;
@@ -3805,8 +4023,12 @@
           });
           Object.assign(target, { plate: plate, name: name, phone: phone, car: car, odo: odo, note: note, serviceType: serviceType, customerType: customerType, items: JSON.parse(JSON.stringify(newItems)), subtotal: subtotal, discount: discount, total: total,
             stockTracked: true, stockOut: stockOutToList(plannedOut) });
-          if (editPay === 'deposit') { target.payStatus = 'deposit'; target.deposit = editDep; if (!target.depositAt) target.depositAt = invTime(target) || Date.now(); delete target.paidAt; delete target.paidBy; }
+          if (editPay === 'debt') {
+            target.payStatus = 'debt';
+            if (editDep) target.prepaid = editDep; else delete target.prepaid;
+          } else if (editPay === 'deposit') { target.payStatus = 'deposit'; target.deposit = editDep; if (!target.depositAt) target.depositAt = invTime(target) || Date.now(); delete target.paidAt; delete target.paidBy; delete target.prepaid; }
           else {
+            delete target.prepaid;
             if (target.payStatus === 'deposit') { target.paidAt = Date.now(); target.paidBy = (currentLoggedInUser && currentLoggedInUser.name) || ''; }
             target.payStatus = 'paid';
           }
@@ -4227,7 +4449,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.25-1';
+    const APP_VERSION = '2026.10.25-2';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -5708,7 +5930,7 @@
                 <span class="text-[10px] px-1.5 py-0.2 rounded bg-orange-950/60 text-orange-400 border border-orange-500/30 font-semibold">${esc(s.roleTitle || s.name)}</span>
               </div>
               <p class="text-[10px] mt-1 ${hasAccount ? 'text-sky-300' : 'text-red-400'} truncate">${hasAccount ? esc(s.email) : 'Hồ sơ cũ, không có tài khoản email - hãy tạo tài khoản mới rồi xóa hồ sơ này'}</p>
-              <p class="text-[10px] text-gray-400 mt-0.5">${s.role === 'admin' ? 'Toàn quyền 1-8' : (s.role === 'stock' ? 'Quyền Lập Bill, Quản Lý Kho & Sửa Hóa Đơn' : 'Tiếp nhận xe, lập bill & in hóa đơn')}</p>
+              <p class="text-[10px] text-gray-400 mt-0.5">${s.role === 'admin' ? 'Toàn quyền 1-9' : (s.role === 'stock' ? 'Quyền Lập Bill, Quản Lý Kho & Sửa Hóa Đơn' : (s.role === 'ketoan' ? 'Xem hóa đơn, nhập số HĐ thuế, ghi thanh toán & quản lý công nợ' : 'Tiếp nhận xe, lập bill & in hóa đơn'))}</p>
             </div>
             <div class="flex items-center gap-2 shrink-0">
               ${hasAccount ? `
@@ -6018,6 +6240,7 @@
         staff: staffList,
         receipts: receiptList,
         finance: financeData,
+        debt: canAccessDebt() ? debtData : undefined,
         productImages: productImageMap,
         profile: garageProfile,
         customers: customerDirectory
@@ -6080,6 +6303,12 @@
                   if (firebaseDb && financeReady) firebaseDb.ref('garage/finance').set(financeData);
                   loadFinDraft();
                   renderFinanceEditor();
+                }
+                if (parsed.debt && typeof parsed.debt === 'object' && canAccessDebt()) {
+                  debtData = { partners: parsed.debt.partners || {}, payments: parsed.debt.payments || {} };
+                  setStoredData('drshock_debt', debtData);
+                  debtInvalidate();
+                  if (firebaseDb && debtReady) firebaseDb.ref('garage/debt').set(cleanJson(debtData)).catch(() => showNotification('Không khôi phục được công nợ lên đám mây!', 'error'));
                 }
 
                 initSystem();
@@ -6214,7 +6443,7 @@
     function invAcctCells(inv, first) {
       if (!first) return ['', '', '', '', '', '', ''];
       const p = invPayInfo(inv);
-      return [p.label, p.hadDeposit ? p.dep : '', viDate(p.depositAt), p.remain, viDate(p.paidAt), String(inv.taxInvoiceNo || '').trim() || 'Chưa xuất',
+      return [p.label, p.hadDeposit || p.debt ? p.dep : '', viDate(p.depositAt), p.remain, viDate(p.paidAt), String(inv.taxInvoiceNo || '').trim() || 'Chưa xuất',
         inv.taxInvoiceDate ? new Date(inv.taxInvoiceDate).toLocaleDateString('vi-VN') : ''];
     }
 
@@ -6293,6 +6522,402 @@
     }
 
     // ===== PHIẾU NHẬP HÀNG + THÔNG BÁO =====
+    // ==========================================
+    // CÔNG NỢ: NHÀ PHÂN PHỐI (mình nợ) & ĐẠI LÝ (nợ mình)
+    // Dữ liệu ở garage/debt (chỉ Chủ Xưởng & Kế Toán đọc/ghi):
+    //   partners/{key}: { type 'S' (NPP) | 'D' (đại lý), name, phone, opening, openingDate, note }
+    //   payments/{id} : { id, pkey, type, amount, ts, method, note, by }  (phiếu chi trả NPP / phiếu thu của đại lý)
+    // Khoản nợ phát sinh tự động: phiếu nhập "Ghi nợ" (phần chưa trả) và hóa đơn "Ghi nợ" (phần chưa trả trước).
+    // Tiền trả được trừ dần vào khoản nợ CŨ NHẤT trước (số dư đầu kỳ -> phiếu/hóa đơn theo ngày).
+    // ==========================================
+    let debtData = getStoredData('drshock_debt', { partners: {}, payments: {} }) || { partners: {}, payments: {} };
+    let debtReady = false;
+    let _debtCache = null;
+    function debtInvalidate() { _debtCache = null; }
+
+    function debtSlug(s) { return normText(s).replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60); }
+    function supplierKey(name) { const k = debtSlug(name); return k ? 'S_' + k : ''; }
+    function dealerKeyOf(phone, name) {
+      const d = String(phone || '').replace(/\D/g, '');
+      if (d.length >= 9 && !/^0+$/.test(d)) return 'D_' + d;
+      const k = debtSlug(name);
+      return k ? 'D_' + k : '';
+    }
+    function receiptDebtAmount(r) {
+      if (!r || r.payMode !== 'debt') return 0;
+      return Math.max(0, Math.round((r.totalCost || 0) - (parseCurrencyNumber(r.paidAmount) || 0)));
+    }
+    function invoiceDebtAmount(inv) {
+      if (!inv || inv.payStatus !== 'debt') return 0;
+      return Math.max(0, Math.round((inv.total || 0) - (parseCurrencyNumber(inv.prepaid) || 0)));
+    }
+
+    // Tính toàn bộ sổ công nợ (có bộ nhớ đệm, tự tính lại khi dữ liệu đổi)
+    function debtBook() {
+      const sig = invoiceList.length + '|' + receiptList.length + '|' + JSON.stringify(debtData).length + '|' +
+        invoiceList.reduce((a, i) => a + (i.payStatus === 'debt' ? invoiceDebtAmount(i) + 1 : 0), 0) + '|' +
+        receiptList.reduce((a, r) => a + (r.payMode === 'debt' ? receiptDebtAmount(r) + 1 : 0), 0);
+      if (_debtCache && _debtCache.sig === sig) return _debtCache;
+      const P = {};
+      const reg = (debtData && debtData.partners) || {};
+      const get = (key, type, name, phone) => {
+        if (!P[key]) P[key] = { key: key, type: type, name: name || key, phone: phone || '', opening: 0, openingDate: 0, note: '', debits: [], payments: [], lastTs: 0, _votes: {} };
+        const p = P[key];
+        if (name && !p._named) {
+          const n = String(name).trim();
+          p._votes[n] = (p._votes[n] || 0) + 1;
+          const score = x => p._votes[x] * 10 + (/[A-ZÀ-Ỹ]/.test(x) ? 1 : 0);
+          p.name = Object.keys(p._votes).sort((a, b) => score(b) - score(a))[0];
+        }
+        if (phone && !p.phone) p.phone = phone;
+        return p;
+      };
+      Object.keys(reg).forEach(k => {
+        const r = reg[k] || {};
+        const p = get(k, r.type || (k.indexOf('S_') === 0 ? 'S' : 'D'), r.name, r.phone);
+        p._named = !!r.name; p.registered = true;
+        p.opening = parseCurrencyNumber(r.opening) || 0;
+        p.openingDate = r.openingDate || 0;
+        p.note = r.note || '';
+      });
+      receiptList.forEach(r => {
+        const amt = receiptDebtAmount(r); if (!amt) return;
+        const key = supplierKey(r.supplier); if (!key) return;
+        const p = get(key, 'S', r.supplier);
+        p.debits.push({ kind: 'receipt', ref: r.id, ts: r.ts || parseViDateTime(r.date), amount: amt, total: r.totalCost || 0, prepaid: parseCurrencyNumber(r.paidAmount) || 0 });
+      });
+      invoiceList.forEach(inv => {
+        const amt = invoiceDebtAmount(inv); if (!amt) return;
+        const key = dealerKeyOf(inv.phone, inv.name); if (!key) return;
+        const p = get(key, 'D', inv.name, inv.phone);
+        p.debits.push({ kind: 'invoice', ref: inv.id, ts: invTime(inv), amount: amt, total: inv.total || 0, prepaid: parseCurrencyNumber(inv.prepaid) || 0, plate: inv.plate || '' });
+      });
+      convertToArray(debtData && debtData.payments, []).forEach(pm => {
+        if (!pm || !pm.pkey || !(parseCurrencyNumber(pm.amount) > 0)) return;
+        const p = get(pm.pkey, pm.type || (pm.pkey.indexOf('S_') === 0 ? 'S' : 'D'), pm.pname);
+        p.payments.push({ id: pm.id, ts: pm.ts || 0, amount: parseCurrencyNumber(pm.amount), method: pm.method || '', note: pm.note || '', by: pm.by || '' });
+      });
+      const byRef = {};
+      Object.values(P).forEach(p => {
+        const debits = [];
+        if (p.opening > 0) debits.push({ kind: 'opening', ref: 'Số dư đầu kỳ', ts: p.openingDate || 0, amount: p.opening });
+        const seq = d => parseInt(String(d.ref || '').replace(/\D/g, '').slice(-9), 10) || 0;
+        p.debits.sort((a, b) => (a.ts - b.ts) || (seq(a) - seq(b))).forEach(d => debits.push(d));
+        debits.forEach(d => { d.remain = d.amount; d.settledAt = 0; });
+        p.payments.sort((a, b) => a.ts - b.ts);
+        let credit = 0;
+        p.payments.forEach(pm => {
+          let left = pm.amount;
+          for (const d of debits) {
+            if (left <= 0) break;
+            if (d.remain <= 0) continue;
+            const use = Math.min(left, d.remain);
+            d.remain -= use; left -= use;
+            if (d.remain <= 0) d.settledAt = pm.ts;
+          }
+          credit += left;   // trả dư -> thành tiền trả trước
+        });
+        p.debits = debits;
+        p.totalDebit = debits.reduce((a, d) => a + d.amount, 0);
+        p.totalPaid = p.payments.reduce((a, x) => a + x.amount, 0);
+        p.balance = Math.round(p.totalDebit - p.totalPaid);
+        p.overpaid = Math.round(credit);
+        const open = debits.filter(d => d.remain > 0);
+        p.oldestOpenTs = open.length ? (open[0].ts || 0) : 0;
+        p.openCount = open.filter(d => d.kind !== 'opening').length;
+        p.lastTs = Math.max(0, ...debits.map(d => d.ts || 0), ...p.payments.map(x => x.ts || 0));
+        debits.forEach(d => { if (d.kind !== 'opening') byRef[d.kind + ':' + d.ref] = d; });
+      });
+      _debtCache = { sig: sig, partners: P, byRef: byRef };
+      return _debtCache;
+    }
+    function debtStateOf(kind, ref) { return debtBook().byRef[kind + ':' + ref] || null; }
+
+    function debtWrite(path, val) {
+      if (!firebaseDb) {
+        const parts = path.split('/'); let o = debtData;
+        for (let i = 0; i < parts.length - 1; i++) o = o[parts[i]] = o[parts[i]] || {};
+        if (val == null) delete o[parts[parts.length - 1]]; else o[parts[parts.length - 1]] = val;
+        setStoredData('drshock_debt', debtData); debtInvalidate();
+        return Promise.resolve(true);
+      }
+      return firebaseDb.ref('garage/debt/' + path).set(val == null ? null : cleanJson(val)).then(() => true).catch(e => {
+        console.error('Không ghi được công nợ', e);
+        showNotification('Không lưu được công nợ lên đám mây (' + ((e && e.code) || 'bị từ chối') + '). Kiểm tra quyền Firebase (Rules) cho garage/debt!', 'error');
+        return false;
+      });
+    }
+    function setupDebtListener() {
+      if (!firebaseDb || !canAccessDebt()) return;
+      firebaseDb.ref('garage/debt').on('value', snap => {
+        const v = snap.val() || {};
+        debtData = { partners: v.partners || {}, payments: v.payments || {} };
+        debtReady = true;
+        setStoredData('drshock_debt', debtData);
+        debtInvalidate();
+        renderDebtTab();
+        renderInvoiceList();
+        renderReceiptList();
+      }, err => console.warn('Không đọc được công nợ:', err && err.code));
+    }
+
+    // ----- Giao diện tab Công Nợ -----
+    let debtView = 'S';
+    const DEBT_LABEL = { S: { who: 'nhà phân phối', pay: 'Phiếu chi (trả NPP)', payShort: 'Trả nợ', icon: 'fa-money-bill-transfer', prefix: 'PC' },
+                         D: { who: 'đại lý / khách', pay: 'Phiếu thu (đại lý trả)', payShort: 'Thu nợ', icon: 'fa-hand-holding-dollar', prefix: 'PT' } };
+    function debtDays(ts) { return ts ? Math.max(0, Math.floor((Date.now() - ts) / 86400000)) : null; }
+    function dateInputValue(ts) { const d = ts ? new Date(ts) : new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+    function dateInputTs(v) { return v ? new Date(v + 'T12:00:00').getTime() : Date.now(); }
+    function closeDebtModal(id) { document.getElementById(id).classList.add('hidden'); }
+    function setDebtView(t) { debtView = t === 'D' ? 'D' : 'S'; renderDebtTab(); }
+
+    function renderDebtTab() {
+      const list = document.getElementById('debt-list');
+      if (!list || !canAccessDebt()) return;
+      const book = debtBook();
+      const all = Object.values(book.partners);
+      ['S', 'D'].forEach(t => {
+        const owing = all.filter(p => p.type === t && p.balance > 0);
+        const total = owing.reduce((a, p) => a + p.balance, 0);
+        const old30 = owing.filter(p => (debtDays(p.oldestOpenTs) || 0) > 30);
+        document.getElementById('debt-' + t + '-total').textContent = formatMoney(total) + ' đ';
+        document.getElementById('debt-' + t + '-count').textContent = owing.length + ' ' + (t === 'S' ? 'NPP' : 'đối tác') + ' còn nợ';
+        document.getElementById('debt-' + t + '-sub').innerHTML = old30.length
+          ? `<span class="text-amber-300"><i class="fa-solid fa-clock mr-1"></i>${old30.length} đối tác có khoản nợ quá 30 ngày (${formatMoney(old30.reduce((a, p) => a + p.balance, 0))} đ)</span>`
+          : 'Không có khoản nợ quá 30 ngày';
+        const card = document.getElementById('debt-card-' + t);
+        const on = debtView === t;
+        card.className = 'text-left rounded-2xl p-3.5 border transition ' + (on
+          ? (t === 'S' ? 'bg-red-950/40 border-red-500/60 ring-1 ring-red-500/40' : 'bg-emerald-950/40 border-emerald-500/60 ring-1 ring-emerald-500/40')
+          : 'bg-gray-800/60 border-gray-700/70 hover:bg-gray-800');
+      });
+      const q = normText((document.getElementById('debt-search') || {}).value || '');
+      const showZero = !!(document.getElementById('debt-show-zero') || {}).checked;
+      let rows = all.filter(p => p.type === debtView && (showZero || p.balance !== 0));
+      if (q) rows = rows.filter(p => looseMatch(makeHay([p.name, p.phone, p.note]), q));
+      rows.sort((a, b) => b.balance - a.balance || b.lastTs - a.lastTs);
+      const L = DEBT_LABEL[debtView];
+      if (!rows.length) {
+        list.innerHTML = `<div class="p-6 text-center text-xs text-gray-500 italic bg-gray-800/30 rounded-xl">${q ? 'Không tìm thấy đối tác phù hợp.' : 'Chưa có công nợ ' + L.who + '. Phiếu nhập / hóa đơn chọn "Ghi nợ" sẽ tự hiện ở đây, hoặc bấm "Thêm / Số dư đầu kỳ".'}</div>`;
+        return;
+      }
+      list.innerHTML = rows.map(p => {
+        const days = debtDays(p.oldestOpenTs);
+        const age = p.balance > 0 && days != null && p.oldestOpenTs
+          ? `<span class="text-[10px] px-1.5 rounded ${days > 30 ? 'bg-amber-950 text-amber-300 border border-amber-500/30' : 'bg-gray-900 text-gray-400 border border-gray-700'}">Nợ cũ nhất ${days} ngày</span>` : '';
+        const balCls = p.balance > 0 ? (debtView === 'S' ? 'text-red-400' : 'text-emerald-400') : (p.balance < 0 ? 'text-sky-300' : 'text-gray-400');
+        const balTxt = p.balance < 0 ? 'Trả dư ' + formatMoney(-p.balance) + ' đ' : formatMoney(p.balance) + ' đ';
+        const k = esc(p.key);
+        return `<div class="bg-gray-800/60 border border-gray-700/60 rounded-xl p-3 flex items-center justify-between gap-2.5">
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <span class="text-xs sm:text-sm font-bold text-white">${esc(p.name)}</span>
+              ${p.phone ? `<span class="text-[10px] font-mono text-gray-400">${esc(p.phone)}</span>` : ''}
+              ${age}
+            </div>
+            <div class="text-[10px] text-gray-400 mt-0.5">${p.openCount} ${debtView === 'S' ? 'phiếu nhập' : 'hóa đơn'} còn nợ${p.opening ? ' · đầu kỳ ' + formatMoney(p.opening) + ' đ' : ''} · đã ${debtView === 'S' ? 'trả' : 'thu'} ${formatMoney(p.totalPaid)} đ${p.lastTs ? ' · gần nhất ' + viDate(p.lastTs) : ''}</div>
+            ${p.note ? `<div class="text-[10px] text-amber-300/80 truncate mt-0.5"><i class="fa-solid fa-note-sticky mr-1"></i>${esc(p.note)}</div>` : ''}
+          </div>
+          <div class="text-right shrink-0">
+            <div class="text-xs sm:text-base font-black font-mono ${balCls}">${balTxt}</div>
+            <div class="flex items-center gap-1 mt-1 justify-end">
+              ${p.balance > 0 ? `<button onclick="openDebtPayModal('${k}')" class="px-2 py-1 rounded-lg text-[11px] font-bold text-white ${debtView === 'S' ? 'bg-red-600 hover:bg-red-500' : 'bg-emerald-600 hover:bg-emerald-500'}"><i class="fa-solid ${L.icon} mr-1"></i>${L.payShort}</button>` : ''}
+              <button onclick="openDebtLedger('${k}')" class="px-2 py-1 rounded-lg text-[11px] font-semibold bg-gray-700 hover:bg-gray-600 text-sky-300"><i class="fa-solid fa-book mr-1"></i>Sổ</button>
+              <button onclick="openDebtPartnerModal('${k}')" title="Sửa tên / nợ đầu kỳ" class="w-7 h-7 rounded-lg bg-gray-800 hover:bg-gray-700 text-amber-300 border border-gray-700"><i class="fa-solid fa-pen text-[10px]"></i></button>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    // ----- Phiếu thu / phiếu chi -----
+    function openDebtPayModal(pkey, amount, note) {
+      if (!canAccessDebt()) { showNotification('Chỉ Chủ Xưởng hoặc Kế Toán được ghi công nợ!', 'warning'); return; }
+      const p = debtBook().partners[pkey];
+      if (!p) return;
+      const L = DEBT_LABEL[p.type];
+      document.getElementById('dp-pkey').value = pkey;
+      document.getElementById('dp-title').innerHTML = `<i class="fa-solid ${L.icon}"></i>${L.pay}`;
+      document.getElementById('dp-partner').textContent = p.name;
+      const bal = document.getElementById('dp-balance');
+      bal.textContent = 'Còn nợ ' + formatMoney(Math.max(0, p.balance)) + ' đ';
+      bal.className = 'font-mono font-black shrink-0 ' + (p.type === 'S' ? 'text-red-400' : 'text-emerald-400');
+      document.getElementById('dp-amount').value = formatMoney(amount || 0);
+      document.getElementById('dp-fill-all').onclick = () => { document.getElementById('dp-amount').value = formatMoney(Math.max(0, p.balance)); };
+      document.getElementById('dp-date').value = dateInputValue();
+      document.getElementById('dp-method').value = 'Chuyển khoản';
+      document.getElementById('dp-note').value = note || '';
+      document.getElementById('debt-pay-modal').classList.remove('hidden');
+      setTimeout(() => document.getElementById('dp-amount').focus(), 80);
+    }
+    function openDebtPayForInvoice(invId) {
+      const inv = invoiceList.find(i => i.id === invId);
+      if (!inv) return;
+      const key = dealerKeyOf(inv.phone, inv.name);
+      const st = debtStateOf('invoice', invId);
+      openDebtPayModal(key, st ? st.remain : invoiceDebtAmount(inv), 'Thu nợ ' + invId);
+    }
+    async function saveDebtPayment() {
+      if (!canAccessDebt()) return;
+      if (firebaseDb && !debtReady) { showNotification('Đang tải dữ liệu công nợ, vui lòng đợi vài giây!', 'warning'); return; }
+      const pkey = document.getElementById('dp-pkey').value;
+      const p = debtBook().partners[pkey];
+      const amount = parseCurrencyNumber(document.getElementById('dp-amount').value);
+      if (!p) return;
+      if (!amount) { showNotification('Vui lòng nhập số tiền!', 'warning'); document.getElementById('dp-amount').focus(); return; }
+      const go = async () => {
+        const dv = document.getElementById('dp-date').value;
+        const ts = dv === dateInputValue() ? Date.now() : dateInputTs(dv);
+        const d = new Date(ts), pad = n => String(n).padStart(2, '0');
+        const id = DEBT_LABEL[p.type].prefix + '-' + pad(d.getDate()) + pad(d.getMonth() + 1) + String(d.getFullYear()).slice(2) + '-' + Date.now().toString().slice(-5);
+        const rec = { id: id, pkey: pkey, pname: p.name, type: p.type, amount: amount, ts: ts,
+          method: document.getElementById('dp-method').value, note: document.getElementById('dp-note').value.trim(),
+          by: (currentLoggedInUser && currentLoggedInUser.name) || '', createdAt: Date.now() };
+        const btn = document.getElementById('dp-save'); btn.disabled = true;
+        const ok = await debtWrite('payments/' + id, rec);
+        btn.disabled = false;
+        if (!ok) return;
+        closeDebtModal('debt-pay-modal');
+        if (!firebaseDb) { renderDebtTab(); renderInvoiceList(); renderReceiptList(); }
+        showNotification(`Đã lưu ${p.type === 'S' ? 'phiếu chi' : 'phiếu thu'} ${id}: ${formatMoney(amount)} đ`, 'success');
+      };
+      if (amount > Math.max(0, p.balance)) showConfirmModal('Số tiền lớn hơn số nợ', `Số tiền ${formatMoney(amount)} đ lớn hơn số còn nợ ${formatMoney(Math.max(0, p.balance))} đ. Phần dư sẽ thành tiền trả trước. Vẫn lưu?`, go);
+      else go();
+    }
+    function deleteDebtPayment(id) {
+      if (!canAccessDebt()) return;
+      const pm = convertToArray(debtData.payments, []).find(x => x && x.id === id);
+      if (!pm) return;
+      showConfirmModal('Xóa phiếu ' + id, `Xóa phiếu ${pm.type === 'S' ? 'chi' : 'thu'} ${formatMoney(pm.amount)} đ ngày ${viDate(pm.ts)} của ${pm.pname || ''}? Số nợ sẽ được tính lại.`, async () => {
+        const ok = await debtWrite('payments/' + id, null);
+        if (!ok) return;
+        if (!firebaseDb) { renderDebtTab(); renderInvoiceList(); renderReceiptList(); }
+        const key = pm.pkey;
+        setTimeout(() => { if (!document.getElementById('debt-ledger-modal').classList.contains('hidden')) openDebtLedger(key); }, 300);
+        showNotification('Đã xóa phiếu ' + id, 'info');
+      });
+    }
+
+    // ----- Đối tác & số dư đầu kỳ -----
+    function setDebtPartnerType(t) {
+      const keyFixed = !!document.getElementById('dpt-key').value;
+      document.getElementById('dpt-key').dataset.type = t;
+      const on = 'py-2 rounded-xl font-bold border text-white ', off = 'py-2 rounded-xl font-semibold border bg-gray-800 text-gray-300 border-gray-700';
+      document.getElementById('dpt-type-S').className = t === 'S' ? on + 'bg-red-600 border-red-500' : off;
+      document.getElementById('dpt-type-D').className = t === 'D' ? on + 'bg-emerald-600 border-emerald-500' : off;
+      ['dpt-type-S', 'dpt-type-D'].forEach(id => { document.getElementById(id).disabled = keyFixed; });
+      document.getElementById('dpt-phone-wrap').classList.toggle('hidden', t === 'S');
+      const names = {};
+      if (t === 'S') receiptList.forEach(r => { if (r.supplier) names[r.supplier.trim()] = 1; });
+      else invoiceList.forEach(i => { if (i.customerType && /Garage|Đại lý/.test(i.customerType) && i.name) names[i.name.trim()] = 1; });
+      document.getElementById('dpt-name-list').innerHTML = Object.keys(names).sort().map(n => `<option value="${esc(n)}"></option>`).join('');
+    }
+    function openDebtPartnerModal(pkey) {
+      if (!canAccessDebt()) return;
+      const p = pkey ? debtBook().partners[pkey] : null;
+      document.getElementById('dpt-key').value = p ? p.key : '';
+      document.getElementById('dpt-title').innerHTML = p ? '<i class="fa-solid fa-pen"></i>Sửa đối tác & nợ đầu kỳ' : '<i class="fa-solid fa-user-plus"></i>Thêm đối tác & số dư đầu kỳ';
+      setDebtPartnerType(p ? p.type : debtView);
+      document.getElementById('dpt-name').value = p ? p.name : '';
+      document.getElementById('dpt-phone').value = p ? p.phone : '';
+      document.getElementById('dpt-phone').disabled = !!(p && /^D_\d+$/.test(p.key));
+      document.getElementById('dpt-opening').value = formatMoney(p ? p.opening : 0);
+      document.getElementById('dpt-opening-date').value = dateInputValue(p && p.openingDate ? p.openingDate : 0);
+      document.getElementById('dpt-note').value = p ? p.note : '';
+      document.getElementById('debt-partner-modal').classList.remove('hidden');
+      setTimeout(() => document.getElementById(p ? 'dpt-opening' : 'dpt-name').focus(), 80);
+    }
+    async function saveDebtPartner() {
+      if (!canAccessDebt()) return;
+      if (firebaseDb && !debtReady) { showNotification('Đang tải dữ liệu công nợ, vui lòng đợi vài giây!', 'warning'); return; }
+      const fixedKey = document.getElementById('dpt-key').value;
+      const type = document.getElementById('dpt-key').dataset.type === 'D' ? 'D' : 'S';
+      const name = document.getElementById('dpt-name').value.trim();
+      const phone = type === 'D' ? document.getElementById('dpt-phone').value.trim() : '';
+      if (!name) { showNotification('Vui lòng nhập tên!', 'warning'); return; }
+      const key = fixedKey || (type === 'S' ? supplierKey(name) : dealerKeyOf(phone, name));
+      if (!key) { showNotification('Tên không hợp lệ!', 'warning'); return; }
+      const exists = debtBook().partners[key];
+      if (!fixedKey && exists && exists.registered && !window._dptOverwriteOk) {
+        showConfirmModal('Đối tác đã có trong sổ', `"${exists.name}" đã có nợ đầu kỳ ${formatMoney(exists.opening)} đ. Ghi đè bằng thông tin vừa nhập?`, () => { window._dptOverwriteOk = true; saveDebtPartner(); });
+        return;
+      }
+      window._dptOverwriteOk = false;
+      const rec = { type: type, name: name, phone: phone, opening: parseCurrencyNumber(document.getElementById('dpt-opening').value),
+        openingDate: dateInputTs(document.getElementById('dpt-opening-date').value), note: document.getElementById('dpt-note').value.trim(),
+        updatedBy: (currentLoggedInUser && currentLoggedInUser.name) || '', updatedAt: Date.now() };
+      const ok = await debtWrite('partners/' + key, rec);
+      if (!ok) return;
+      closeDebtModal('debt-partner-modal');
+      debtView = type;
+      if (!firebaseDb) renderDebtTab();
+      showNotification('Đã lưu ' + name, 'success');
+    }
+
+    // ----- Sổ chi tiết 1 đối tác -----
+    function debtLedgerRows(p) {
+      const rows = [];
+      p.debits.forEach(d => rows.push({ ts: d.ts, kind: d.kind, ref: d.ref,
+        text: d.kind === 'opening' ? 'Số dư nợ đầu kỳ' : (d.kind === 'receipt' ? 'Phiếu nhập ' + d.ref : 'Hóa đơn ' + d.ref + (d.plate ? ' · ' + d.plate : '')) +
+          (d.prepaid ? ' (tổng ' + formatMoney(d.total) + ', trả trước ' + formatMoney(d.prepaid) + ')' : ''),
+        inc: d.amount, dec: 0, remain: d.remain, settledAt: d.settledAt }));
+      p.payments.forEach(x => rows.push({ ts: x.ts, kind: 'pay', ref: x.id, text: (p.type === 'S' ? 'Phiếu chi ' : 'Phiếu thu ') + x.id + (x.method ? ' · ' + x.method : '') + (x.note ? ' · ' + x.note : ''), inc: 0, dec: x.amount, by: x.by }));
+      rows.sort((a, b) => (a.ts - b.ts) || (a.kind === 'opening' ? -1 : 0));
+      let bal = 0;
+      rows.forEach(r => { bal += r.inc - r.dec; r.bal = bal; });
+      return rows;
+    }
+    function openDebtLedger(pkey) {
+      const p = debtBook().partners[pkey];
+      if (!p) return;
+      const rows = debtLedgerRows(p);
+      document.getElementById('dl-title').innerHTML = `<i class="fa-solid fa-book"></i>Sổ công nợ · ${esc(p.name)}`;
+      const L = DEBT_LABEL[p.type];
+      document.getElementById('dl-body').innerHTML = `
+        <div class="grid grid-cols-3 gap-2">
+          <div class="bg-gray-800/60 border border-gray-700/60 rounded-xl p-2"><div class="text-[10px] text-gray-400">Tổng phát sinh nợ</div><div class="font-mono font-black text-white">${formatMoney(p.totalDebit)} đ</div></div>
+          <div class="bg-gray-800/60 border border-gray-700/60 rounded-xl p-2"><div class="text-[10px] text-gray-400">Đã ${p.type === 'S' ? 'trả' : 'thu'}</div><div class="font-mono font-black text-sky-300">${formatMoney(p.totalPaid)} đ</div></div>
+          <div class="bg-gray-800/60 border border-gray-700/60 rounded-xl p-2"><div class="text-[10px] text-gray-400">Còn nợ</div><div class="font-mono font-black ${p.balance > 0 ? (p.type === 'S' ? 'text-red-400' : 'text-emerald-400') : 'text-gray-300'}">${p.balance < 0 ? 'Dư ' + formatMoney(-p.balance) : formatMoney(p.balance)} đ</div></div>
+        </div>
+        <div class="border border-gray-800 rounded-xl overflow-hidden">
+          <div class="grid grid-cols-12 gap-1 px-2 py-1.5 bg-gray-800/80 text-[10px] font-bold uppercase text-gray-400">
+            <div class="col-span-2">Ngày</div><div class="col-span-5">Diễn giải</div><div class="col-span-2 text-right">Tăng nợ</div><div class="col-span-2 text-right">Giảm nợ</div><div class="col-span-1 text-right">Dư</div>
+          </div>
+          ${rows.map(r => `<div class="grid grid-cols-12 gap-1 px-2 py-1.5 border-t border-gray-800 items-center">
+            <div class="col-span-2 text-gray-400">${r.ts ? viDate(r.ts) : '-'}</div>
+            <div class="col-span-5 min-w-0">
+              <div class="truncate ${r.kind === 'pay' ? 'text-sky-300' : 'text-gray-200'}" title="${esc(r.text)}">${esc(r.text)}</div>
+              ${r.kind !== 'pay' ? `<div class="text-[10px] ${r.remain > 0 ? 'text-amber-300' : 'text-emerald-400'}">${r.remain > 0 ? 'Còn nợ ' + formatMoney(r.remain) : 'Đã ' + (p.type === 'S' ? 'trả' : 'thu') + ' đủ' + (r.settledAt ? ' ' + viDate(r.settledAt) : '')}</div>` : `<div class="text-[10px] text-gray-500">${esc(r.by || '')}</div>`}
+            </div>
+            <div class="col-span-2 text-right font-mono">${r.inc ? formatMoney(r.inc) : ''}</div>
+            <div class="col-span-2 text-right font-mono text-sky-300">${r.dec ? formatMoney(r.dec) : ''}</div>
+            <div class="col-span-1 text-right font-mono text-[10px] flex items-center justify-end gap-1">${shortMoney(r.bal)}
+              ${r.kind === 'invoice' ? `<button onclick="closeDebtModal('debt-ledger-modal'); viewInvoiceDetail('${esc(r.ref)}')" title="Xem hóa đơn" class="text-gray-400 hover:text-white"><i class="fa-solid fa-eye"></i></button>` : ''}
+              ${r.kind === 'pay' ? `<button onclick="deleteDebtPayment('${esc(r.ref)}')" title="Xóa phiếu" class="text-gray-500 hover:text-red-400"><i class="fa-solid fa-trash-can"></i></button>` : ''}
+            </div>
+          </div>`).join('') || '<div class="p-4 text-center text-gray-500 italic">Chưa có phát sinh.</div>'}
+        </div>
+        ${p.balance > 0 ? `<button onclick="closeDebtModal('debt-ledger-modal'); openDebtPayModal('${esc(p.key)}')" class="w-full py-2.5 rounded-xl font-bold text-white ${p.type === 'S' ? 'bg-red-600 hover:bg-red-500' : 'bg-emerald-600 hover:bg-emerald-500'}"><i class="fa-solid ${L.icon} mr-1"></i>${L.pay}</button>` : ''}`;
+      document.getElementById('debt-ledger-modal').classList.remove('hidden');
+    }
+
+    function exportDebtExcel() {
+      if (typeof XLSX === 'undefined') { showNotification('Thư viện Sheet chưa sẵn sàng!', 'warning'); return; }
+      const book = debtBook();
+      const ps = Object.values(book.partners).sort((a, b) => a.type.localeCompare(b.type) || b.balance - a.balance);
+      const sum = [['Loại', 'Tên', 'SĐT', 'Nợ đầu kỳ (đ)', 'Tổng phát sinh nợ (đ)', 'Đã trả / đã thu (đ)', 'Còn nợ (đ)', 'Nợ cũ nhất (ngày)', 'Ghi chú']];
+      ps.forEach(p => sum.push([p.type === 'S' ? 'Nhà phân phối (phải trả)' : 'Đại lý / khách (phải thu)', p.name, p.phone, p.opening, p.totalDebit, p.totalPaid, p.balance,
+        p.balance > 0 && p.oldestOpenTs ? debtDays(p.oldestOpenTs) : '', p.note]));
+      const det = [['Loại', 'Đối tác', 'Ngày', 'Chứng từ / diễn giải', 'Tăng nợ (đ)', 'Giảm nợ (đ)', 'Số dư (đ)', 'Tình trạng']];
+      ps.forEach(p => debtLedgerRows(p).forEach(r => det.push([p.type === 'S' ? 'NPP' : 'Đại lý', p.name, r.ts ? viDate(r.ts) : '', r.text, r.inc || '', r.dec || '', r.bal,
+        r.kind === 'pay' ? '' : (r.remain > 0 ? 'Còn nợ ' + r.remain : 'Đã thanh toán đủ ' + viDate(r.settledAt))])));
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sum), 'Tong_hop_cong_no');
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(det), 'So_chi_tiet');
+      XLSX.writeFile(wb, `DrShockVN_CongNo_${getFormattedTimestamp()}.xlsx`);
+      showNotification('Đã xuất file công nợ!', 'success');
+    }
+
     let receiptList = convertToArray(getStoredData('drshock_receipts', []), []);
     let receiptDraft = { items: [], photo: '' };
     let notifList = [];
@@ -6346,6 +6971,9 @@
       if (!checkStockManagePermission()) return;
       receiptDraft = { items: [], photo: '', editId: null, photoChanged: false };
       ['rc-supplier', 'rc-note', 'rc-search'].forEach(id => { document.getElementById(id).value = ''; });
+      document.getElementById('rc-paid-amount').value = '0';
+      setReceiptPayMode('paid');
+      fillSupplierList();
       setReceiptPhotoPreview('');
       setReceiptModalMode(null);
       renderReceiptItems();
@@ -6403,6 +7031,9 @@
       document.getElementById('rc-supplier').value = r.supplier || '';
       document.getElementById('rc-note').value = r.note || '';
       document.getElementById('rc-search').value = '';
+      document.getElementById('rc-paid-amount').value = formatMoney(parseCurrencyNumber(r.paidAmount) || 0);
+      setReceiptPayMode(r.payMode === 'debt' ? 'debt' : 'paid');
+      fillSupplierList();
       setReceiptPhotoPreview('');
       setReceiptModalMode(r.id);
       renderReceiptItems();
@@ -6426,6 +7057,8 @@
         const newItems = items.map(i => ({ id: i.id, name: i.name, unit: i.unit, qty: i.qty, cost: i.cost }));
         const newMap = receiptQtyMap(newItems);
         const editor = currentLoggedInUser ? currentLoggedInUser.name : 'Chủ Xưởng';
+        const pay = readReceiptPay(newItems.reduce((s, i) => s + i.qty * i.cost, 0), supplier);
+        if (!pay) return;
 
         // Chênh lệch số lượng tính so với bản phiếu MỚI NHẤT trên đám mây
         let deltas = {}, costs = {}, missing = false;
@@ -6445,7 +7078,8 @@
             supplier: supplier, note: note, items: newItems,
             totalQty: newItems.reduce((s, i) => s + i.qty, 0),
             totalCost: newItems.reduce((s, i) => s + i.qty * i.cost, 0),
-            editedBy: editor, editedAt: Date.now()
+            editedBy: editor, editedAt: Date.now(),
+            payMode: pay.payMode, paidAmount: pay.payMode === 'debt' ? pay.paidAmount : null
           });
         });
         if (res === false) return;
@@ -6524,7 +7158,44 @@
     function removeReceiptItem(i) { receiptDraft.items.splice(i, 1); renderReceiptItems(); }
     function updateReceiptTotals() {
       receiptDraft.items.forEach((it, i) => { const s = document.getElementById('rc-line-' + i); if (s) s.textContent = formatMoney(it.qty * it.cost) + ' đ'; });
-      document.getElementById('rc-total').textContent = formatMoney(receiptDraft.items.reduce((s, i) => s + i.qty * i.cost, 0)) + ' đ';
+      const tot = receiptDraft.items.reduce((s, i) => s + i.qty * i.cost, 0);
+      document.getElementById('rc-total').textContent = formatMoney(tot) + ' đ';
+      const rem = document.getElementById('rc-debt-remain');
+      if (rem) {
+        const paid = parseCurrencyNumber(document.getElementById('rc-paid-amount').value);
+        rem.textContent = paid > tot ? 'Trả trước vượt tổng phiếu!' : formatMoney(tot - paid) + ' đ';
+      }
+    }
+    function receiptDebtBadge(r, long) {
+      if (r.payMode !== 'debt') return '';
+      const owed = receiptDebtAmount(r);
+      const st = canAccessDebt() ? debtStateOf('receipt', r.id) : null;
+      const prepaid = parseCurrencyNumber(r.paidAmount) || 0;
+      if (st && st.remain <= 0) return `<span class="inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded bg-emerald-950/70 text-emerald-300 border border-emerald-500/30 font-semibold">Nợ NPP · đã trả đủ${st.settledAt ? ' ' + viDate(st.settledAt) : ''}</span>`;
+      const remain = st ? st.remain : owed;
+      return `<span class="inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded bg-red-950/70 text-red-300 border border-red-500/30 font-semibold">Nợ NPP ${formatMoney(remain)} đ${long && prepaid ? ' (đã trả trước ' + formatMoney(prepaid) + ' đ)' : ''}</span>`;
+    }
+    function setReceiptPayMode(m) {
+      receiptDraft.payMode = m === 'debt' ? 'debt' : 'paid';
+      const on = 'py-2 rounded-xl text-xs font-bold border text-white ', off = 'py-2 rounded-xl text-xs font-semibold border bg-gray-800 text-gray-300 border-gray-700';
+      document.getElementById('rc-pay-paid').className = receiptDraft.payMode === 'paid' ? on + 'bg-emerald-600 border-emerald-500' : off;
+      document.getElementById('rc-pay-debt').className = receiptDraft.payMode === 'debt' ? on + 'bg-red-600 border-red-500' : off;
+      document.getElementById('rc-debt-box').classList.toggle('hidden', receiptDraft.payMode !== 'debt');
+      updateReceiptTotals();
+    }
+    function fillSupplierList() {
+      const names = {};
+      receiptList.forEach(r => { if (r.supplier) names[r.supplier.trim()] = 1; });
+      Object.values((debtData && debtData.partners) || {}).forEach(p => { if (p && p.type === 'S' && p.name) names[p.name] = 1; });
+      document.getElementById('rc-supplier-list').innerHTML = Object.keys(names).sort().map(n => `<option value="${esc(n)}"></option>`).join('');
+    }
+    // Kiểm tra phần thanh toán của phiếu; trả về {payMode, paidAmount} hoặc null nếu chưa hợp lệ
+    function readReceiptPay(totalCost, supplier) {
+      if (receiptDraft.payMode !== 'debt') return { payMode: 'paid', paidAmount: 0 };
+      const paid = parseCurrencyNumber(document.getElementById('rc-paid-amount').value);
+      if (!supplier) { showNotification('Ghi nợ NPP: vui lòng nhập tên nhà cung cấp!', 'warning'); document.getElementById('rc-supplier').focus(); return null; }
+      if (paid >= totalCost) { showNotification('Số đã trả bằng hoặc lớn hơn tổng phiếu. Nếu đã trả hết, chọn "Đã trả đủ".', 'warning'); return null; }
+      return { payMode: 'debt', paidAmount: paid };
     }
     function updateReceiptQty(i, v) { if (receiptDraft.items[i]) { receiptDraft.items[i].qty = Math.max(0.5, parseFloat(v) || 0.5); updateReceiptTotals(); } }
     function updateReceiptCost(i, input) { if (receiptDraft.items[i]) { receiptDraft.items[i].cost = formatLiveCurrency(input); updateReceiptTotals(); } }
@@ -6568,7 +7239,10 @@
       const note = document.getElementById('rc-note').value.trim();
       const totalQty = items.reduce((s, i) => s + i.qty, 0);
       const totalCost = items.reduce((s, i) => s + i.qty * i.cost, 0);
-      const receipt = { id: id, date: date, ts: now.getTime(), user: user, supplier: supplier, note: note, items: items.map(i => ({ id: i.id, name: i.name, unit: i.unit, qty: i.qty, cost: i.cost })), totalQty: totalQty, totalCost: totalCost };
+      const pay = readReceiptPay(totalCost, supplier);
+      if (!pay) { btn.disabled = false; return; }
+      const receipt = { id: id, date: date, ts: now.getTime(), user: user, supplier: supplier, note: note, items: items.map(i => ({ id: i.id, name: i.name, unit: i.unit, qty: i.qty, cost: i.cost })), totalQty: totalQty, totalCost: totalCost, payMode: pay.payMode };
+      if (pay.payMode === 'debt') receipt.paidAmount = pay.paidAmount;
       const notif = { id: 'N' + now.getTime(), ts: now.getTime(), device: DEVICE_ID, type: 'IMPORT', title: 'Nhập hàng mới', receiptId: id, time: date, user: user,
         message: `${user} vừa nhập ${items.length} mặt hàng (${formatStockQty(totalQty)} món)${supplier ? ' từ ' + supplier : ''} - phiếu ${id}` };
       const upd = {};
@@ -6630,9 +7304,11 @@
           </div>
           <div class="text-right shrink-0">
             <p class="text-xs font-black text-emerald-400 font-mono">${formatMoney(r.totalCost || 0)} đ</p>
+            ${receiptDebtBadge(r)}
             <button onclick="openReceiptDetail('${r.id}')" class="mt-1 px-2.5 py-1 bg-gray-700 hover:bg-gray-600 text-amber-300 rounded-lg text-[10px] font-semibold"><i class="fa-solid fa-image mr-1"></i>Xem phiếu</button>
           </div>
         </div>`).join('') + (receiptList.length > 10 ? `<p class="text-center text-[10px] text-gray-500">Hiển thị 10/${receiptList.length} phiếu gần nhất</p>` : '');
+      renderDebtTab();
     }
 
     function openReceiptDetail(id) {
@@ -6649,6 +7325,7 @@
           <div class="flex items-center justify-between gap-2 p-2"><span class="truncate"><b class="text-amber-400 font-mono">${i.id}</b> ${highlightMatch(i.name, [])}</span>
           <span class="shrink-0 font-mono">${formatStockQty(i.qty)} ${i.unit} × ${formatMoney(i.cost)} = <b class="text-emerald-400">${formatMoney(i.qty * i.cost)} đ</b></span></div>`).join('')}</div>
         <div class="text-right font-black text-emerald-400 font-mono">Tổng: ${formatMoney(r.totalCost || 0)} đ</div>
+        <div class="text-right">${receiptDebtBadge(r, true)}</div>
         ${r.editedBy ? `<div class="text-[11px] text-amber-300"><i class="fa-solid fa-pen mr-1"></i>Đã sửa bởi ${esc(r.editedBy)}${r.editedAt ? ' lúc ' + new Date(r.editedAt).toLocaleString('vi-VN') : ''}</div>` : ''}
         ${isAdminUser() ? `<div class="grid grid-cols-2 gap-2">
           <button onclick="openReceiptEdit('${esc(r.id)}')" class="py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-xl font-bold"><i class="fa-solid fa-pen-to-square mr-1"></i>Sửa phiếu</button>
@@ -8104,6 +8781,8 @@
       if (tax === 'chua_xuat') list = list.filter(i => !hasTaxInvoice(i));
       else if (tax === 'da_xuat') list = list.filter(i => hasTaxInvoice(i));
       if (pay === 'dat_coc' || pay === 'con_no') list = list.filter(i => invPayInfo(i).deposit);
+      else if (pay === 'ghi_no' || pay === 'cong_no') list = list.filter(i => { const q = invPayInfo(i); return q.debt && q.remain > 0; });
+      else if (pay === 'ghi_no_tat_ca') list = list.filter(i => invPayInfo(i).debt);
       else if (pay === 'co_coc' || pay === 'tat_ca_don_coc') list = list.filter(i => invPayInfo(i).hadDeposit);
       else if (pay === 'coc_da_thu_du') list = list.filter(i => invPayInfo(i).hadDeposit && !invPayInfo(i).deposit);
       else if (pay === 'du' || pay === 'da_thanh_toan') list = list.filter(i => !invPayInfo(i).deposit);
@@ -8141,17 +8820,55 @@
             hang_muc: (i.items || []).map(it => it.name + ' ×' + formatStockQty(it.qty)).join(', ') };
         }),
         so_hd_co_dat_coc: list.filter(i => invPayInfo(i).hadDeposit).length,
+        so_hd_ghi_no_con_no: list.filter(i => { const q = invPayInfo(i); return q.debt && q.remain > 0; }).length,
         ghi_chu: gan_dung + (list.length > 30 ? 'Chỉ liệt kê 30 hoá đơn mới nhất; các con số tổng tính trên toàn bộ ' + list.length + ' hoá đơn.' : '')
       };
     }
 
+    // 6. Công nợ NPP / đại lý (Chủ Xưởng & Kế Toán)
+    function aiToolDebt(args) {
+      args = args || {};
+      if (!canAccessDebt()) return { loi: 'Chỉ Chủ Xưởng hoặc Kế Toán xem được công nợ.' };
+      const loai = normText(args.loai || '').replace(/\s+/g, '_');
+      const type = /npp|nha_phan_phoi|nha_cung_cap|ncc|phai_tra/.test(loai) ? 'S' : (/dai_ly|khach|phai_thu/.test(loai) ? 'D' : '');
+      const q = normText(args.ten || ''), ph = String(args.sdt || '').replace(/\D/g, '');
+      let ps = Object.values(debtBook().partners);
+      if (type) ps = ps.filter(p => p.type === type);
+      if (q) { const toks = q.split(/\s+/).filter(Boolean); ps = ps.filter(p => { const n = normText(p.name); return toks.every(t => n.includes(t)); }); }
+      if (ph.length >= 4) ps = ps.filter(p => String(p.phone || '').replace(/\D/g, '').includes(ph));
+      if (!q && ph.length < 4 && args.chi_con_no !== false) ps = ps.filter(p => p.balance > 0);
+      const minDays = parseInt(args.no_qua_ngay, 10) || 0;
+      if (minDays) ps = ps.filter(p => p.balance > 0 && (debtDays(p.oldestOpenTs) || 0) > minDays);
+      ps.sort((a, b) => b.balance - a.balance);
+      const detail = ps.length <= 3;
+      const tot = t => Object.values(debtBook().partners).filter(p => p.type === t && p.balance > 0).reduce((a, p) => a + p.balance, 0);
+      return {
+        tong_phai_tra_npp: tot('S'), tong_phai_thu_dai_ly: tot('D'), so_doi_tac: ps.length,
+        doi_tac: ps.slice(0, 25).map(p => {
+          const o = { key: p.key, loai: p.type === 'S' ? 'Nhà phân phối (mình phải trả)' : 'Đại lý / khách (phải thu)', ten: p.name, sdt: p.phone || '',
+            con_no: p.balance, no_dau_ky: p.opening, tong_phat_sinh: p.totalDebit, da_thanh_toan: p.totalPaid,
+            no_cu_nhat_so_ngay: p.balance > 0 && p.oldestOpenTs ? debtDays(p.oldestOpenTs) : null, chung_tu_con_no: p.openCount };
+          if (detail) {
+            o.khoan_con_no = p.debits.filter(d => d.remain > 0).map(d => ({ chung_tu: d.kind === 'opening' ? 'Nợ đầu kỳ' : d.ref, ngay: viDate(d.ts), so_tien: d.amount, con_no: Math.round(d.remain) }));
+            o.lan_thanh_toan_gan_day = p.payments.slice(-5).reverse().map(x => ({ phieu: x.id, ngay: viDate(x.ts), so_tien: x.amount, hinh_thuc: x.method, ghi_chu: x.note }));
+          }
+          return o;
+        }),
+        ghi_chu: ps.length > 25 ? 'Chỉ liệt kê 25 đối tác nợ nhiều nhất.' : ''
+      };
+    }
+
     const AI_TOOLS = [
+      { name: 'tra_cuu_cong_no', fn: aiToolDebt,
+        description: 'CÔNG NỢ: số tiền mình còn nợ nhà phân phối (NPP / nhà cung cấp) và số đại lý / khách còn nợ mình. Tìm theo tên, SĐT; liệt kê ai nợ nhiều nhất, nợ quá X ngày; xem chi tiết từng khoản còn nợ và lần thanh toán gần đây. CHỈ Chủ Xưởng & Kế Toán.',
+        params: { loai: ['string', '"npp" (mình phải trả) | "dai_ly" (phải thu) | bỏ trống = cả hai'], ten: ['string', 'Tên NPP / đại lý'], sdt: ['string', 'SĐT đại lý'],
+          no_qua_ngay: ['number', 'Chỉ lấy đối tác có khoản nợ cũ hơn số ngày này'], chi_con_no: ['boolean', 'Mặc định true: chỉ đối tác còn nợ'] }, required: [] },
       { name: 'tra_cuu_hoa_don', fn: aiToolFindInvoices,
         description: 'Tra cứu / báo cáo HOÁ ĐƠN cho kế toán: tìm theo tên khách, SĐT, biển số, SỐ HOÁ ĐƠN THUẾ (mã xuất của thuế), mã hoá đơn NỘI BỘ (INV-xxx), kỳ thời gian; lọc hoá đơn chưa/đã xuất hoá đơn thuế, đơn đang đặt cọc còn phải thu. Tìm được theo SỐ TIỀN CỌC (tien_coc) hoặc tổng bill. Trả về từng hoá đơn kèm tình trạng thanh toán, tiền cọc, ngày đặt cọc, ngày thanh toán đủ, số HĐ thuế, và các con số tổng.',
         params: { ten_khach: ['string', 'Tên khách / garage'], sdt: ['string', 'Số điện thoại'], bien_so: ['string', 'Biển số'],
           so_hd_thue: ['string', 'Số hoá đơn thuế (mã xuất của thuế)'], ma_hd: ['string', 'Mã hoá đơn nội bộ, VD INV-141 hoặc 141'],
           hd_thue: ['string', '"chua_xuat" | "da_xuat"'],
-          thanh_toan: ['string', '"dat_coc" = đang cọc còn phải thu | "co_coc" = mọi đơn có đặt cọc (kể cả đã thu đủ) | "coc_da_thu_du" | "du"'],
+          thanh_toan: ['string', '"dat_coc" = đang cọc còn phải thu | "co_coc" = mọi đơn có đặt cọc (kể cả đã thu đủ) | "coc_da_thu_du" | "ghi_no" = bill ghi nợ còn nợ | "ghi_no_tat_ca" | "du"'],
           tien_coc: ['number', 'Số tiền khách đặt cọc, VD 300000 (300k)'], tong_tien: ['number', 'Tổng tiền bill, VD 2500000'],
           ky: ['string', 'hom_nay | hom_qua | tuan_nay | tuan_truoc | 7_ngay | 30_ngay | thang_nay | thang_truoc | nam_nay | "10/2026"'],
           tu_ngay: ['string', 'dd/mm/yyyy (tuỳ chọn)'], den_ngay: ['string', 'dd/mm/yyyy (tuỳ chọn)'] }, required: [] },
@@ -8247,10 +8964,11 @@
         '- Báo cáo doanh thu/lãi: gọi bao_cao_kinh_doanh (chỉ Chủ Xưởng). Tóm tắt số chính, so với kỳ trước, nêu 2-3 nhận xét/hành động cụ thể (hàng bán dưới giá vốn, hoá đơn thiếu tiền công...).',
         '- Kho: hỏi hàng sắp hết / nên nhập gì / tồn lâu -> phan_tich_kho; lịch sử 1 mã -> lich_su_ma_hang.',
         '- Khách: đến hạn bảo dưỡng -> khach_den_han_bao_duong (đưa tin nhắn mẫu để copy); khách chi tiêu nhiều / lâu không quay lại / khách mới -> danh_sach_khach.',
+        '- Hỏi CÔNG NỢ (còn nợ NPP bao nhiêu, đại lý nào nợ nhiều, nợ quá 30 ngày, đại lý X còn nợ gì) -> gọi tra_cuu_cong_no. Phân biệt rõ "mình phải trả NPP" và "đại lý phải trả mình". Muốn ghi phiếu thu / phiếu chi thì hướng dẫn vào tab 9. Công Nợ (trợ lý không tự ghi).',
         '- KẾ TOÁN hỏi về hoá đơn (tìm theo tên/SĐT/biển số/số hoá đơn thuế/mã INV nội bộ, hoá đơn chưa xuất HĐ thuế, đơn đặt cọc còn phải thu, trong kỳ nào) -> gọi tra_cuu_hoa_don. "Số hoá đơn" thường là số HĐ thuế; "mã hoá đơn"/"INV-..." là mã nội bộ; nếu không rõ thì thử cả hai. Báo số lượng, tổng tiền, số chưa xuất HĐ thuế, tổng còn phải thu. Hỏi theo tiền cọc (VD "khách cọc 300k tháng rồi") -> tien_coc=300000, ky=thang_truoc, thanh_toan="co_coc" để gồm cả đơn đã thu đủ; nêu ngày đặt cọc và ngày thanh toán đủ.',
         '- Ảnh HOÁ ĐƠN NHẬP HÀNG của nhà cung cấp: đọc từng dòng (tên, mã, SL, đơn giá) rồi gọi lap_phieu_nhap_kho. Ảnh XE thì làm như trên.',
         '- Sửa giá/tồn (sua_gia_ton_kho) và gửi tin Zalo (gui_tin_zalo_nhom) chỉ HIỆN THẺ XÁC NHẬN; nói rõ người dùng cần bấm nút trên thẻ, không nói là đã lưu/đã gửi.',
-        isAdminUser() ? '- Người hỏi là CHỦ XƯỞNG: dùng được mọi công cụ.' : '- Người hỏi KHÔNG phải Chủ Xưởng: không xem được báo cáo doanh thu/lợi nhuận, không sửa giá, không gửi tin Zalo. Nếu được yêu cầu thì nói lịch sự là cần Chủ Xưởng.',
+        isAdminUser() ? '- Người hỏi là CHỦ XƯỞNG: dùng được mọi công cụ.' : (u.role === 'ketoan') ? '- Người hỏi là KẾ TOÁN: tra hoá đơn, công nợ, tìm kho được; không xem báo cáo lợi nhuận, không sửa giá / kho, không gửi tin Zalo.' : '- Người hỏi KHÔNG phải Chủ Xưởng: không xem được báo cáo doanh thu/lợi nhuận, không sửa giá, không gửi tin Zalo. Nếu được yêu cầu thì nói lịch sự là cần Chủ Xưởng.',
         aiCanSeeCost() ? '- Người hỏi được xem giá vốn.' : '- KHÔNG tiết lộ giá vốn/giá nhập/lợi nhuận cho người hỏi này.',
         '- Trả lời bằng tiếng Việt, ngắn gọn, dễ đọc trên điện thoại, dùng gạch đầu dòng. Tiền ghi dạng 1.250.000 đ. Giao diện đã hiện thẻ chi tiết từ công cụ nên không cần chép lại toàn bộ danh sách, chỉ nêu điểm chính và đề xuất.'
       ].join('\n');
@@ -8422,6 +9140,21 @@
 
     function aiRenderToolCard(name, args, res) {
       if (!res || res.loi) return;
+      if (name === 'tra_cuu_cong_no') {
+        const rows = (res.doi_tac || []).slice(0, 10).map(d => `
+          <div class="py-1.5 border-t border-gray-800 first:border-0 flex items-center justify-between gap-2">
+            <div class="min-w-0"><div class="text-white font-semibold truncate">${aiEsc(d.ten)} <span class="text-[10px] text-gray-500">${/^Nhà/.test(d.loai) ? 'NPP' : 'Đại lý'}</span></div>
+              <div class="text-[10px] text-gray-400">${d.chung_tu_con_no} chứng từ còn nợ${d.no_cu_nhat_so_ngay != null ? ' · cũ nhất ' + d.no_cu_nhat_so_ngay + ' ngày' : ''}</div></div>
+            <div class="flex items-center gap-1 shrink-0"><span class="font-mono font-black ${/^Nhà/.test(d.loai) ? 'text-red-400' : 'text-emerald-400'}">${formatMoney(d.con_no)} đ</span>
+              <button onclick="toggleAiPanel(false); switchTab('tab-debt'); openDebtLedger('${aiEsc(d.key)}')" class="px-1.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700"><i class="fa-solid fa-book"></i></button></div>
+          </div>`).join('');
+        aiAppend(`<div class="w-full bg-gray-900 border border-orange-500/40 rounded-2xl p-3 text-xs">
+          <div class="grid grid-cols-2 gap-1.5 mb-2 text-[10px]">
+            <div class="bg-red-950/40 border border-red-500/30 rounded-lg p-1.5"><div class="text-red-300">Phải trả NPP</div><div class="font-mono font-black text-white">${formatMoney(res.tong_phai_tra_npp)} đ</div></div>
+            <div class="bg-emerald-950/40 border border-emerald-500/30 rounded-lg p-1.5"><div class="text-emerald-300">Phải thu đại lý</div><div class="font-mono font-black text-white">${formatMoney(res.tong_phai_thu_dai_ly)} đ</div></div>
+          </div>${rows || '<div class="text-gray-400">Không có đối tác nào khớp.</div>'}</div>`, 'w-full');
+        return;
+      }
       if (name === 'tra_cuu_hoa_don') {
         if (!res.tong_so_hd) { aiAppend(`<div class="w-full bg-gray-900 border border-gray-700 rounded-2xl p-2.5 text-xs text-gray-300"><i class="fa-solid fa-file-circle-question mr-1.5 text-gray-500"></i>Không tìm thấy hoá đơn nào khớp.</div>`, 'w-full'); return; }
         const rows = res.hoa_don.slice(0, 12).map(h => `
@@ -8433,7 +9166,7 @@
             <div class="flex items-center justify-between gap-2 text-[10px] mt-0.5">
               <span class="text-gray-400">${aiEsc(h.ngay)}${h.sdt ? ' · ' + aiEsc(h.sdt) : ''}${h.tien_coc && !h.con_lai ? ` · <span class="text-amber-300">cọc ${formatMoney(h.tien_coc)}${h.ngay_dat_coc ? ' ngày ' + aiEsc(h.ngay_dat_coc) : ''}</span>` : (h.con_lai && h.ngay_dat_coc ? ` · <span class="text-amber-300">cọc ngày ${aiEsc(h.ngay_dat_coc)}</span>` : '')}</span>
               <span class="flex items-center gap-1 shrink-0">
-                ${h.con_lai ? `<span class="px-1.5 rounded bg-amber-950 text-amber-300 border border-amber-500/30">Cọc ${formatMoney(h.tien_coc)} · còn ${formatMoney(h.con_lai)}</span>` : `<span class="px-1.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-500/30">Đủ${h.ngay_thanh_toan_du ? ' ' + aiEsc(h.ngay_thanh_toan_du) : ''}</span>`}
+                ${h.con_lai && /^Ghi nợ/.test(h.tinh_trang) ? `<span class="px-1.5 rounded bg-red-950 text-red-300 border border-red-500/30">Ghi nợ · còn ${formatMoney(h.con_lai)}</span>` : h.con_lai ? `<span class="px-1.5 rounded bg-amber-950 text-amber-300 border border-amber-500/30">Cọc ${formatMoney(h.tien_coc)} · còn ${formatMoney(h.con_lai)}</span>` : `<span class="px-1.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-500/30">Đủ${h.ngay_thanh_toan_du ? ' ' + aiEsc(h.ngay_thanh_toan_du) : ''}</span>`}
                 ${h.so_hd_thue ? `<span class="px-1.5 rounded bg-sky-950 text-sky-300 border border-sky-500/30 font-mono">HĐ ${aiEsc(h.so_hd_thue)}</span>` : `<span class="px-1.5 rounded bg-red-950 text-red-300 border border-red-500/30">Chưa xuất HĐ</span>`}
                 <button onclick="toggleAiPanel(false); viewInvoiceDetail('${aiEsc(h.ma_hd)}')" class="px-1.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700"><i class="fa-solid fa-eye"></i></button>
               </span>
@@ -8528,7 +9261,7 @@
     function aiWelcome() {
       const c = aiActiveConfig();
       aiAddBot(c
-        ? `Chào **${(currentLoggedInUser && currentLoggedInUser.name) || 'bạn'}**! Mình có thể:\n- 📷 Chụp ảnh xe: đọc biển số, xem lịch sử, gợi ý hàng hay thay\n- Tư vấn nhớt, phuộc... theo xe và hàng đang có trong kho\n- Lên đơn nhanh: VD "lên đơn thay nhớt 4 lít + công lắp phuộc"\n- 📦 Kho: "hàng nào sắp hết?", "nên nhập gì tháng này?", "hàng nào tồn lâu không bán?"\n- 🔧 Khách: "khách nào đến hạn thay nhớt tuần này?", "khách lâu không quay lại"\n- 🧾 Chụp **hoá đơn nhập hàng** → tự điền phiếu nhập kho\n- 🧮 Kế toán: "hoá đơn của anh Minh", "số HĐ 00001234", "INV-141", "tháng này còn bill nào chưa xuất HĐ thuế?", "đơn đặt cọc còn phải thu"` +
+        ? `Chào **${(currentLoggedInUser && currentLoggedInUser.name) || 'bạn'}**! Mình có thể:\n- 📷 Chụp ảnh xe: đọc biển số, xem lịch sử, gợi ý hàng hay thay\n- Tư vấn nhớt, phuộc... theo xe và hàng đang có trong kho\n- Lên đơn nhanh: VD "lên đơn thay nhớt 4 lít + công lắp phuộc"\n- 📦 Kho: "hàng nào sắp hết?", "nên nhập gì tháng này?", "hàng nào tồn lâu không bán?"\n- 🔧 Khách: "khách nào đến hạn thay nhớt tuần này?", "khách lâu không quay lại"\n- 🧾 Chụp **hoá đơn nhập hàng** → tự điền phiếu nhập kho\n- 🧮 Kế toán: "hoá đơn của anh Minh", "số HĐ 00001234", "INV-141", "tháng này còn bill nào chưa xuất HĐ thuế?", "đơn đặt cọc còn phải thu"\n- 📒 Công nợ: "còn nợ NPP bao nhiêu?", "đại lý nào nợ quá 30 ngày?", "Garage Cường còn nợ gì?"` +
           (isAdminUser() ? `\n- 📊 "Doanh thu, lãi tháng này?", "hôm nay bán bao nhiêu?"\n- ✏️ "Đổi giá đại lý phuộc PAG-6025 thành 6,2 triệu"\n- 📣 "Gửi tin nhóm Nội Bộ: chiều 3h họp kho" (luôn hỏi xác nhận trước khi lưu/gửi)` : '')
         : `Đang ở **chế độ cơ bản** (chưa cài API key AI).\n- Gõ **biển số** hoặc **SĐT** để xem lịch sử xe + hàng xe cùng dòng hay thay\n- Gõ tên phụ tùng hoặc dòng xe để tìm kho\n- Chụp ảnh đọc biển số và tư vấn tự do cần bật AI ở **tab 7. Cài Đặt** (Chủ Xưởng)`);
     }
