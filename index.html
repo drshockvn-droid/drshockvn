@@ -453,8 +453,23 @@
       <section id="tab-inventory" class="tab-content hidden space-y-3">
         <div class="bg-gray-900 border border-gray-800 rounded-2xl p-3 sm:p-4">
           
-          <!-- KHỐI THỐNG KÊ TỒN KHO -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 mb-4">
+          <!-- KHỐI THỐNG KÊ TỒN KHO (thu gọn: 1 thanh tóm tắt, bấm để xem chi tiết) -->
+          <div class="mb-4 bg-gray-800/40 border border-gray-800 rounded-2xl overflow-hidden">
+          <button type="button" id="inv-stats-toggle" onclick="toggleInvStats()" aria-expanded="false" aria-controls="inv-stats-grid"
+            class="w-full flex items-center justify-between gap-2 px-3 py-2.5 hover:bg-gray-800/60 transition text-left">
+            <span class="flex items-center gap-1.5 flex-wrap min-w-0">
+              <span class="text-xs font-bold text-orange-400 uppercase tracking-wider flex items-center gap-1.5 mr-1"><i class="fa-solid fa-chart-simple"></i>Tổng quan kho</span>
+              <span id="inv-sum-value" class="text-[11px] px-2 py-0.5 rounded-lg bg-emerald-950/70 text-emerald-300 border border-emerald-500/30 font-semibold"></span>
+              <span id="inv-sum-qty" class="text-[11px] px-2 py-0.5 rounded-lg bg-sky-950/70 text-sky-300 border border-sky-500/30 font-semibold"></span>
+              <span id="inv-sum-alert" class="text-[11px] px-2 py-0.5 rounded-lg bg-red-950/60 text-red-300 border border-red-500/30 font-semibold"></span>
+              <span id="inv-sum-flow" class="hidden lg:inline text-[11px] px-2 py-0.5 rounded-lg bg-gray-900 text-gray-300 border border-gray-700"></span>
+            </span>
+            <span class="flex items-center gap-1.5 shrink-0 text-[10px] text-gray-400">
+              <span id="inv-stats-hint" class="hidden sm:inline">Chi tiết</span>
+              <i id="inv-stats-icon" class="fa-solid fa-chevron-down text-xs transition-transform"></i>
+            </span>
+          </button>
+          <div id="inv-stats-grid" class="hidden grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 px-3 pb-3">
             <div class="bg-gradient-to-br from-gray-800/90 via-gray-800/60 to-emerald-950/40 border border-emerald-500/40 rounded-2xl p-3.5 sm:p-4 shadow-lg relative overflow-hidden">
               <div class="flex items-center justify-between">
                 <span class="text-[11px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -522,6 +537,7 @@
                 <strong id="stat-total-export-qty" class="text-rose-300 font-mono">0 món</strong>
               </div>
             </div>
+          </div>
           </div>
 
           <!-- Thanh công cụ & tìm kiếm -->
@@ -3979,7 +3995,42 @@
       if (exportTimesElem) exportTimesElem.textContent = `${invoiceList.length} hóa đơn`;
       if (exportQtyElem) exportQtyElem.textContent = `${formatStockQty(totalExportQty)} món`;
       if (exportValElem) exportValElem.textContent = formatMoney(totalExportVal) + ' đ';
+
+      // Thanh tóm tắt khi thu gọn
+      const setTxt = (id, t) => { const e = document.getElementById(id); if (e) e.innerHTML = t; };
+      setTxt('inv-sum-value', isStockManager
+        ? '<i class="fa-solid fa-vault mr-1"></i>Vốn tồn <b class="font-mono">' + shortMoney(totalStockCost) + '</b>'
+        : '<i class="fa-solid fa-tag mr-1"></i>Giá trị bán lẻ <b class="font-mono">' + shortMoney(totalStockRetail) + '</b>');
+      setTxt('inv-sum-qty', '<i class="fa-solid fa-boxes-stacked mr-1"></i><b class="font-mono">' + formatStockQty(totalStockQty) + '</b> món · ' + inventoryList.length + ' mã');
+      const alertEl = document.getElementById('inv-sum-alert');
+      if (alertEl) {
+        alertEl.classList.toggle('hidden', !outOfStockCount && !lowStockCount);
+        alertEl.innerHTML = '<i class="fa-solid fa-triangle-exclamation mr-1"></i>Hết <b class="font-mono">' + outOfStockCount + '</b> · Sắp hết <b class="font-mono">' + lowStockCount + '</b>';
+      }
+      setTxt('inv-sum-flow', '<i class="fa-solid fa-arrow-down text-amber-400 mr-0.5"></i>Nhập ' + formatStockQty(totalImportQty) + ' · <i class="fa-solid fa-arrow-up text-rose-400 mr-0.5"></i>Xuất ' + formatStockQty(totalExportQty) + ' món');
     }
+
+    // Thu gọn / mở rộng khối tổng quan kho (nhớ lựa chọn trên máy này)
+    function toggleInvStats(force) {
+      const grid = document.getElementById('inv-stats-grid');
+      if (!grid) return;
+      const open = typeof force === 'boolean' ? force : grid.classList.contains('hidden');
+      grid.classList.toggle('hidden', !open);
+      const icon = document.getElementById('inv-stats-icon');
+      if (icon) icon.style.transform = open ? 'rotate(180deg)' : '';
+      const hint = document.getElementById('inv-stats-hint');
+      if (hint) hint.textContent = open ? 'Thu gọn' : 'Chi tiết';
+      const btn = document.getElementById('inv-stats-toggle');
+      if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (typeof force !== 'boolean') { try { localStorage.setItem('drshock_inv_stats_open', open ? '1' : '0'); } catch (e) {} }
+    }
+    (function restoreInvStats() {
+      let open = false;
+      try { open = localStorage.getItem('drshock_inv_stats_open') === '1'; } catch (e) {}
+      if (!open) return;
+      if (document.getElementById('inv-stats-grid')) toggleInvStats(true);
+      else document.addEventListener('DOMContentLoaded', () => toggleInvStats(true));
+    })();
 
     function renderInventoryTable() {
       updateInventoryOverviewStats();
@@ -4176,7 +4227,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.24-2';
+    const APP_VERSION = '2026.10.25-1';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
