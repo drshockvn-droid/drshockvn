@@ -1610,6 +1610,7 @@
       </div>
       <p class="text-[10px] text-gray-500">Nợ đầu kỳ là số nợ còn lại tính đến ngày trên, trước khi dùng app để theo dõi. Các phiếu nhập / hóa đơn ghi nợ sau đó sẽ được cộng tiếp.</p>
       <div class="flex justify-end gap-2 pt-1">
+        <button type="button" id="dpt-delete" onclick="deleteDebtPartner()" class="hidden mr-auto px-3 py-2.5 bg-gray-800 hover:bg-red-950/60 text-gray-400 hover:text-red-400 border border-gray-700 rounded-xl"><i class="fa-solid fa-trash-can mr-1"></i>Xóa</button>
         <button type="button" onclick="closeDebtModal('debt-partner-modal')" class="px-3 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 rounded-xl">Hủy</button>
         <button type="button" onclick="saveDebtPartner()" class="px-4 py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl shadow"><i class="fa-solid fa-floppy-disk mr-1"></i>Lưu</button>
       </div>
@@ -4449,7 +4450,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.25-2';
+    const APP_VERSION = '2026.10.25-3';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -6595,7 +6596,7 @@
       convertToArray(debtData && debtData.payments, []).forEach(pm => {
         if (!pm || !pm.pkey || !(parseCurrencyNumber(pm.amount) > 0)) return;
         const p = get(pm.pkey, pm.type || (pm.pkey.indexOf('S_') === 0 ? 'S' : 'D'), pm.pname);
-        p.payments.push({ id: pm.id, ts: pm.ts || 0, amount: parseCurrencyNumber(pm.amount), method: pm.method || '', note: pm.note || '', by: pm.by || '' });
+        p.payments.push({ id: pm.id, ts: pm.ts || 0, amount: parseCurrencyNumber(pm.amount), method: pm.method || '', note: pm.note || '', by: pm.by || '', editedBy: pm.editedBy || '' });
       });
       const byRef = {};
       Object.values(P).forEach(p => {
@@ -6723,7 +6724,7 @@
             <div class="flex items-center gap-1 mt-1 justify-end">
               ${p.balance > 0 ? `<button onclick="openDebtPayModal('${k}')" class="px-2 py-1 rounded-lg text-[11px] font-bold text-white ${debtView === 'S' ? 'bg-red-600 hover:bg-red-500' : 'bg-emerald-600 hover:bg-emerald-500'}"><i class="fa-solid ${L.icon} mr-1"></i>${L.payShort}</button>` : ''}
               <button onclick="openDebtLedger('${k}')" class="px-2 py-1 rounded-lg text-[11px] font-semibold bg-gray-700 hover:bg-gray-600 text-sky-300"><i class="fa-solid fa-book mr-1"></i>Sổ</button>
-              <button onclick="openDebtPartnerModal('${k}')" title="Sửa tên / nợ đầu kỳ" class="w-7 h-7 rounded-lg bg-gray-800 hover:bg-gray-700 text-amber-300 border border-gray-700"><i class="fa-solid fa-pen text-[10px]"></i></button>
+              ${canEditDebt() || !p.registered ? `<button onclick="openDebtPartnerModal('${k}')" title="${canEditDebt() ? 'Sửa tên / nợ đầu kỳ' : 'Thêm nợ đầu kỳ'}" class="w-7 h-7 rounded-lg bg-gray-800 hover:bg-gray-700 text-amber-300 border border-gray-700"><i class="fa-solid fa-pen text-[10px]"></i></button>` : ''}
             </div>
           </div>
         </div>`;
@@ -6731,22 +6732,31 @@
     }
 
     // ----- Phiếu thu / phiếu chi -----
-    function openDebtPayModal(pkey, amount, note) {
+    // Quyền: Kế Toán chỉ THÊM phiếu / đối tác mới; sửa, xóa phiếu, sửa nợ đầu kỳ, xóa đối tác: chỉ Chủ Xưởng
+    function canEditDebt() { return isAdminUser(); }
+    function denyDebtEdit() { showNotification('Chỉ Chủ Xưởng mới được sửa / xóa công nợ!', 'warning'); }
+    let debtPayEditId = null;
+    function openDebtPayModal(pkey, amount, note, editId) {
       if (!canAccessDebt()) { showNotification('Chỉ Chủ Xưởng hoặc Kế Toán được ghi công nợ!', 'warning'); return; }
+      if (editId && !canEditDebt()) { denyDebtEdit(); return; }
       const p = debtBook().partners[pkey];
       if (!p) return;
       const L = DEBT_LABEL[p.type];
+      const old = editId ? convertToArray(debtData.payments, []).find(x => x && x.id === editId) : null;
+      if (editId && !old) { showNotification('Không tìm thấy phiếu ' + editId + ' (có thể vừa bị xóa).', 'error'); return; }
+      debtPayEditId = old ? old.id : null;
       document.getElementById('dp-pkey').value = pkey;
-      document.getElementById('dp-title').innerHTML = `<i class="fa-solid ${L.icon}"></i>${L.pay}`;
+      document.getElementById('dp-title').innerHTML = old ? `<i class="fa-solid fa-pen"></i>Sửa phiếu ${esc(old.id)}` : `<i class="fa-solid ${L.icon}"></i>${L.pay}`;
       document.getElementById('dp-partner').textContent = p.name;
       const bal = document.getElementById('dp-balance');
       bal.textContent = 'Còn nợ ' + formatMoney(Math.max(0, p.balance)) + ' đ';
       bal.className = 'font-mono font-black shrink-0 ' + (p.type === 'S' ? 'text-red-400' : 'text-emerald-400');
-      document.getElementById('dp-amount').value = formatMoney(amount || 0);
-      document.getElementById('dp-fill-all').onclick = () => { document.getElementById('dp-amount').value = formatMoney(Math.max(0, p.balance)); };
-      document.getElementById('dp-date').value = dateInputValue();
-      document.getElementById('dp-method').value = 'Chuyển khoản';
-      document.getElementById('dp-note').value = note || '';
+      const maxPay = Math.max(0, p.balance + (old ? parseCurrencyNumber(old.amount) : 0));
+      document.getElementById('dp-amount').value = formatMoney(old ? parseCurrencyNumber(old.amount) : (amount || 0));
+      document.getElementById('dp-fill-all').onclick = () => { document.getElementById('dp-amount').value = formatMoney(maxPay); };
+      document.getElementById('dp-date').value = dateInputValue(old ? old.ts : 0);
+      document.getElementById('dp-method').value = old && old.method ? old.method : 'Chuyển khoản';
+      document.getElementById('dp-note').value = old ? (old.note || '') : (note || '');
       document.getElementById('debt-pay-modal').classList.remove('hidden');
       setTimeout(() => document.getElementById('dp-amount').focus(), 80);
     }
@@ -6755,7 +6765,7 @@
       if (!inv) return;
       const key = dealerKeyOf(inv.phone, inv.name);
       const st = debtStateOf('invoice', invId);
-      openDebtPayModal(key, st ? st.remain : invoiceDebtAmount(inv), 'Thu nợ ' + invId);
+      openDebtPayModal(key, st ? st.remain : invoiceDebtAmount(inv), 'Thu nợ ' + invId, null);
     }
     async function saveDebtPayment() {
       if (!canAccessDebt()) return;
@@ -6765,27 +6775,36 @@
       const amount = parseCurrencyNumber(document.getElementById('dp-amount').value);
       if (!p) return;
       if (!amount) { showNotification('Vui lòng nhập số tiền!', 'warning'); document.getElementById('dp-amount').focus(); return; }
+      const old = debtPayEditId ? convertToArray(debtData.payments, []).find(x => x && x.id === debtPayEditId) : null;
+      if (debtPayEditId && (!old || !canEditDebt())) { if (!old) showNotification('Phiếu đã bị xóa từ máy khác!', 'error'); else denyDebtEdit(); return; }
+      const maxPay = Math.max(0, p.balance + (old ? parseCurrencyNumber(old.amount) : 0));
       const go = async () => {
         const dv = document.getElementById('dp-date').value;
-        const ts = dv === dateInputValue() ? Date.now() : dateInputTs(dv);
+        let ts;
+        if (old && dv === dateInputValue(old.ts)) ts = old.ts;            // không đổi ngày -> giữ nguyên giờ cũ
+        else ts = dv === dateInputValue() ? Date.now() : dateInputTs(dv);
         const d = new Date(ts), pad = n => String(n).padStart(2, '0');
-        const id = DEBT_LABEL[p.type].prefix + '-' + pad(d.getDate()) + pad(d.getMonth() + 1) + String(d.getFullYear()).slice(2) + '-' + Date.now().toString().slice(-5);
+        const id = old ? old.id : DEBT_LABEL[p.type].prefix + '-' + pad(d.getDate()) + pad(d.getMonth() + 1) + String(d.getFullYear()).slice(2) + '-' + Date.now().toString().slice(-5);
+        const me = (currentLoggedInUser && currentLoggedInUser.name) || '';
         const rec = { id: id, pkey: pkey, pname: p.name, type: p.type, amount: amount, ts: ts,
           method: document.getElementById('dp-method').value, note: document.getElementById('dp-note').value.trim(),
-          by: (currentLoggedInUser && currentLoggedInUser.name) || '', createdAt: Date.now() };
+          by: old ? (old.by || '') : me, createdAt: old ? (old.createdAt || Date.now()) : Date.now() };
+        if (old) { rec.editedBy = me; rec.editedAt = Date.now(); }
         const btn = document.getElementById('dp-save'); btn.disabled = true;
         const ok = await debtWrite('payments/' + id, rec);
         btn.disabled = false;
         if (!ok) return;
         closeDebtModal('debt-pay-modal');
+        debtPayEditId = null;
         if (!firebaseDb) { renderDebtTab(); renderInvoiceList(); renderReceiptList(); }
-        showNotification(`Đã lưu ${p.type === 'S' ? 'phiếu chi' : 'phiếu thu'} ${id}: ${formatMoney(amount)} đ`, 'success');
+        setTimeout(() => { if (!document.getElementById('debt-ledger-modal').classList.contains('hidden')) openDebtLedger(pkey); }, 300);
+        showNotification(`Đã ${old ? 'sửa' : 'lưu'} ${p.type === 'S' ? 'phiếu chi' : 'phiếu thu'} ${id}: ${formatMoney(amount)} đ`, 'success');
       };
-      if (amount > Math.max(0, p.balance)) showConfirmModal('Số tiền lớn hơn số nợ', `Số tiền ${formatMoney(amount)} đ lớn hơn số còn nợ ${formatMoney(Math.max(0, p.balance))} đ. Phần dư sẽ thành tiền trả trước. Vẫn lưu?`, go);
+      if (amount > maxPay) showConfirmModal('Số tiền lớn hơn số nợ', `Số tiền ${formatMoney(amount)} đ lớn hơn số còn nợ ${formatMoney(maxPay)} đ. Phần dư sẽ thành tiền trả trước. Vẫn lưu?`, go);
       else go();
     }
     function deleteDebtPayment(id) {
-      if (!canAccessDebt()) return;
+      if (!canEditDebt()) { denyDebtEdit(); return; }
       const pm = convertToArray(debtData.payments, []).find(x => x && x.id === id);
       if (!pm) return;
       showConfirmModal('Xóa phiếu ' + id, `Xóa phiếu ${pm.type === 'S' ? 'chi' : 'thu'} ${formatMoney(pm.amount)} đ ngày ${viDate(pm.ts)} của ${pm.pname || ''}? Số nợ sẽ được tính lại.`, async () => {
@@ -6815,6 +6834,9 @@
     function openDebtPartnerModal(pkey) {
       if (!canAccessDebt()) return;
       const p = pkey ? debtBook().partners[pkey] : null;
+      if (p && p.registered && !canEditDebt()) { denyDebtEdit(); return; }
+      const delBtn = document.getElementById('dpt-delete');
+      if (delBtn) delBtn.classList.toggle('hidden', !(p && canEditDebt() && (p.registered || p.payments.length)));
       document.getElementById('dpt-key').value = p ? p.key : '';
       document.getElementById('dpt-title').innerHTML = p ? '<i class="fa-solid fa-pen"></i>Sửa đối tác & nợ đầu kỳ' : '<i class="fa-solid fa-user-plus"></i>Thêm đối tác & số dư đầu kỳ';
       setDebtPartnerType(p ? p.type : debtView);
@@ -6838,6 +6860,7 @@
       const key = fixedKey || (type === 'S' ? supplierKey(name) : dealerKeyOf(phone, name));
       if (!key) { showNotification('Tên không hợp lệ!', 'warning'); return; }
       const exists = debtBook().partners[key];
+      if (exists && exists.registered && !canEditDebt()) { denyDebtEdit(); return; }
       if (!fixedKey && exists && exists.registered && !window._dptOverwriteOk) {
         showConfirmModal('Đối tác đã có trong sổ', `"${exists.name}" đã có nợ đầu kỳ ${formatMoney(exists.opening)} đ. Ghi đè bằng thông tin vừa nhập?`, () => { window._dptOverwriteOk = true; saveDebtPartner(); });
         return;
@@ -6854,6 +6877,29 @@
       showNotification('Đã lưu ' + name, 'success');
     }
 
+    function deleteDebtPartner() {
+      if (!canEditDebt()) { denyDebtEdit(); return; }
+      const key = document.getElementById('dpt-key').value;
+      const p = key ? debtBook().partners[key] : null;
+      if (!p) return;
+      const pays = convertToArray(debtData.payments, []).filter(x => x && x.pkey === key);
+      const left = p.debits.filter(d => d.kind !== 'opening').length;
+      showConfirmModal('Xóa đối tác ' + p.name,
+        `Sẽ xóa nợ đầu kỳ, ghi chú và ${pays.length} phiếu ${p.type === 'S' ? 'chi' : 'thu'} của "${p.name}".` +
+        (left ? ` Còn ${left} ${p.type === 'S' ? 'phiếu nhập' : 'hóa đơn'} ghi nợ vẫn giữ nguyên (muốn bỏ thì sửa tình trạng ở ${p.type === 'S' ? 'phiếu nhập' : 'hóa đơn'} đó).` : '') + ' Không thể hoàn tác. Tiếp tục?',
+        async () => {
+          const upd = {}; upd['partners/' + key] = null;
+          pays.forEach(x => { upd['payments/' + x.id] = null; });
+          let ok;
+          if (firebaseDb) ok = await firebaseDb.ref('garage/debt').update(upd).then(() => true).catch(e => { showNotification('Không xóa được (' + ((e && e.code) || 'bị từ chối') + ')!', 'error'); return false; });
+          else { Object.keys(upd).forEach(k => debtWrite(k, null)); ok = true; }
+          if (!ok) return;
+          closeDebtModal('debt-partner-modal');
+          if (!firebaseDb) renderDebtTab();
+          showNotification('Đã xóa ' + p.name + ' khỏi sổ công nợ', 'info');
+        });
+    }
+
     // ----- Sổ chi tiết 1 đối tác -----
     function debtLedgerRows(p) {
       const rows = [];
@@ -6861,7 +6907,7 @@
         text: d.kind === 'opening' ? 'Số dư nợ đầu kỳ' : (d.kind === 'receipt' ? 'Phiếu nhập ' + d.ref : 'Hóa đơn ' + d.ref + (d.plate ? ' · ' + d.plate : '')) +
           (d.prepaid ? ' (tổng ' + formatMoney(d.total) + ', trả trước ' + formatMoney(d.prepaid) + ')' : ''),
         inc: d.amount, dec: 0, remain: d.remain, settledAt: d.settledAt }));
-      p.payments.forEach(x => rows.push({ ts: x.ts, kind: 'pay', ref: x.id, text: (p.type === 'S' ? 'Phiếu chi ' : 'Phiếu thu ') + x.id + (x.method ? ' · ' + x.method : '') + (x.note ? ' · ' + x.note : ''), inc: 0, dec: x.amount, by: x.by }));
+      p.payments.forEach(x => rows.push({ ts: x.ts, kind: 'pay', ref: x.id, text: (p.type === 'S' ? 'Phiếu chi ' : 'Phiếu thu ') + x.id + (x.method ? ' · ' + x.method : '') + (x.note ? ' · ' + x.note : ''), inc: 0, dec: x.amount, by: x.by + (x.editedBy ? ' · sửa bởi ' + x.editedBy : '') }));
       rows.sort((a, b) => (a.ts - b.ts) || (a.kind === 'opening' ? -1 : 0));
       let bal = 0;
       rows.forEach(r => { bal += r.inc - r.dec; r.bal = bal; });
@@ -6893,7 +6939,7 @@
             <div class="col-span-2 text-right font-mono text-sky-300">${r.dec ? formatMoney(r.dec) : ''}</div>
             <div class="col-span-1 text-right font-mono text-[10px] flex items-center justify-end gap-1">${shortMoney(r.bal)}
               ${r.kind === 'invoice' ? `<button onclick="closeDebtModal('debt-ledger-modal'); viewInvoiceDetail('${esc(r.ref)}')" title="Xem hóa đơn" class="text-gray-400 hover:text-white"><i class="fa-solid fa-eye"></i></button>` : ''}
-              ${r.kind === 'pay' ? `<button onclick="deleteDebtPayment('${esc(r.ref)}')" title="Xóa phiếu" class="text-gray-500 hover:text-red-400"><i class="fa-solid fa-trash-can"></i></button>` : ''}
+              ${r.kind === 'pay' && canEditDebt() ? `<button onclick="closeDebtModal('debt-ledger-modal'); openDebtPayModal('${esc(p.key)}', 0, '', '${esc(r.ref)}')" title="Sửa phiếu" class="text-gray-400 hover:text-amber-300"><i class="fa-solid fa-pen"></i></button><button onclick="deleteDebtPayment('${esc(r.ref)}')" title="Xóa phiếu" class="text-gray-500 hover:text-red-400"><i class="fa-solid fa-trash-can"></i></button>` : ''}
             </div>
           </div>`).join('') || '<div class="p-4 text-center text-gray-500 italic">Chưa có phát sinh.</div>'}
         </div>
