@@ -22,8 +22,8 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   
   <!-- Thư viện tạo ảnh hóa đơn chất lượng cao & Xuất Excel -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
 
   <!-- Firebase SDK Realtime Database -->
@@ -32,8 +32,10 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-check-compat.js"></script>
   
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap">
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
     
     * {
       box-sizing: border-box;
@@ -2415,6 +2417,50 @@
       else location.reload();
     }
 
+    // ===== HIỆU NĂNG: chỉ vẽ phần đang xem =====
+    // (1) Tab đang ẩn thì không vẽ lại danh sách mỗi khi dữ liệu đổi, chỉ ghi nhớ -> vẽ khi mở tab đó.
+    var deferredRenders = {};
+    function deferIfHidden(elId, fnName) {
+      const el = document.getElementById(elId);
+      const tab = el && el.closest('.tab-content');
+      if (tab && tab.classList.contains('hidden')) { (deferredRenders[tab.id] = deferredRenders[tab.id] || new Set()).add(fnName); return true; }
+      return false;
+    }
+    function runDeferred(tabId) {
+      const set = deferredRenders[tabId];
+      if (!set || !set.size) return;
+      deferredRenders[tabId] = new Set();
+      set.forEach(fn => { try { if (typeof window[fn] === 'function') window[fn](); } catch (e) { console.warn(fn, e); } });
+    }
+    // (2) Danh sách dài: vẽ trước LIST_PAGE dòng, bấm "Xem thêm" để vẽ tiếp (tìm kiếm vẫn tìm trên toàn bộ dữ liệu).
+    var LIST_PAGE = 40, pageState = {};
+    function pageSlice(key, sig, list) {
+      let st = pageState[key];
+      if (!st || st.sig !== sig) st = pageState[key] = { sig: sig, n: LIST_PAGE };
+      st.total = list.length;
+      return list.length > st.n ? list.slice(0, st.n) : list;
+    }
+    function pageMoreHtml(key, fnName, wrapTag) {
+      const st = pageState[key];
+      if (!st || st.total <= st.n) return '';
+      const left = st.total - st.n;
+      const btn = `<button type="button" onclick="pageMore('${key}','${fnName}')" class="w-full py-2.5 bg-gray-800 hover:bg-gray-700 active:scale-[0.99] text-amber-300 border border-gray-700 rounded-xl text-xs font-bold transition"><i class="fa-solid fa-angles-down mr-1"></i>Xem thêm ${Math.min(left, LIST_PAGE * 2)} (còn ${left})</button>`;
+      return wrapTag === 'tr' ? `<tr><td colspan="12" class="p-2">${btn}</td></tr>` : `<div class="pt-1">${btn}</div>`;
+    }
+    function pageMore(key, fnName) {
+      const st = pageState[key]; if (!st) return;
+      st.n += LIST_PAGE * 2;
+      const y = window.scrollY;
+      if (typeof window[fnName] === 'function') window[fnName]();
+      window.scrollTo(0, y);
+    }
+    const isDesktopView = () => window.matchMedia('(min-width: 768px)').matches;
+    var lastDesktopView = null;
+    window.addEventListener('resize', () => {
+      const d = isDesktopView();
+      if (lastDesktopView !== null && d !== lastDesktopView) { lastDesktopView = d; try { renderInventoryTable(); } catch (e) {} }
+    });
+
     function switchTab(tabId) {
       document.querySelectorAll('.tab-content').forEach(t => t.classList.add('hidden'));
       document.querySelectorAll('.tab-btn').forEach(b => {
@@ -2431,7 +2477,8 @@
         activeBtn.classList.remove('bg-gray-800', 'text-gray-300');
       }
 
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      window.scrollTo({ top: 0, behavior: 'auto' });
+      runDeferred(tabId);
       if (tabId === 'tab-debt') renderDebtTab();
       if (tabId === 'tab-reports' && typeof renderFinanceDash === 'function') setTimeout(() => { try { renderFinanceDash(); } catch (e) {} }, 30);
     }
@@ -3708,6 +3755,7 @@
       }
       const container = document.getElementById('invoice-list-container');
       if (!container) return;
+      if (deferIfHidden('invoice-list-container', 'renderInvoiceList')) return;
       if (filtered.length === 0) {
         container.innerHTML = `<div class="p-6 text-center text-xs text-gray-500 italic bg-gray-800/30 rounded-xl">${invoiceAcctFilter === 'ALL' ? 'Chưa có hóa đơn nào.' : 'Không có hóa đơn nào ở mục "' + fDef[1] + '".'}</div>`;
         return;
@@ -3715,7 +3763,8 @@
 
       const canManageInvoices = currentLoggedInUser && (currentLoggedInUser.role === 'admin' || currentLoggedInUser.role === 'stock');
 
-      container.innerHTML = filtered.map(inv => {
+      const shownInv = pageSlice('inv', q + '|' + invoiceAcctFilter + '|' + invoiceSortDir, filtered);
+      container.innerHTML = shownInv.map(inv => {
         const actionButtons = canManageInvoices ? `
           <div class="flex items-center gap-1.5 mt-1">
             <button onclick="viewInvoiceDetail('${inv.id}')" title="Xem & In" class="px-2.5 py-1 bg-gray-700 hover:bg-gray-600 active:scale-95 text-amber-300 rounded-lg text-[11px] font-semibold flex items-center gap-1">
@@ -3793,7 +3842,7 @@
             </div>
           </div>
         `;
-      }).join('');
+      }).join('') + pageMoreHtml('inv', 'renderInvoiceList');
       if (typeof renderDebtTab === 'function') renderDebtTab();
     }
 
@@ -4298,6 +4347,7 @@
         }
       }
 
+      if (deferIfHidden('inventory-list-tbody', 'renderInventoryTable')) return;
       if (!filtered.length) {
         const emptyMsg = `<div class="p-6 text-center text-xs text-gray-500 italic bg-gray-800/30 rounded-xl">Không tìm thấy phụ tùng phù hợp.</div>`;
         if (mobileContainer) mobileContainer.innerHTML = emptyMsg;
@@ -4305,8 +4355,13 @@
         return;
       }
 
-      if (mobileContainer) {
-        mobileContainer.innerHTML = filtered.map(p => {
+      // Chỉ vẽ 1 kiểu hiển thị đang dùng (thẻ trên điện thoại HOẶC bảng trên máy lớn), không vẽ cả hai
+      const desk = isDesktopView(); lastDesktopView = desk;
+      const shownInvt = pageSlice('invt', q, filtered);
+      if (mobileContainer && desk) mobileContainer.innerHTML = '';
+      if (desktopTbody && !desk) desktopTbody.innerHTML = '';
+      if (mobileContainer && !desk) {
+        mobileContainer.innerHTML = shownInvt.map(p => {
           const isLow = (p.stock <= 2);
           const unitStr = p.unit || 'Cái';
 
@@ -4374,11 +4429,11 @@
               ${actionRow}
             </div>
           `;
-        }).join('');
+        }).join('') + pageMoreHtml('invt', 'renderInventoryTable');
       }
 
-      if (desktopTbody) {
-        desktopTbody.innerHTML = filtered.map(p => {
+      if (desktopTbody && desk) {
+        desktopTbody.innerHTML = shownInvt.map(p => {
           if (isStockManager) {
             return `
               <tr class="hover:bg-gray-800/40 transition">
@@ -4422,7 +4477,7 @@
               </tr>
             `;
           }
-        }).join('');
+        }).join('') + pageMoreHtml('invt', 'renderInventoryTable', 'tr');
       }
     }
 
@@ -4452,7 +4507,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.27-1';
+    const APP_VERSION = '2026.10.27-2';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -5446,11 +5501,13 @@
       renderCustomerAndReports();
     }
 
+    var custInvCache = {};
     function toggleCustomerInvoices(btnElem, custKey) {
       const container = document.getElementById('cust-inv-detail-' + custKey);
       if (!container) return;
       const isHidden = container.classList.contains('hidden');
       if (isHidden) {
+        if (!container.innerHTML.trim() && custInvCache[custKey]) container.innerHTML = custInvCache[custKey]();
         container.classList.remove('hidden');
         btnElem.innerHTML = `<i class="fa-solid fa-chevron-up text-[10px]"></i><span>Thu gọn</span>`;
       } else {
@@ -5621,6 +5678,8 @@
 
       renderRevenueDashboard();
       renderFinanceDashboard();
+      // Danh sách khách nặng nhất app: chỉ tính & vẽ khi đang mở tab Khách Hàng
+      if (deferIfHidden('customer-list-container', 'renderCustomerAndReports')) return;
       // THUẬT TOÁN GOM NHÓM CHỐNG GỘP SĐT "0":
       const custMap = {};
 
@@ -5748,7 +5807,8 @@
         return;
       }
 
-      container.innerHTML = displayList.map(c => {
+      custInvCache = {};
+      container.innerHTML = pageSlice('cust', q + '|' + currentCustomerFilter + '|' + customerSortMode, displayList).map(c => {
         const isDealer = c.customerType.includes('Garage') || c.customerType.includes('Đại lý');
         const badgeColor = isDealer 
           ? 'bg-amber-950/80 text-amber-300 border-amber-500/40' 
@@ -5759,7 +5819,7 @@
         const carStr = esc(Array.from(c.cars).join(', ')) || 'Chưa có dòng xe';
         const phoneDisplay = c.phone ? esc(c.phone) : '<span class="text-gray-500 italic font-normal">Chưa có SĐT</span>';
 
-        const invoicesListHtml = c.invoices.map(inv => `
+        const invoicesListHtml = () => c.invoices.map(inv => `
           <div class="flex items-center justify-between text-[11px] bg-gray-900/80 p-2 rounded-lg border border-gray-800">
             <div class="min-w-0 flex-1 pr-2">
               <div class="flex items-center gap-1.5 flex-wrap">
@@ -5781,6 +5841,7 @@
         `).join('');
 
         const safeKey = c.key.replace(/[^a-zA-Z0-9_]/g, '_');
+        custInvCache[safeKey] = invoicesListHtml; // chi tiết hoá đơn chỉ vẽ khi bấm mở
 
         return `
           <div class="bg-gray-800/60 border border-gray-700/60 rounded-xl p-3 sm:p-3.5 space-y-2.5">
@@ -5827,12 +5888,10 @@
             </div>
 
             <!-- Khung danh sách hóa đơn chi tiết -->
-            <div id="cust-inv-detail-${safeKey}" data-count="${c.visits}" class="hidden pt-2 border-t border-gray-700/60 space-y-1.5">
-              ${invoicesListHtml}
-            </div>
+            <div id="cust-inv-detail-${safeKey}" data-count="${c.visits}" class="hidden pt-2 border-t border-gray-700/60 space-y-1.5"></div>
           </div>
         `;
-      }).join('');
+      }).join('') + pageMoreHtml('cust', 'renderCustomerAndReports');
     }
 
     function exportCustomersToExcel() {
@@ -6115,12 +6174,13 @@
         );
       }
 
+      if (deferIfHidden('stock-log-container', 'renderStockLogs')) return;
       if (filtered.length === 0) {
         container.innerHTML = `<div class="p-6 text-center text-xs text-gray-500 italic bg-gray-800/30 rounded-xl border border-gray-800">Không có nhật ký kho phù hợp.</div>`;
         return;
       }
 
-      container.innerHTML = filtered.map(log => {
+      container.innerHTML = pageSlice('logs', q + '|' + currentStockLogFilter, filtered).map(log => {
         let badgeColor = 'bg-sky-950/80 text-sky-400 border-sky-500/40';
         let badgeIcon = 'fa-pen-to-square';
         let badgeText = 'Điều Chỉnh Tồn';
@@ -6173,7 +6233,7 @@
             </div>
           </div>
         `;
-      }).join('');
+      }).join('') + pageMoreHtml('logs', 'renderStockLogs');
     }
 
     function clearStockLogsConfirm() {
