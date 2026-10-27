@@ -2243,7 +2243,7 @@
       listenGarageProfile();
       listenCustomerDirectory();
       bindList('garage/inventory', true, () => { renderInventoryTable(); populateInventorySelector('ALL'); migrateInlineImages(); fixDuplicateInventoryIds(); });
-      bindList('garage/invoices', true, () => { renderInvoiceList(); renderCustomerAndReports(); refreshMaintenanceDue(); });
+      bindList('garage/invoices', true, () => { renderInvoiceList(); renderCustomerAndReports(); detectNewInvoices(); refreshMaintenanceDue(); refreshAccountingDue(); });
       bindList('garage/stockLogs', true, () => { renderStockLogs(); updateInventoryOverviewStats(); });
       bindList('garage/staff', false, () => { renderStaffCards(); populateAdvisorSelect(); syncCurrentUserFromRoster(); });
     }
@@ -3405,7 +3405,8 @@
           subtotal: subtotal,
           discount: discount,
           total: finalTotal,
-          payStatus: payStatus
+          payStatus: payStatus,
+          createdBy: (currentLoggedInUser && currentLoggedInUser.name) || ''
         };
         if (payStatus === 'deposit') { base.deposit = depositAmt; base.depositAt = Date.now(); }
         if (payStatus === 'debt' && depositAmt) base.prepaid = depositAmt;
@@ -3453,6 +3454,7 @@
         renderCustomerAndReports();
         showPrintModal(newInv);
         showNotification(`Đã xuất hóa đơn ${newInv.id}!`, 'success');
+        invChimed.add(newInv.id); playChime('order');
       } finally {
         invoiceSaving = false;
       }
@@ -4450,7 +4452,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.25-3';
+    const APP_VERSION = '2026.10.27-1';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -7466,10 +7468,139 @@
       renderNotifBell();
     }
 
+    // ===== ÂM BÁO + NHẮC KẾ TOÁN (đặt cọc chưa thu đủ, chưa xuất hoá đơn điện tử) =====
+    // Âm báo bật/tắt theo từng máy. Trình duyệt chỉ cho phát tiếng sau khi người dùng chạm/bấm vào trang 1 lần.
+    let soundOn = true; try { soundOn = localStorage.getItem('drshock_sound') !== 'off'; } catch (e) {}
+    let audioCtx = null;
+    function unlockAudio() {
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+      } catch (e) {}
+    }
+    ['click', 'touchstart', 'keydown'].forEach(ev => document.addEventListener(ev, unlockAudio, { passive: true }));
+    // kind: 'order' = ting-ting (đơn mới) | 'remind' = 3 tiếng trầm (nhắc việc)
+    function playChime(kind) {
+      if (!soundOn) return;
+      try {
+        unlockAudio();
+        if (!audioCtx) return;
+        const notes = kind === 'remind' ? [[659, 0], [523, 0.22], [659, 0.44]] : [[880, 0], [1319, 0.16]];
+        notes.forEach(([f, t]) => {
+          const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+          o.type = 'sine'; o.frequency.value = f;
+          const t0 = audioCtx.currentTime + t;
+          g.gain.setValueAtTime(0.0001, t0);
+          g.gain.exponentialRampToValueAtTime(0.35, t0 + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.5);
+          o.connect(g); g.connect(audioCtx.destination);
+          o.start(t0); o.stop(t0 + 0.55);
+        });
+      } catch (e) {}
+    }
+    function toggleSound() {
+      soundOn = !soundOn;
+      try { localStorage.setItem('drshock_sound', soundOn ? 'on' : 'off'); } catch (e) {}
+      if (soundOn) playChime('order');
+      showNotification(soundOn ? '🔊 Đã bật âm báo trên máy này' : '🔇 Đã tắt âm báo trên máy này', 'info');
+      renderNotifPanel();
+    }
+
+    // Đơn mới từ bất kỳ máy nào -> ting ting + thông báo (máy lập đơn cũng kêu)
+    let invKnown = null; const invChimed = new Set();
+    function detectNewInvoices() {
+      const ids = invoiceList.map(i => i.id);
+      if (invKnown === null) { invKnown = new Set(ids); return; } // lần tải đầu: không kêu
+      const fresh = invoiceList.filter(i => !invKnown.has(i.id));
+      ids.forEach(id => invKnown.add(id));
+      fresh.forEach(i => {
+        if (invChimed.has(i.id)) return;
+        invChimed.add(i.id);
+        const msg = `${i.id} · ${i.plate || ''} ${i.name ? '- ' + i.name : ''} · ${formatMoney(i.total || 0)} đ${i.payStatus === 'deposit' ? ' (đặt cọc)' : i.payStatus === 'debt' ? ' (ghi nợ)' : ''}${i.createdBy ? ' · ' + i.createdBy : ''}`;
+        playChime('order');
+        showNotification('🧾 Đơn mới: ' + msg, 'success');
+        try { if ('Notification' in window && Notification.permission === 'granted') new Notification('🧾 Đơn mới', { body: msg, icon: 'avatar.jpg' }); } catch (e) {}
+      });
+    }
+
+    // Đơn chưa xuất HĐ điện tử: chỉ nhắc đơn trong TAX_REMIND_DAYS ngày gần đây, bỏ đơn đã đánh dấu "Không cần xuất"
+    const TAX_REMIND_DAYS = 45;
+    const ACC_REMIND_SLOTS = ['09:00', '15:00']; // giờ nhắc trong ngày (mỗi máy nhắc 1 lần mỗi khung giờ)
+    let accDue = { deposit: [], tax: [] };
+    function computeAccountingDue() {
+      const DAY = 86400000, now = Date.now();
+      const deposit = [], tax = [];
+      invoiceList.forEach(inv => {
+        const t = invTime(inv);
+        const p = invPayInfo(inv);
+        if (p.deposit && p.remain > 0) deposit.push({ inv, remain: p.remain, dep: p.dep, days: Math.floor((now - (p.depositAt || t || now)) / DAY) });
+        if (!hasTaxInvoice(inv) && !inv.noTaxInvoice && (inv.total || 0) > 0 && t && now - t <= TAX_REMIND_DAYS * DAY) tax.push({ inv, days: Math.floor((now - t) / DAY) });
+      });
+      deposit.sort((a, b) => b.days - a.days); tax.sort((a, b) => b.days - a.days);
+      return { deposit, tax };
+    }
+    function accDueCount() { return canManageAccounting() ? accDue.deposit.length + accDue.tax.length : 0; }
+    function accRemindToast(force) {
+      if (!canManageAccounting() || !accDueCount()) return;
+      const parts = [];
+      if (accDue.deposit.length) parts.push(accDue.deposit.length + ' đơn đặt cọc chưa thu đủ (' + formatMoney(accDue.deposit.reduce((s, x) => s + x.remain, 0)) + ' đ)');
+      if (accDue.tax.length) parts.push(accDue.tax.length + ' đơn chưa xuất hoá đơn điện tử');
+      playChime('remind');
+      showNotification('⏰ Nhắc việc: ' + parts.join(' · ') + '. Bấm chuông để xử lý.', 'warning');
+      try { if (!force && 'Notification' in window && Notification.permission === 'granted') new Notification('⏰ Nhắc việc Dr.Shock', { body: parts.join('\n'), icon: 'avatar.jpg' }); } catch (e) {}
+    }
+    function accCheckSlots() {
+      if (!currentLoggedInUser || !canManageAccounting()) return;
+      const d = new Date(), hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+      const day = d.toLocaleDateString('vi-VN');
+      // Khung giờ gần nhất đã qua hôm nay (hoặc lần đầu mở app trong ngày)
+      const passed = ACC_REMIND_SLOTS.filter(s => s <= hm);
+      const slot = passed.length ? passed[passed.length - 1] : 'open';
+      const key = day + ' ' + slot;
+      let seen = ''; try { seen = localStorage.getItem('drshock_acc_remind') || ''; } catch (e) {}
+      if (seen === key) return;
+      try { localStorage.setItem('drshock_acc_remind', key); } catch (e) {}
+      accRemindToast();
+    }
+    setInterval(accCheckSlots, 60 * 1000);
+    function refreshAccountingDue() {
+      accDue = computeAccountingDue();
+      renderNotifBell();
+      if (cloudReady['garage/invoices'] || !firebaseDb) accCheckSlots();
+    }
+    async function markNoTaxInvoice(id) {
+      if (!canManageAccounting() || !cloudWritable(['garage/invoices'])) return;
+      const res = await cloudUpdateList('garage/invoices', list => { const t = list.find(i => i.id === id); if (t) t.noTaxInvoice = true; return list; });
+      if (res === false) return;
+      showNotification('Đã đánh dấu ' + id + ' không cần xuất hoá đơn điện tử', 'success');
+    }
+    function accDueHtml() {
+      if (!canManageAccounting() || !accDueCount()) return '';
+      const row = (inv, right, btns) => `<div class="p-2 bg-gray-950/30 border-t border-gray-800/60">
+          <div class="flex items-center justify-between gap-2"><span class="text-[11px] text-gray-200 truncate"><b class="font-mono text-amber-300">${esc(inv.id)}</b> · ${esc(inv.plate || '')} ${inv.name ? '- ' + esc(inv.name) : ''}</span>${right}</div>
+          <div class="flex gap-1.5 mt-1">${btns}</div></div>`;
+      const btn = (cls, js, label) => `<button onclick="event.stopPropagation();document.getElementById('notif-panel').classList.add('hidden');${js}" class="text-[10px] px-2 py-0.5 rounded-lg border font-semibold ${cls}">${label}</button>`;
+      let h = '';
+      if (accDue.deposit.length) {
+        h += `<div class="p-2.5 bg-amber-950/20"><div class="text-xs font-bold text-amber-400"><i class="fa-solid fa-hand-holding-dollar mr-1"></i>Đặt cọc chưa thu đủ (${accDue.deposit.length})</div></div>` +
+          accDue.deposit.slice(0, 15).map(x => row(x.inv, `<span class="text-[10px] shrink-0 ${x.days >= 3 ? 'text-red-400' : 'text-gray-400'}">còn <b class="font-mono">${formatMoney(x.remain)}</b> · ${x.days ? x.days + ' ngày' : 'hôm nay'}</span>`,
+            btn('bg-emerald-600/20 text-emerald-300 border-emerald-500/40', `markInvoicePaid('${esc(x.inv.id)}')`, '<i class="fa-solid fa-check mr-1"></i>Đã thu đủ') +
+            (x.inv.phone ? `<a onclick="event.stopPropagation()" href="tel:${esc(String(x.inv.phone).replace(/[^0-9+]/g, ''))}" class="text-[10px] px-2 py-0.5 rounded-lg border font-semibold bg-sky-600/20 text-sky-300 border-sky-500/40"><i class="fa-solid fa-phone mr-1"></i>Gọi khách</a>` : ''))).join('');
+      }
+      if (accDue.tax.length) {
+        h += `<div class="p-2.5 bg-sky-950/20"><div class="text-xs font-bold text-sky-300"><i class="fa-solid fa-file-invoice-dollar mr-1"></i>Chưa xuất hoá đơn điện tử (${accDue.tax.length})</div><div class="text-[10px] text-gray-500">Đơn trong ${TAX_REMIND_DAYS} ngày gần đây</div></div>` +
+          accDue.tax.slice(0, 20).map(x => row(x.inv, `<span class="text-[10px] shrink-0 ${x.days >= 1 ? 'text-red-400' : 'text-gray-400'}"><b class="font-mono">${formatMoney(x.inv.total || 0)}</b> · ${x.days ? x.days + ' ngày' : 'hôm nay'}</span>`,
+            btn('bg-sky-600/20 text-sky-300 border-sky-500/40', `openTaxInvoiceModal('${esc(x.inv.id)}')`, '<i class="fa-solid fa-pen mr-1"></i>Nhập số HĐ') +
+            btn('bg-gray-800 text-gray-400 border-gray-700', `markNoTaxInvoice('${esc(x.inv.id)}')`, 'Không cần xuất'))).join('') +
+          (accDue.tax.length > 20 ? `<div class="p-2 text-[10px] text-gray-500 text-center">… và ${accDue.tax.length - 20} đơn nữa (xem ở tab Hoá Đơn)</div>` : '');
+      }
+      return h;
+    }
+
     function unreadNotifCount() { return notifList.filter(n => n.ts > notifReadTs && n.device !== DEVICE_ID).length; }
     function renderNotifBell() {
       const b = document.getElementById('notif-badge');
-      if (b) { const c = unreadNotifCount() + maintDueList.length; b.textContent = c > 9 ? '9+' : c; b.style.display = c ? 'flex' : 'none'; }
+      if (b) { const c = unreadNotifCount() + maintDueList.length + accDueCount(); b.textContent = c > 9 ? '9+' : c; b.style.display = c ? 'flex' : 'none'; }
       const p = document.getElementById('notif-panel');
       if (p && !p.classList.contains('hidden')) renderNotifPanel();
     }
@@ -7477,15 +7608,16 @@
       const p = document.getElementById('notif-panel');
       const canAsk = 'Notification' in window && Notification.permission === 'default';
       p.innerHTML = `<div class="flex items-center justify-between px-3 py-2 border-b border-gray-800 bg-gray-950/60"><span class="text-xs font-bold text-white"><i class="fa-solid fa-bell text-orange-400 mr-1.5"></i>Thông báo</span>
-        ${canAsk ? '<button onclick="askBrowserNotify()" class="text-[10px] px-2 py-1 rounded-lg bg-sky-600/20 text-sky-300 border border-sky-500/40 font-semibold">Bật thông báo máy này</button>' : ''}</div>
-        <div class="max-h-80 overflow-y-auto custom-scrollbar divide-y divide-gray-800">${maintDueList.map(m => `
+        <span class="flex items-center gap-1.5">${canAsk ? '<button onclick="askBrowserNotify()" class="text-[10px] px-2 py-1 rounded-lg bg-sky-600/20 text-sky-300 border border-sky-500/40 font-semibold">Bật thông báo máy này</button>' : ''}
+        <button onclick="event.stopPropagation();toggleSound()" title="Âm báo đơn mới / nhắc việc trên máy này" class="text-[10px] px-2 py-1 rounded-lg border font-semibold ${soundOn ? 'bg-emerald-600/20 text-emerald-300 border-emerald-500/40' : 'bg-gray-800 text-gray-400 border-gray-700'}">${soundOn ? '🔊 Âm báo: Bật' : '🔇 Âm báo: Tắt'}</button></span></div>
+        <div class="max-h-[70vh] overflow-y-auto custom-scrollbar divide-y divide-gray-800">${accDueHtml()}${maintDueList.map(m => `
           <div class="p-2.5 bg-amber-950/20">
             <div class="flex items-center justify-between gap-2"><span class="text-xs font-bold text-amber-400"><i class="fa-solid fa-wrench mr-1"></i>Khách đến hạn bảo dưỡng</span><span class="text-[10px] ${m.days < 0 ? 'text-red-400' : 'text-gray-500'}">${m.days < 0 ? 'Quá hạn ' + (-m.days) + ' ngày' : (m.days === 0 ? 'Hôm nay' : 'Còn ' + m.days + ' ngày')}</span></div>
             <p class="text-[11px] text-gray-300 mt-0.5">${esc(maintText(m))}</p>
             ${m.phone ? `<a href="tel:${esc(String(m.phone).replace(/[^0-9+]/g, ''))}" class="inline-block mt-1 text-[10px] px-2 py-0.5 rounded-lg bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 font-semibold"><i class="fa-solid fa-phone mr-1"></i>Gọi khách</a>` : ''}</div>`).join('')}${notifList.length ? notifList.map(n => `
           <div onclick="openNotif('${n.id}')" class="p-2.5 hover:bg-gray-800/80 cursor-pointer ${n.ts > notifReadTs && n.device !== DEVICE_ID ? 'bg-red-950/20' : ''}">
             <div class="flex items-center justify-between gap-2"><span class="text-xs font-bold text-orange-400"><i class="fa-solid fa-truck-ramp-box mr-1"></i>${highlightMatch(n.title, [])}</span><span class="text-[10px] text-gray-500">${n.time || ''}</span></div>
-            <p class="text-[11px] text-gray-300 mt-0.5">${highlightMatch(n.message, [])}</p></div>`).join('') : (maintDueList.length ? '' : '<div class="p-4 text-center text-xs text-gray-500 italic">Chưa có thông báo nào.</div>')}</div>`;
+            <p class="text-[11px] text-gray-300 mt-0.5">${highlightMatch(n.message, [])}</p></div>`).join('') : (maintDueList.length || accDueCount() ? '' : '<div class="p-4 text-center text-xs text-gray-500 italic">Chưa có thông báo nào.</div>')}</div>`;
     }
     function toggleNotifPanel() {
       const p = document.getElementById('notif-panel');
