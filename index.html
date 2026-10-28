@@ -1546,6 +1546,8 @@
         <span id="dp-balance" class="font-mono font-black shrink-0"></span>
       </div>
       <div>
+        <label for="dp-target" class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Thanh toán cho</label>
+        <select id="dp-target" onchange="onDebtTargetChange()" class="w-full mb-2.5 bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-white focus:outline-none focus:border-orange-500"></select>
         <label for="dp-amount" class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Số tiền (đ) *</label>
         <input type="text" inputmode="numeric" id="dp-amount" autocomplete="off" onfocus="handleMoneyFocus(this)" onblur="handleMoneyBlur(this)"
           class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-right text-base font-mono font-black text-white focus:outline-none focus:border-orange-500">
@@ -4507,7 +4509,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.27-2';
+    const APP_VERSION = '2026.10.28-1';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -6658,7 +6660,7 @@
       convertToArray(debtData && debtData.payments, []).forEach(pm => {
         if (!pm || !pm.pkey || !(parseCurrencyNumber(pm.amount) > 0)) return;
         const p = get(pm.pkey, pm.type || (pm.pkey.indexOf('S_') === 0 ? 'S' : 'D'), pm.pname);
-        p.payments.push({ id: pm.id, ts: pm.ts || 0, amount: parseCurrencyNumber(pm.amount), method: pm.method || '', note: pm.note || '', by: pm.by || '', editedBy: pm.editedBy || '' });
+        p.payments.push({ id: pm.id, ts: pm.ts || 0, amount: parseCurrencyNumber(pm.amount), method: pm.method || '', note: pm.note || '', by: pm.by || '', editedBy: pm.editedBy || '', forRef: pm.forRef || '' });
       });
       const byRef = {};
       Object.values(P).forEach(p => {
@@ -6671,6 +6673,15 @@
         let credit = 0;
         p.payments.forEach(pm => {
           let left = pm.amount;
+          // Phiếu trả cho 1 chứng từ cụ thể: trừ vào chứng từ đó trước, phần dư mới trừ dần khoản cũ nhất
+          if (pm.forRef) {
+            const t = debits.find(d => debtDocKey(d) === pm.forRef);
+            if (t && t.remain > 0) {
+              const use = Math.min(left, t.remain);
+              t.remain -= use; left -= use;
+              if (t.remain <= 0) t.settledAt = pm.ts;
+            }
+          }
           for (const d of debits) {
             if (left <= 0) break;
             if (d.remain <= 0) continue;
@@ -6694,6 +6705,8 @@
       _debtCache = { sig: sig, partners: P, byRef: byRef };
       return _debtCache;
     }
+    function debtDocKey(d) { return d.kind === 'opening' ? 'opening' : d.kind + ':' + d.ref; }
+    function debtDocLabel(d) { return d.kind === 'opening' ? 'Nợ đầu kỳ' : (d.kind === 'receipt' ? 'Phiếu nhập ' : 'Hóa đơn ') + d.ref; }
     function debtStateOf(kind, ref) { return debtBook().byRef[kind + ':' + ref] || null; }
 
     function debtWrite(path, val) {
@@ -6798,7 +6811,7 @@
     function canEditDebt() { return isAdminUser(); }
     function denyDebtEdit() { showNotification('Chỉ Chủ Xưởng mới được sửa / xóa công nợ!', 'warning'); }
     let debtPayEditId = null;
-    function openDebtPayModal(pkey, amount, note, editId) {
+    function openDebtPayModal(pkey, amount, note, editId, forRef) {
       if (!canAccessDebt()) { showNotification('Chỉ Chủ Xưởng hoặc Kế Toán được ghi công nợ!', 'warning'); return; }
       if (editId && !canEditDebt()) { denyDebtEdit(); return; }
       const p = debtBook().partners[pkey];
@@ -6819,6 +6832,13 @@
       document.getElementById('dp-date').value = dateInputValue(old ? old.ts : 0);
       document.getElementById('dp-method').value = old && old.method ? old.method : 'Chuyển khoản';
       document.getElementById('dp-note').value = old ? (old.note || '') : (note || '');
+      // Danh sách chứng từ còn nợ (khi sửa phiếu: giữ cả chứng từ đang được chọn dù đã trả đủ)
+      const target = old ? (old.forRef || '') : (forRef || '');
+      const docs = p.debits.filter(d => d.remain > 0 || debtDocKey(d) === target);
+      const verb = p.type === 'S' ? 'Trả' : 'Thu';
+      document.getElementById('dp-target').innerHTML = `<option value="">Tự động: trừ dần khoản nợ cũ nhất trước</option>` +
+        docs.map(d => `<option value="${esc(debtDocKey(d))}" data-remain="${Math.round(d.remain)}">${verb} ${esc(debtDocLabel(d))}${d.ts ? ' · ' + viDate(d.ts) : ''} · còn ${formatMoney(Math.round(d.remain))} đ</option>`).join('');
+      document.getElementById('dp-target').value = docs.some(d => debtDocKey(d) === target) ? target : '';
       document.getElementById('debt-pay-modal').classList.remove('hidden');
       setTimeout(() => document.getElementById('dp-amount').focus(), 80);
     }
@@ -6827,7 +6847,27 @@
       if (!inv) return;
       const key = dealerKeyOf(inv.phone, inv.name);
       const st = debtStateOf('invoice', invId);
-      openDebtPayModal(key, st ? st.remain : invoiceDebtAmount(inv), 'Thu nợ ' + invId, null);
+      openDebtPayModal(key, st ? st.remain : invoiceDebtAmount(inv), '', null, 'invoice:' + invId);
+    }
+    function openDebtPayForReceipt(rid) {
+      const r = receiptList.find(x => x.id === rid);
+      if (!r) return;
+      const st = debtStateOf('receipt', rid);
+      openDebtPayModal(supplierKey(r.supplier), st ? st.remain : receiptDebtAmount(r), '', null, 'receipt:' + rid);
+    }
+    // Chọn 1 chứng từ -> tự điền số tiền còn nợ của chứng từ đó (khi đang lập phiếu mới)
+    function onDebtTargetChange() {
+      if (debtPayEditId) return;
+      const opt = document.getElementById('dp-target').selectedOptions[0];
+      if (opt && opt.value) document.getElementById('dp-amount').value = formatMoney(parseInt(opt.dataset.remain, 10) || 0);
+    }
+    // Bấm "Trả / Thu" ngay trên 1 dòng chứng từ trong Sổ
+    function payDebtDoc(pkey, docKey) {
+      const p = debtBook().partners[pkey];
+      const d = p && p.debits.find(x => debtDocKey(x) === docKey);
+      if (!d) return;
+      closeDebtModal('debt-ledger-modal');
+      openDebtPayModal(pkey, Math.round(d.remain), '', null, docKey);
     }
     async function saveDebtPayment() {
       if (!canAccessDebt()) return;
@@ -6851,6 +6891,8 @@
         const rec = { id: id, pkey: pkey, pname: p.name, type: p.type, amount: amount, ts: ts,
           method: document.getElementById('dp-method').value, note: document.getElementById('dp-note').value.trim(),
           by: old ? (old.by || '') : me, createdAt: old ? (old.createdAt || Date.now()) : Date.now() };
+        const forRef = document.getElementById('dp-target').value;
+        if (forRef) rec.forRef = forRef;
         if (old) { rec.editedBy = me; rec.editedAt = Date.now(); }
         const btn = document.getElementById('dp-save'); btn.disabled = true;
         const ok = await debtWrite('payments/' + id, rec);
@@ -6862,7 +6904,10 @@
         setTimeout(() => { if (!document.getElementById('debt-ledger-modal').classList.contains('hidden')) openDebtLedger(pkey); }, 300);
         showNotification(`Đã ${old ? 'sửa' : 'lưu'} ${p.type === 'S' ? 'phiếu chi' : 'phiếu thu'} ${id}: ${formatMoney(amount)} đ`, 'success');
       };
-      if (amount > maxPay) showConfirmModal('Số tiền lớn hơn số nợ', `Số tiền ${formatMoney(amount)} đ lớn hơn số còn nợ ${formatMoney(maxPay)} đ. Phần dư sẽ thành tiền trả trước. Vẫn lưu?`, go);
+      const tOpt = document.getElementById('dp-target').selectedOptions[0];
+      const tRemain = tOpt && tOpt.value ? (parseInt(tOpt.dataset.remain, 10) || 0) + (old && old.forRef === tOpt.value ? parseCurrencyNumber(old.amount) : 0) : 0;
+      if (tOpt && tOpt.value && amount > tRemain && amount <= maxPay) showConfirmModal('Số tiền lớn hơn khoản đã chọn', `Khoản đã chọn còn nợ ${formatMoney(tRemain)} đ. Phần dư ${formatMoney(amount - tRemain)} đ sẽ tự trừ vào khoản nợ cũ nhất tiếp theo. Vẫn lưu?`, go);
+      else if (amount > maxPay) showConfirmModal('Số tiền lớn hơn số nợ', `Số tiền ${formatMoney(amount)} đ lớn hơn số còn nợ ${formatMoney(maxPay)} đ. Phần dư sẽ thành tiền trả trước. Vẫn lưu?`, go);
       else go();
     }
     function deleteDebtPayment(id) {
@@ -6965,11 +7010,11 @@
     // ----- Sổ chi tiết 1 đối tác -----
     function debtLedgerRows(p) {
       const rows = [];
-      p.debits.forEach(d => rows.push({ ts: d.ts, kind: d.kind, ref: d.ref,
+      p.debits.forEach(d => rows.push({ ts: d.ts, kind: d.kind, ref: d.ref, docKey: debtDocKey(d),
         text: d.kind === 'opening' ? 'Số dư nợ đầu kỳ' : (d.kind === 'receipt' ? 'Phiếu nhập ' + d.ref : 'Hóa đơn ' + d.ref + (d.plate ? ' · ' + d.plate : '')) +
           (d.prepaid ? ' (tổng ' + formatMoney(d.total) + ', trả trước ' + formatMoney(d.prepaid) + ')' : ''),
         inc: d.amount, dec: 0, remain: d.remain, settledAt: d.settledAt }));
-      p.payments.forEach(x => rows.push({ ts: x.ts, kind: 'pay', ref: x.id, text: (p.type === 'S' ? 'Phiếu chi ' : 'Phiếu thu ') + x.id + (x.method ? ' · ' + x.method : '') + (x.note ? ' · ' + x.note : ''), inc: 0, dec: x.amount, by: x.by + (x.editedBy ? ' · sửa bởi ' + x.editedBy : '') }));
+      p.payments.forEach(x => rows.push({ ts: x.ts, kind: 'pay', ref: x.id, text: (p.type === 'S' ? 'Phiếu chi ' : 'Phiếu thu ') + x.id + (x.forRef ? ' → ' + (x.forRef === 'opening' ? 'Nợ đầu kỳ' : x.forRef.split(':')[1]) : '') + (x.method ? ' · ' + x.method : '') + (x.note ? ' · ' + x.note : ''), inc: 0, dec: x.amount, by: x.by + (x.editedBy ? ' · sửa bởi ' + x.editedBy : '') }));
       rows.sort((a, b) => (a.ts - b.ts) || (a.kind === 'opening' ? -1 : 0));
       let bal = 0;
       rows.forEach(r => { bal += r.inc - r.dec; r.bal = bal; });
@@ -6987,23 +7032,30 @@
           <div class="bg-gray-800/60 border border-gray-700/60 rounded-xl p-2"><div class="text-[10px] text-gray-400">Đã ${p.type === 'S' ? 'trả' : 'thu'}</div><div class="font-mono font-black text-sky-300">${formatMoney(p.totalPaid)} đ</div></div>
           <div class="bg-gray-800/60 border border-gray-700/60 rounded-xl p-2"><div class="text-[10px] text-gray-400">Còn nợ</div><div class="font-mono font-black ${p.balance > 0 ? (p.type === 'S' ? 'text-red-400' : 'text-emerald-400') : 'text-gray-300'}">${p.balance < 0 ? 'Dư ' + formatMoney(-p.balance) : formatMoney(p.balance)} đ</div></div>
         </div>
-        <div class="border border-gray-800 rounded-xl overflow-hidden">
-          <div class="grid grid-cols-12 gap-1 px-2 py-1.5 bg-gray-800/80 text-[10px] font-bold uppercase text-gray-400">
-            <div class="col-span-2">Ngày</div><div class="col-span-5">Diễn giải</div><div class="col-span-2 text-right">Tăng nợ</div><div class="col-span-2 text-right">Giảm nợ</div><div class="col-span-1 text-right">Dư</div>
+        <div class="border border-gray-800 rounded-xl overflow-x-auto custom-scrollbar">
+         <div class="min-w-[600px]">
+          <div class="grid grid-cols-12 gap-2 px-2.5 py-1.5 bg-gray-800/80 text-[10px] font-bold uppercase text-gray-400">
+            <div class="col-span-2">Ngày</div><div class="col-span-4">Diễn giải</div><div class="col-span-2 text-right">Tăng nợ</div><div class="col-span-2 text-right">Giảm nợ</div><div class="col-span-2 text-right">Còn nợ</div>
           </div>
-          ${rows.map(r => `<div class="grid grid-cols-12 gap-1 px-2 py-1.5 border-t border-gray-800 items-center">
-            <div class="col-span-2 text-gray-400">${r.ts ? viDate(r.ts) : '-'}</div>
-            <div class="col-span-5 min-w-0">
-              <div class="truncate ${r.kind === 'pay' ? 'text-sky-300' : 'text-gray-200'}" title="${esc(r.text)}">${esc(r.text)}</div>
-              ${r.kind !== 'pay' ? `<div class="text-[10px] ${r.remain > 0 ? 'text-amber-300' : 'text-emerald-400'}">${r.remain > 0 ? 'Còn nợ ' + formatMoney(r.remain) : 'Đã ' + (p.type === 'S' ? 'trả' : 'thu') + ' đủ' + (r.settledAt ? ' ' + viDate(r.settledAt) : '')}</div>` : `<div class="text-[10px] text-gray-500">${esc(r.by || '')}</div>`}
+          ${rows.map(r => {
+            const verb = p.type === 'S' ? 'Trả' : 'Thu';
+            const acts = [];
+            if (r.kind !== 'pay' && r.remain > 0) acts.push(`<button onclick="payDebtDoc('${esc(p.key)}','${esc(r.docKey)}')" class="px-2 py-0.5 rounded-md text-[10px] font-bold text-white ${p.type === 'S' ? 'bg-red-600 hover:bg-red-500' : 'bg-emerald-600 hover:bg-emerald-500'}"><i class="fa-solid ${L.icon} mr-1"></i>${verb} khoản này</button>`);
+            if (r.kind === 'invoice') acts.push(`<button onclick="closeDebtModal('debt-ledger-modal'); viewInvoiceDetail('${esc(r.ref)}')" class="px-2 py-0.5 rounded-md text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700"><i class="fa-solid fa-eye mr-1"></i>Xem</button>`);
+            if (r.kind === 'pay' && canEditDebt()) acts.push(`<button onclick="closeDebtModal('debt-ledger-modal'); openDebtPayModal('${esc(p.key)}', 0, '', '${esc(r.ref)}')" class="px-2 py-0.5 rounded-md text-[10px] bg-gray-800 hover:bg-gray-700 text-amber-300 border border-gray-700"><i class="fa-solid fa-pen mr-1"></i>Sửa</button>`,
+              `<button onclick="deleteDebtPayment('${esc(r.ref)}')" class="px-2 py-0.5 rounded-md text-[10px] bg-gray-800 hover:bg-red-950/60 text-gray-400 hover:text-red-400 border border-gray-700"><i class="fa-solid fa-trash-can mr-1"></i>Xóa</button>`);
+            return `<div class="grid grid-cols-12 gap-2 px-2.5 py-2 border-t border-gray-800 items-start">
+            <div class="col-span-2 text-gray-400 pt-0.5">${r.ts ? viDate(r.ts) : '-'}</div>
+            <div class="col-span-4 min-w-0">
+              <div class="${r.kind === 'pay' ? 'text-sky-300' : 'text-gray-200'} break-words">${esc(r.text)}</div>
+              ${r.kind !== 'pay' ? `<div class="text-[10px] ${r.remain > 0 ? 'text-amber-300' : 'text-emerald-400'}">${r.remain > 0 ? 'Còn nợ ' + formatMoney(Math.round(r.remain)) : 'Đã ' + (p.type === 'S' ? 'trả' : 'thu') + ' đủ' + (r.settledAt ? ' ' + viDate(r.settledAt) : '')}</div>` : `<div class="text-[10px] text-gray-500">${esc(r.by || '')}</div>`}
+              ${acts.length ? `<div class="flex flex-wrap gap-1 mt-1">${acts.join('')}</div>` : ''}
             </div>
-            <div class="col-span-2 text-right font-mono">${r.inc ? formatMoney(r.inc) : ''}</div>
-            <div class="col-span-2 text-right font-mono text-sky-300">${r.dec ? formatMoney(r.dec) : ''}</div>
-            <div class="col-span-1 text-right font-mono text-[10px] flex items-center justify-end gap-1">${shortMoney(r.bal)}
-              ${r.kind === 'invoice' ? `<button onclick="closeDebtModal('debt-ledger-modal'); viewInvoiceDetail('${esc(r.ref)}')" title="Xem hóa đơn" class="text-gray-400 hover:text-white"><i class="fa-solid fa-eye"></i></button>` : ''}
-              ${r.kind === 'pay' && canEditDebt() ? `<button onclick="closeDebtModal('debt-ledger-modal'); openDebtPayModal('${esc(p.key)}', 0, '', '${esc(r.ref)}')" title="Sửa phiếu" class="text-gray-400 hover:text-amber-300"><i class="fa-solid fa-pen"></i></button><button onclick="deleteDebtPayment('${esc(r.ref)}')" title="Xóa phiếu" class="text-gray-500 hover:text-red-400"><i class="fa-solid fa-trash-can"></i></button>` : ''}
-            </div>
-          </div>`).join('') || '<div class="p-4 text-center text-gray-500 italic">Chưa có phát sinh.</div>'}
+            <div class="col-span-2 text-right font-mono pt-0.5">${r.inc ? formatMoney(r.inc) : ''}</div>
+            <div class="col-span-2 text-right font-mono text-sky-300 pt-0.5">${r.dec ? formatMoney(r.dec) : ''}</div>
+            <div class="col-span-2 text-right font-mono font-bold pt-0.5 ${r.bal > 0 ? 'text-white' : 'text-gray-400'}">${formatMoney(Math.round(r.bal))}</div>
+          </div>`; }).join('') || '<div class="p-4 text-center text-gray-500 italic">Chưa có phát sinh.</div>'}
+         </div>
         </div>
         ${p.balance > 0 ? `<button onclick="closeDebtModal('debt-ledger-modal'); openDebtPayModal('${esc(p.key)}')" class="w-full py-2.5 rounded-xl font-bold text-white ${p.type === 'S' ? 'bg-red-600 hover:bg-red-500' : 'bg-emerald-600 hover:bg-emerald-500'}"><i class="fa-solid ${L.icon} mr-1"></i>${L.pay}</button>` : ''}`;
       document.getElementById('debt-ledger-modal').classList.remove('hidden');
@@ -7281,7 +7333,9 @@
       const prepaid = parseCurrencyNumber(r.paidAmount) || 0;
       if (st && st.remain <= 0) return `<span class="inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded bg-emerald-950/70 text-emerald-300 border border-emerald-500/30 font-semibold">Nợ NPP · đã trả đủ${st.settledAt ? ' ' + viDate(st.settledAt) : ''}</span>`;
       const remain = st ? st.remain : owed;
-      return `<span class="inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded bg-red-950/70 text-red-300 border border-red-500/30 font-semibold">Nợ NPP ${formatMoney(remain)} đ${long && prepaid ? ' (đã trả trước ' + formatMoney(prepaid) + ' đ)' : ''}</span>`;
+      const txt = `Nợ NPP ${formatMoney(Math.round(remain))} đ${long && prepaid ? ' (đã trả trước ' + formatMoney(prepaid) + ' đ)' : ''}`;
+      if (canAccessDebt() && r.supplier) return `<button type="button" onclick="event.stopPropagation(); document.getElementById('receipt-detail-modal').classList.add('hidden'); openDebtPayForReceipt('${esc(r.id)}')" title="Bấm để trả nợ phiếu này" class="inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded bg-red-950/70 hover:bg-red-900/70 text-red-300 border border-red-500/30 font-semibold"><i class="fa-solid fa-money-bill-transfer mr-1"></i>${txt}</button>`;
+      return `<span class="inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded bg-red-950/70 text-red-300 border border-red-500/30 font-semibold">${txt}</span>`;
     }
     function setReceiptPayMode(m) {
       receiptDraft.payMode = m === 'debt' ? 'debt' : 'paid';
@@ -9088,7 +9142,7 @@
             no_cu_nhat_so_ngay: p.balance > 0 && p.oldestOpenTs ? debtDays(p.oldestOpenTs) : null, chung_tu_con_no: p.openCount };
           if (detail) {
             o.khoan_con_no = p.debits.filter(d => d.remain > 0).map(d => ({ chung_tu: d.kind === 'opening' ? 'Nợ đầu kỳ' : d.ref, ngay: viDate(d.ts), so_tien: d.amount, con_no: Math.round(d.remain) }));
-            o.lan_thanh_toan_gan_day = p.payments.slice(-5).reverse().map(x => ({ phieu: x.id, ngay: viDate(x.ts), so_tien: x.amount, hinh_thuc: x.method, ghi_chu: x.note }));
+            o.lan_thanh_toan_gan_day = p.payments.slice(-5).reverse().map(x => ({ phieu: x.id, ngay: viDate(x.ts), so_tien: x.amount, hinh_thuc: x.method, ghi_chu: x.note, cho_chung_tu: x.forRef ? x.forRef.split(':').pop() : 'tự động (khoản cũ nhất)' }));
           }
           return o;
         }),
