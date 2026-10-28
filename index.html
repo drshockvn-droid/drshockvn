@@ -2207,7 +2207,7 @@
 
       // Dữ liệu tài chính chỉ Chủ Xưởng được đọc (quy tắc database cũng chặn các vai trò khác)
       if (isAdminUser()) firebaseDb.ref('garage/aiReport/latest').on('value', snap => renderAiReport(snap.val()), () => {});
-      if (isAdminUser()) firebaseDb.ref('garage/aiReport/content').limitToLast(9).on('value', snap => renderAiContent(snap.val()), () => {});
+      // Đã tắt mục "Gợi ý content Facebook" (28/10/2026): không tải garage/aiReport/content nữa
       if (isAdminUser()) firebaseDb.ref('garage/finance').on('value', snapshot => {
         const val = snapshot.val();
         financeReady = true;
@@ -4509,7 +4509,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.28-1';
+    const APP_VERSION = '2026.10.28-2';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
