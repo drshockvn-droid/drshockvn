@@ -1867,6 +1867,43 @@
       });
     }
 
+    // ===== SỬA MÃ HÓA ĐƠN BỊ TRÙNG =====
+    // Bản app cũ cấp mã = số lượng hóa đơn + 101, nên sau khi xóa bill có thể cấp lại mã đã dùng (VD 2 bill cùng INV-111).
+    // Mã trùng làm nút In / Sửa / Xóa / Số HĐ thuế mở nhầm bill khác. Chủ Xưởng mở app -> tự đổi mã cho bill trùng:
+    // bill cũ nhất giữ mã, bill sau nhận mã mới tiếp theo (ghi lại mã cũ ở trường renamedFrom).
+    let fixingDupInv = false;
+    function fixDuplicateInvoiceIds() {
+      if (fixingDupInv || !firebaseDb || !cloudReady['garage/invoices'] || !isAdminUser()) return;
+      const seen0 = new Set(); let bad = false;
+      invoiceList.forEach(i => { const id = String((i && i.id) || '').trim(); if (!id || seen0.has(id)) bad = true; seen0.add(id); });
+      if (!bad) return;
+      fixingDupInv = true;
+      const renamed = [];
+      cloudUpdateList('garage/invoices', list => {
+        renamed.length = 0;
+        let next = Math.max(100, ...list.map(i => invSeq(i)));
+        const order = list.map((inv, idx) => ({ inv, idx, t: invTime(inv) || 0 })).sort((a, b) => (a.t - b.t) || (b.idx - a.idx));
+        const seen = new Set();
+        order.forEach(({ inv }) => {
+          const id = String(inv.id || '').trim();
+          if (id && !seen.has(id)) { seen.add(id); return; }
+          const nid = 'INV-' + (++next);
+          renamed.push({ from: id || '(trống)', to: nid, name: inv.name || '', plate: inv.plate || '', date: inv.date || '', warrantyCode: inv.warrantyCode || '' });
+          inv.renamedFrom = id || '(trống)';
+          inv.id = nid;
+          seen.add(nid);
+        });
+        return list;
+      }).then(res => {
+        fixingDupInv = false;
+        if (!res || !renamed.length) return;
+        // Cập nhật mã hóa đơn trong bản ghi bảo hành điện tử (nếu có)
+        renamed.forEach(r => { if (r.warrantyCode) firebaseDb.ref('warranty/codes/' + r.warrantyCode + '/invId').set(r.to).catch(() => {}); });
+        showNotification('Đã tự sửa ' + renamed.length + ' mã hóa đơn bị trùng: ' + renamed.map(r => r.from + ' (' + (r.name || r.plate) + ', ' + r.date + ') → ' + r.to).join('; '), 'success');
+        renderInvoiceList();
+      });
+    }
+
     function cloudUpdateList(path, apply) {
       const meta = CLOUD_LISTS[path];
       if (!firebaseDb) {
@@ -2247,7 +2284,7 @@
       listenGarageProfile();
       listenCustomerDirectory();
       bindList('garage/inventory', true, () => { renderInventoryTable(); populateInventorySelector('ALL'); migrateInlineImages(); fixDuplicateInventoryIds(); });
-      bindList('garage/invoices', true, () => { renderInvoiceList(); renderCustomerAndReports(); detectNewInvoices(); refreshMaintenanceDue(); refreshAccountingDue(); });
+      bindList('garage/invoices', true, () => { fixDuplicateInvoiceIds(); renderInvoiceList(); renderCustomerAndReports(); detectNewInvoices(); refreshMaintenanceDue(); refreshAccountingDue(); });
       bindList('garage/stockLogs', true, () => { renderStockLogs(); updateInventoryOverviewStats(); });
       bindList('garage/staff', false, () => { renderStaffCards(); populateAdvisorSelect(); syncCurrentUserFromRoster(); });
     }
@@ -3823,7 +3860,7 @@
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2 flex-wrap">
                 <span class="text-xs font-bold text-amber-400 uppercase tracking-wide">${esc(inv.plate)}</span>
-                <span class="text-[10px] text-gray-400 font-mono">${esc(inv.id)}</span>
+                <span class="text-[10px] text-gray-400 font-mono">${esc(inv.id)}</span>${inv.renamedFrom ? `<span class="text-[10px] text-gray-500" title="Mã cũ bị trùng, đã tự đổi">(trước là ${esc(inv.renamedFrom)})</span>` : ''}
                 ${inv.odo ? `<span class="text-[10px] px-1.5 py-0.2 rounded bg-sky-950/80 text-sky-400 border border-sky-500/30">${esc(inv.odo)}</span>` : ''}
                 <span class="text-[10px] px-1.5 py-0.2 rounded bg-red-950/80 text-red-400 border border-red-500/30 font-semibold">${esc(inv.serviceType || 'Lắp tại xưởng')}</span>
                 <span class="text-[10px] px-1.5 py-0.2 rounded bg-amber-950/80 text-amber-300 border border-amber-500/30 font-semibold">${esc(inv.customerType || 'Khách lẻ')}</span>
@@ -4509,7 +4546,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.28-2';
+    const APP_VERSION = '2026.10.29-1';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
