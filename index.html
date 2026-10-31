@@ -777,7 +777,7 @@
           <div>
             <label class="block text-xs text-gray-400 mb-1 font-semibold">Chính Sách & Cam Kết Bảo Hành</label>
             <textarea id="prof-warranty" rows="2" 
-              class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-xs sm:text-sm text-gray-300 focus:outline-none focus:border-red-500">Bảo hành phuộc theo chính sách NSX. Phụ tùng gầm bảo hành 6 tháng. Miễn phí kiểm tra siết lại gầm sau 1.000km đầu tiên.</textarea>
+              class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-xs sm:text-sm text-gray-300 focus:outline-none focus:border-red-500">Phuộc bảo hành xì dầu: Tokico, KYB Excel-G, Mando 6 tháng; Profender PAG 4 nấc 12 tháng; TEIN Basic, XEX Plus, Roadfit 15 tháng; TEIN EnduraPro Plus, TEIN Street Advance Z 18 tháng; Profender Drift, Fitz, Queen, Mono 2.0, OEM 2.5 24 tháng (năm 2 sửa chữa). Xì dầu cây nào đổi mới cây đó, không bảo hành lực nặng nhẹ, áp lên nhanh chậm. Dòng khác theo chính sách NSX. Gầm & phụ tùng sửa chữa bảo hành 6 tháng hoặc 10.000 km vận hành (tùy điều kiện nào đến trước). Miễn phí kiểm tra siết lại gầm sau 1.000km đầu tiên.</textarea>
           </div>
           <button type="button" onclick="saveGarageProfile()" class="w-full py-2.5 bg-red-600 hover:bg-red-500 active:scale-[0.98] text-white font-bold text-xs sm:text-sm rounded-xl shadow-lg transition flex items-center justify-center gap-1.5">
             <i class="fa-solid fa-floppy-disk"></i>Lưu Hồ Sơ Garage
@@ -994,7 +994,7 @@
             <div id="inv-print-warranty-qr" class="w-16 h-16 shrink-0"></div>
             <div class="text-[10px] text-gray-700">Mã bảo hành điện tử: <strong id="inv-print-warranty-code" class="text-red-600 text-xs"></strong><br>Quét mã QR hoặc tra theo SĐT / biển số tại trang bảo hành của xưởng.</div>
           </div>
-          <p id="inv-print-warranty-text">* Cam kết: Bảo hành phuộc theo chính sách NSX. Phụ tùng gầm bảo hành 6 tháng. Miễn phí kiểm tra siết lại gầm sau 1.000km đầu tiên.</p>
+          <p id="inv-print-warranty-text">* Cam kết: Phuộc bảo hành xì dầu: Tokico, KYB Excel-G, Mando 6 tháng; Profender PAG 4 nấc 12 tháng; TEIN Basic, XEX Plus, Roadfit 15 tháng; TEIN EnduraPro Plus, TEIN Street Advance Z 18 tháng; Profender Drift, Fitz, Queen, Mono 2.0, OEM 2.5 24 tháng (năm 2 sửa chữa). Xì dầu cây nào đổi mới cây đó, không bảo hành lực nặng nhẹ, áp lên nhanh chậm. Dòng khác theo chính sách NSX. Gầm & phụ tùng sửa chữa bảo hành 6 tháng hoặc 10.000 km vận hành (tùy điều kiện nào đến trước). Miễn phí kiểm tra siết lại gầm sau 1.000km đầu tiên.</p>
         </div>
 
         <div class="grid grid-cols-2 text-center text-[11px] mt-4 pt-2 font-bold text-gray-700">
@@ -3553,8 +3553,10 @@
     //   warranty/byPlate/{BIỂN SỐ}/{mã}: chỉ mục tra theo biển số
     //   warranty/byPhone/{SĐT}/{mã}    : chỉ mục tra theo số điện thoại
     // ==========================================
-    const WARRANTY_POLICY = { gamMonths: 6, gamKm: 15000 }; // gầm: 6 tháng hoặc 15.000km; phuộc: theo nhà sản xuất
-    const WARRANTY_GAM_CATS = ['GAM', 'ROTUYN', 'BOTHANG'];
+    // Gầm & phụ tùng sửa chữa: 6 tháng hoặc 10.000 km vận hành (tùy điều kiện nào đến trước); phuộc: theo nhà sản xuất.
+    // Bảo hành đã cấp trước 31/10/2026 giữ nguyên số km đã ghi lúc cấp (15.000 km).
+    const WARRANTY_POLICY = { gamMonths: 6, gamKm: 10000 };
+    const WARRANTY_GAM_CATS = ['GAM', 'ROTUYN', 'BOTHANG', 'KHAC'];
 
     function normPlate(s) { return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
     function normPhone(s) {
@@ -3568,12 +3570,36 @@
       (window.crypto || window.msCrypto).getRandomValues(bytes);
       return 'BH-' + Array.from(bytes, b => chars[b % chars.length]).join('');
     }
+    // ===== BẢO HÀNH PHUỘC THEO DÒNG (xì dầu) =====
+    // Dò theo tên sản phẩm (không phân biệt hoa thường / dấu). Thứ tự quan trọng: dòng cụ thể đặt trước dòng chung.
+    const SHOCK_TERMS = 'Xì dầu cây nào đổi mới cây đó. Không bảo hành lực nặng nhẹ, áp lên nhanh chậm.';
+    const SHOCK_WARRANTY_TIERS = [
+      { label: 'Profender Drift / Fitz / Queen / Mono 2.0 / OEM 2.5', months: 24, repairFrom: 12,
+        test: n => /profender/.test(n) && /(drift|fitz|queen|mono\w*\s*2|oem\s*2[.,]?\s*5)/.test(n),
+        terms: 'Năm đầu: xì dầu cây nào đổi mới cây đó. Năm thứ 2: sửa chữa. Không bảo hành lực nặng nhẹ, áp lên nhanh chậm.' },
+      { label: 'Profender PAG 4 nấc chỉnh', months: 12, test: n => /profender/.test(n) && /(pag|4\s*nac)/.test(n) },
+      { label: 'TEIN EnduraPro Plus', months: 18, test: n => /tein/.test(n) && /endura\s*-?\s*pro/.test(n) },
+      { label: 'TEIN Street Advance Z', months: 18, test: n => /tein/.test(n) && /street/.test(n) && /a(d)?vance/.test(n) },
+      { label: 'TEIN Basic', months: 15, test: n => /tein/.test(n) && /basic/.test(n) },
+      { label: 'XEX Plus', months: 15, test: n => /xex/.test(n) && /plus/.test(n) },
+      { label: 'Roadfit', months: 15, test: n => /road\s*fit/.test(n) },
+      { label: 'Tokico Alpha', months: 6, test: n => /tokico/.test(n) && /alpha/.test(n) },
+      { label: 'Tokico', months: 6, test: n => /tokico/.test(n) },
+      { label: 'KYB Excel-G', months: 6, test: n => /(kyb|kayaba)/.test(n) && /excel\s*-?\s*g/.test(n) },
+      { label: 'Mando', months: 6, test: n => /mando/.test(n) }
+    ];
+    function shockWarrantyTier(item) {
+      const prod = inventoryList.find(p => p.id === item.id);
+      const n = normText((prod && prod.name ? prod.name : '') + ' ' + (item.name || ''));
+      return SHOCK_WARRANTY_TIERS.find(t => t.test(n)) || null;
+    }
+
     function warrantyKind(item) {
       const prod = inventoryList.find(p => p.id === item.id);
       const cat = prod && prod.cat;
-      if (cat === 'PHUOC') return 'PHUOC';
+      if (cat === 'PHUOC' || shockWarrantyTier(item)) return 'PHUOC';
       if (WARRANTY_GAM_CATS.indexOf(cat) >= 0) return 'GAM';
-      return null; // nhớt, công thợ... không có bảo hành riêng
+      return null; // nhớt, tiền công... không có bảo hành riêng
     }
     function addMonthsISO(d, m) { const x = new Date(d.getTime()); x.setMonth(x.getMonth() + m); return x.toISOString().slice(0, 10); }
 
@@ -3585,6 +3611,16 @@
         const kind = warrantyKind(it);
         if (!kind) return;
         const e = { name: it.name, kind: kind };
+        if (kind === 'PHUOC') {
+          const t = shockWarrantyTier(it);
+          if (t) {
+            e.months = t.months;
+            e.expiry = addMonthsISO(now, t.months);
+            e.tier = t.label;
+            e.terms = t.terms || SHOCK_TERMS;
+            if (t.repairFrom) e.replaceUntil = addMonthsISO(now, t.repairFrom);
+          }
+        }
         if (kind === 'GAM') {
           e.months = WARRANTY_POLICY.gamMonths;
           e.expiry = addMonthsISO(now, WARRANTY_POLICY.gamMonths);
@@ -3683,11 +3719,20 @@
       const today = new Date().toISOString().slice(0, 10);
       const rows = (r.items || []).map(it => {
         let status, detail;
-        if (it.kind === 'PHUOC') { status = 'Theo chính sách nhà sản xuất'; detail = 'Liên hệ xưởng để được hỗ trợ bảo hành'; }
+        if (it.kind === 'PHUOC' && it.expiry) {
+          const ok = it.expiry >= today;
+          let phase = '';
+          if (ok && it.replaceUntil) phase = it.replaceUntil >= today ? ' (giai đoạn đổi mới đến ' + fmtDateVN(it.replaceUntil) + ')' : ' (giai đoạn sửa chữa)';
+          status = '<span class="' + (ok ? 'text-emerald-400' : 'text-red-400') + ' font-bold">' + (ok ? 'Còn bảo hành xì dầu' + phase : 'Đã hết hạn bảo hành') + '</span>';
+          detail = 'Bảo hành xì dầu ' + it.months + ' tháng' + (it.tier ? ' (' + it.tier + ')' : '') + ': đến ' + fmtDateVN(it.expiry) + '. ' + (it.terms || SHOCK_TERMS);
+        }
+        else if (it.kind === 'PHUOC') { status = 'Theo chính sách nhà sản xuất'; detail = 'Liên hệ xưởng để được hỗ trợ bảo hành'; }
         else {
           const ok = it.expiry >= today;
           status = ok ? 'Còn hiệu lực' : 'Đã hết hạn';
-          detail = 'Đến ' + fmtDateVN(it.expiry) + (it.maxKm ? ' hoặc ' + it.maxKm.toLocaleString('vi-VN') + ' km' : ' hoặc ' + (it.kmLimit || WARRANTY_POLICY.gamKm).toLocaleString('vi-VN') + ' km kể từ ngày lắp')
+          const kmSpan = it.maxKm && it.startKm ? it.maxKm - it.startKm : (it.kmLimit || WARRANTY_POLICY.gamKm);
+          detail = 'Bảo hành ' + (it.months || WARRANTY_POLICY.gamMonths) + ' tháng hoặc ' + kmSpan.toLocaleString('vi-VN') + ' km vận hành: đến ' + fmtDateVN(it.expiry) +
+            (it.maxKm ? ' hoặc khi ODO đạt ' + it.maxKm.toLocaleString('vi-VN') + ' km' : ' hoặc ' + kmSpan.toLocaleString('vi-VN') + ' km kể từ ngày lắp')
             + ' (tùy điều kiện nào đến trước)';
           status = '<span class="' + (ok ? 'text-emerald-400' : 'text-red-400') + ' font-bold">' + status + '</span>';
         }
@@ -4546,7 +4591,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.29-1';
+    const APP_VERSION = '2026.10.31-3';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -6296,6 +6341,13 @@
 
     function applyGarageProfile(p) {
       if (!p || typeof p !== 'object') return;
+      // Chính sách bảo hành mới (31/10/2026): thay câu cũ trong hồ sơ đã lưu bằng câu mới
+      if (typeof p.warranty === 'string' && p.warranty.indexOf('Phụ tùng gầm bảo hành 6 tháng.') >= 0)
+        p = Object.assign({}, p, { warranty: p.warranty.replace('Phụ tùng gầm bảo hành 6 tháng.', 'Gầm & phụ tùng sửa chữa bảo hành 6 tháng hoặc 10.000 km vận hành (tùy điều kiện nào đến trước).') });
+      if (typeof p.warranty === 'string' && p.warranty.indexOf('Phuộc bảo hành xì dầu: Tokico, KYB Excel-G, Mando 6 tháng; Profender PAG 4 nấc 12 tháng; TEIN Basic, XEX Plus, Roadfit 15 tháng; Profender Drift, Fitz, Queen, Mono 2.0, OEM 2.5 24 tháng (năm 2 sửa chữa).') >= 0)
+        p = Object.assign({}, p, { warranty: p.warranty.replace('Phuộc bảo hành xì dầu: Tokico, KYB Excel-G, Mando 6 tháng; Profender PAG 4 nấc 12 tháng; TEIN Basic, XEX Plus, Roadfit 15 tháng; Profender Drift, Fitz, Queen, Mono 2.0, OEM 2.5 24 tháng (năm 2 sửa chữa).', 'Phuộc bảo hành xì dầu: Tokico, KYB Excel-G, Mando 6 tháng; Profender PAG 4 nấc 12 tháng; TEIN Basic, XEX Plus, Roadfit 15 tháng; TEIN EnduraPro Plus, TEIN Street Advance Z 18 tháng; Profender Drift, Fitz, Queen, Mono 2.0, OEM 2.5 24 tháng (năm 2 sửa chữa).') });
+      if (typeof p.warranty === 'string' && p.warranty.indexOf('Bảo hành phuộc theo chính sách NSX.') >= 0)
+        p = Object.assign({}, p, { warranty: p.warranty.replace('Bảo hành phuộc theo chính sách NSX.', 'Phuộc bảo hành xì dầu: Tokico, KYB Excel-G, Mando 6 tháng; Profender PAG 4 nấc 12 tháng; TEIN Basic, XEX Plus, Roadfit 15 tháng; TEIN EnduraPro Plus, TEIN Street Advance Z 18 tháng; Profender Drift, Fitz, Queen, Mono 2.0, OEM 2.5 24 tháng (năm 2 sửa chữa). Xì dầu cây nào đổi mới cây đó, không bảo hành lực nặng nhẹ, áp lên nhanh chậm. Dòng khác theo chính sách NSX.') });
       Object.keys(PROFILE_FIELDS).forEach(k => { const el = document.getElementById(PROFILE_FIELDS[k]); if (el && p[k] != null) el.value = p[k]; });
       const set = (id, v) => { const el = document.getElementById(id); if (el && v != null && v !== '') el.textContent = v; };
       set('inv-print-address', p.address);
