@@ -3574,9 +3574,9 @@
     // Dò theo tên sản phẩm (không phân biệt hoa thường / dấu). Thứ tự quan trọng: dòng cụ thể đặt trước dòng chung.
     const SHOCK_TERMS = 'Xì dầu cây nào đổi mới cây đó. Không bảo hành lực nặng nhẹ, áp lên nhanh chậm.';
     const SHOCK_WARRANTY_TIERS = [
-      { label: 'Profender Drift / Fitz / Queen / Mono 2.0 / OEM 2.5', months: 24, repairFrom: 12,
-        test: n => /profender/.test(n) && /(drift|fitz|queen|mono\w*\s*2|oem\s*2[.,]?\s*5)/.test(n),
-        terms: 'Năm đầu: xì dầu cây nào đổi mới cây đó. Năm thứ 2: sửa chữa. Không bảo hành lực nặng nhẹ, áp lên nhanh chậm.' },
+      ...[['Profender Drift', /drift/], ['Profender Fitz', /fitz/], ['Profender Queen', /queen/], ['Profender Mono 2.0', /mono\w*\s*2/], ['Profender OEM 2.5', /oem\s*2[.,]?\s*5/]]
+        .map(([label, re]) => ({ label: label, months: 24, repairFrom: 12, test: n => /profender/.test(n) && re.test(n),
+          terms: 'Năm đầu: xì dầu cây nào đổi mới cây đó. Năm thứ 2: sửa chữa. Không bảo hành lực nặng nhẹ, áp lên nhanh chậm.' })),
       { label: 'Profender PAG 4 nấc chỉnh', months: 12, test: n => /profender/.test(n) && /(pag|4\s*nac)/.test(n) },
       { label: 'TEIN EnduraPro Plus', months: 18, test: n => /tein/.test(n) && /endura\s*-?\s*pro/.test(n) },
       { label: 'TEIN Street Advance Z', months: 18, test: n => /tein/.test(n) && /street/.test(n) && /a(d)?vance/.test(n) },
@@ -3605,6 +3605,12 @@
 
     function buildWarrantyRecord(inv) {
       const now = new Date();
+      const items = warrantyItemsFor(inv, now);
+      if (!items.length) return null;
+      return { code: inv.warrantyCode, invId: inv.id, plate: normPlate(inv.plate), plateText: inv.plate, car: inv.car || '',
+               start: now.toISOString().slice(0, 10), items: items };
+    }
+    function warrantyItemsFor(inv, now) {
       const startKm = parseInt(String(inv.odo || '').replace(/\D/g, ''), 10);
       const items = [];
       (inv.items || []).forEach(it => {
@@ -3629,9 +3635,37 @@
         }
         items.push(e);
       });
-      if (!items.length) return null;
-      return { code: inv.warrantyCode, invId: inv.id, plate: normPlate(inv.plate), plateText: inv.plate, car: inv.car || '',
-               start: now.toISOString().slice(0, 10), items: items };
+      return items;
+    }
+
+    // ----- Dòng cam kết bảo hành trên phiếu in: chỉ ghi chính sách của đúng phuộc / gầm có trong bill -----
+    function invoiceWarrantyHtml(inv) {
+      const t = invTime(inv);
+      const start = t ? new Date(t) : new Date();
+      const items = warrantyItemsFor(inv, start);
+      if (!items.length) return '';
+      const d = iso => fmtDateVN(iso);
+      const startTxt = start.toLocaleDateString('vi-VN');
+      const lines = [];
+      const shockGroups = {};
+      items.filter(i => i.kind === 'PHUOC').forEach(i => {
+        const k = i.tier || ('NSX:' + i.name);
+        (shockGroups[k] = shockGroups[k] || []).push(i);
+      });
+      Object.keys(shockGroups).forEach(k => {
+        const g = shockGroups[k], i = g[0];
+        if (!i.tier) { lines.push(`<b>${/phu[oộ]c/i.test(i.name) ? '' : 'Phuộc '}${esc(i.name)}:</b> bảo hành theo chính sách nhà sản xuất.`); return; }
+        lines.push(`<b>Phuộc ${esc(i.tier)}${g.length > 1 ? ' (' + g.length + ' hạng mục)' : ''}:</b> bảo hành xì dầu ${i.months} tháng, từ ${startTxt} đến <b>${d(i.expiry)}</b>` +
+          (i.replaceUntil ? ` (đổi mới đến ${d(i.replaceUntil)}, sau đó sửa chữa)` : '') + `. ${esc(i.terms || SHOCK_TERMS)}`);
+      });
+      const gam = items.filter(i => i.kind === 'GAM');
+      if (gam.length) {
+        const i = gam[0];
+        const km = (i.kmLimit || WARRANTY_POLICY.gamKm).toLocaleString('vi-VN');
+        lines.push(`<b>Gầm & phụ tùng sửa chữa${gam.length > 1 ? ' (' + gam.length + ' hạng mục)' : ''}:</b> bảo hành ${i.months} tháng hoặc ${km} km vận hành, từ ${startTxt} đến <b>${d(i.expiry)}</b>` +
+          (i.maxKm ? ` hoặc khi ODO đạt <b>${i.maxKm.toLocaleString('vi-VN')} km</b>` : '') + ' (tùy điều kiện nào đến trước). Miễn phí kiểm tra siết lại gầm sau 1.000 km đầu tiên.');
+      }
+      return '* Cam kết bảo hành:<br>' + lines.map(x => '- ' + x).join('<br>');
     }
 
     async function activateWarranty(inv) {
@@ -3717,8 +3751,21 @@
     function fmtDateVN(iso) { const p = String(iso || '').split('-'); return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : '---'; }
     function renderWarrantyCard(r) {
       const today = new Date().toISOString().slice(0, 10);
-      const rows = (r.items || []).map(it => {
+      const rows = (r.items || []).map(it0 => {
         let status, detail;
+        let it = it0;
+        // Bảo hành phuộc cấp trước khi có chính sách theo dòng: tính hạn theo dòng phuộc + ngày lắp
+        if (it.kind === 'PHUOC' && !it.expiry && r.start) {
+          const t = shockWarrantyTier({ name: it.name });
+          if (t) {
+            const st = new Date(r.start + 'T12:00:00');
+            it = Object.assign({}, it, { months: t.months, tier: t.label, terms: t.terms || SHOCK_TERMS, expiry: addMonthsISO(st, t.months),
+              replaceUntil: t.repairFrom ? addMonthsISO(st, t.repairFrom) : undefined });
+          }
+        }
+        const dates = '<div class="text-[11px] mt-0.5"><span class="text-gray-400">Ngày lắp đặt:</span> <b class="text-gray-100">' + fmtDateVN(r.start) + '</b>' +
+          (it.expiry ? ' · <span class="text-gray-400">Hết hạn:</span> <b class="' + (it.expiry >= today ? 'text-emerald-300' : 'text-red-400') + '">' + fmtDateVN(it.expiry) + '</b>' : '') +
+          (it.kind === 'GAM' && it.maxKm ? ' <span class="text-gray-400">hoặc ODO</span> <b class="text-gray-100">' + it.maxKm.toLocaleString('vi-VN') + ' km</b>' : '') + '</div>';
         if (it.kind === 'PHUOC' && it.expiry) {
           const ok = it.expiry >= today;
           let phase = '';
@@ -3736,7 +3783,7 @@
             + ' (tùy điều kiện nào đến trước)';
           status = '<span class="' + (ok ? 'text-emerald-400' : 'text-red-400') + ' font-bold">' + status + '</span>';
         }
-        return '<div class="border-t border-gray-700 pt-2"><div class="font-semibold text-gray-100">' + esc(it.name) + '</div><div class="text-[11px] text-gray-300">' + status + '</div><div class="text-[11px] text-gray-400">' + esc(detail) + '</div></div>';
+        return '<div class="border-t border-gray-700 pt-2"><div class="font-semibold text-gray-100">' + esc(it.name) + '</div><div class="text-[11px] text-gray-300">' + status + '</div>' + dates + '<div class="text-[11px] text-gray-400 mt-0.5">' + esc(detail) + '</div></div>';
       }).join('');
       return '<div class="bg-gray-800/70 border border-gray-700 rounded-xl p-3 space-y-2"><div class="flex justify-between text-xs"><span class="font-bold text-amber-300">' + esc(r.plateText || r.plate) + '</span><span class="text-gray-400">' + esc(r.code) + '</span></div><div class="text-[11px] text-gray-400">' + esc(r.car) + ' · Hóa đơn ' + esc(r.invId) + ' · Ngày ' + fmtDateVN(r.start) + '</div>' + rows + '</div>';
     }
@@ -3807,6 +3854,8 @@
       `).join('');
 
       renderInvoiceWarrantyBox(inv);
+      const wt = document.getElementById('inv-print-warranty-text');
+      if (wt) { const h = invoiceWarrantyHtml(inv); wt.innerHTML = h; wt.classList.toggle('hidden', !h); }
       document.getElementById('invoice-modal').classList.remove('hidden');
     }
 
@@ -4591,7 +4640,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.31-3';
+    const APP_VERSION = '2026.10.31-4';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -6353,7 +6402,7 @@
       set('inv-print-address', p.address);
       set('inv-print-hotline', p.hotline);
       set('inv-print-mst', p.mst);
-      if (p.warranty) set('inv-print-warranty-text', '* Cam kết: ' + p.warranty);
+      // Dòng cam kết bảo hành trên phiếu in giờ tự tạo theo đúng phuộc / gầm trong bill (invoiceWarrantyHtml)
       const title = document.querySelector('#printable-invoice h1');
       if (title && p.company) title.textContent = p.company;
     }
