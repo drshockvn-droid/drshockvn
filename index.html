@@ -775,9 +775,17 @@
               class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-xs sm:text-sm text-white focus:outline-none focus:border-red-500">
           </div>
           <div>
-            <label class="block text-xs text-gray-400 mb-1 font-semibold">Chính Sách & Cam Kết Bảo Hành</label>
-            <textarea id="prof-warranty" rows="2" 
-              class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-xs sm:text-sm text-gray-300 focus:outline-none focus:border-red-500">Phuộc bảo hành xì dầu: Tokico, KYB Excel-G, Mando 6 tháng; Profender PAG 4 nấc 12 tháng; TEIN Basic, XEX Plus, Roadfit 15 tháng; TEIN EnduraPro Plus, TEIN Street Advance Z 18 tháng; Profender Drift, Fitz, Queen, Mono 2.0, OEM 2.5 24 tháng (năm 2 sửa chữa). Xì dầu cây nào đổi mới cây đó, không bảo hành lực nặng nhẹ, áp lên nhanh chậm. Dòng khác theo chính sách NSX. Gầm & phụ tùng sửa chữa bảo hành 6 tháng hoặc 10.000 km vận hành (tùy điều kiện nào đến trước). Miễn phí kiểm tra siết lại gầm sau 1.000km đầu tiên.</textarea>
+            <label class="block text-xs text-gray-400 mb-1 font-semibold">Chính Sách Bảo Hành (app tự áp dụng cho bill & mã QR)</label>
+            <textarea id="prof-warranty" rows="8" oninput="renderWarrantyPolicyCheck()" spellcheck="false"
+              class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-xs sm:text-sm text-gray-200 font-mono leading-relaxed focus:outline-none focus:border-red-500">Tokico Alpha, Tokico, KYB Excel G, Mando: 6 tháng
+Profender PAG, DWD: 12 tháng
+TEIN Basic, XEX Plus, Roadfit: 15 tháng
+TEIN EnduraPro Plus, TEIN Street Advance Z: 18 tháng
+Profender Drift, Profender Fitz, Profender Queen, Profender Mono 2.0, Profender OEM 2.5: 24 tháng, đổi mới 12 tháng đầu (xì cây nào đổi mới cây đó), 12 tháng sau sửa chữa.
+Gầm: 6 tháng hoặc 10.000 km
+Điều kiện phuộc: Xì dầu cây nào đổi mới cây đó, không bảo hành lực nặng nhẹ, áp lên nhanh chậm.</textarea>
+            <p class="text-[10px] text-gray-500 mt-1 leading-snug">Mỗi dòng 1 chính sách: <b class="text-gray-300">Tên dòng phuộc 1, Tên dòng 2: X tháng</b> (thêm "đổi mới Y tháng" nếu sau Y tháng chuyển sang sửa chữa). Dòng <b class="text-gray-300">Gầm: X tháng hoặc Y km</b>. Dòng <b class="text-gray-300">Điều kiện phuộc: ...</b>. Bấm "Lưu Hồ Sơ Garage" để áp dụng cho bill & QR. Bảo hành đã cấp giữ nguyên.</p>
+            <div id="warranty-policy-check" class="mt-2 text-[11px] space-y-1"></div>
           </div>
           <button type="button" onclick="saveGarageProfile()" class="w-full py-2.5 bg-red-600 hover:bg-red-500 active:scale-[0.98] text-white font-bold text-xs sm:text-sm rounded-xl shadow-lg transition flex items-center justify-center gap-1.5">
             <i class="fa-solid fa-floppy-disk"></i>Lưu Hồ Sơ Garage
@@ -2519,6 +2527,7 @@
       window.scrollTo({ top: 0, behavior: 'auto' });
       runDeferred(tabId);
       if (tabId === 'tab-debt') renderDebtTab();
+      if (tabId === 'tab-profile') renderWarrantyPolicyCheck();
       if (tabId === 'tab-reports' && typeof renderFinanceDash === 'function') setTimeout(() => { try { renderFinanceDash(); } catch (e) {} }, 30);
     }
 
@@ -3572,8 +3581,8 @@
     }
     // ===== BẢO HÀNH PHUỘC THEO DÒNG (xì dầu) =====
     // Dò theo tên sản phẩm (không phân biệt hoa thường / dấu). Thứ tự quan trọng: dòng cụ thể đặt trước dòng chung.
-    const SHOCK_TERMS = 'Xì dầu cây nào đổi mới cây đó. Không bảo hành lực nặng nhẹ, áp lên nhanh chậm.';
-    const SHOCK_WARRANTY_TIERS = [
+    let SHOCK_TERMS = 'Xì dầu cây nào đổi mới cây đó. Không bảo hành lực nặng nhẹ, áp lên nhanh chậm.';
+    let SHOCK_WARRANTY_TIERS = [
       ...[['Profender Drift', /drift/], ['Profender Fitz', /fitz/], ['Profender Queen', /queen/], ['Profender Mono 2.0', /mono\w*\s*2/], ['Profender OEM 2.5', /oem\s*2[.,]?\s*5/]]
         .map(([label, re]) => ({ label: label, months: 24, repairFrom: 12, test: n => /profender/.test(n) && re.test(n),
           terms: 'Năm đầu: xì dầu cây nào đổi mới cây đó. Năm thứ 2: sửa chữa. Không bảo hành lực nặng nhẹ, áp lên nhanh chậm.' })),
@@ -3588,6 +3597,87 @@
       { label: 'KYB Excel-G', months: 6, test: n => /(kyb|kayaba)/.test(n) && /excel\s*-?\s*g/.test(n) },
       { label: 'Mando', months: 6, test: n => /mando/.test(n) }
     ];
+    const DEFAULT_SHOCK_TIERS = SHOCK_WARRANTY_TIERS, DEFAULT_SHOCK_TERMS = SHOCK_TERMS, DEFAULT_GAM = Object.assign({}, WARRANTY_POLICY);
+
+    // ===== ĐỌC CHÍNH SÁCH BẢO HÀNH TỪ Ô "Chính Sách Bảo Hành" (Cài Đặt) =====
+    // Mẫu: "Tokico Alpha, Tokico, KYB Excel G: 6 tháng" | "...: 24 tháng, đổi mới 12 tháng đầu ..." | "Gầm: 6 tháng hoặc 10.000 km" | "Điều kiện phuộc: ..."
+    function compactText(s) { return normText(s).replace(/[^a-z0-9]/g, ''); }
+    function nameMatcher(name) {
+      // Tách tên thành các chữ; chữ 1 ký tự dính vào chữ trước (VD "Excel G" -> "excelg") để không khớp nhầm
+      const toks = [];
+      normText(name).split(/[\s\-_/]+/).map(t => t.replace(/[^a-z0-9]/g, '')).filter(Boolean).forEach(t => {
+        if (t.length === 1 && toks.length && !/^\d+$/.test(t)) toks[toks.length - 1] += t; else toks.push(t);
+      });
+      if (!toks.length) return null;
+      return { toks: toks, test: n => { const c = compactText(n); return toks.every(t => c.includes(t)); } };
+    }
+    function parseWarrantyPolicy(text) {
+      const out = { tiers: [], terms: '', gam: null, bad: [] };
+      String(text || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean).forEach(line => {
+        const k = line.indexOf(':');
+        if (k < 0) { out.bad.push(line); return; }
+        const head = line.slice(0, k).trim(), rest = line.slice(k + 1).trim(), h = normText(head);
+        if (/^dieu kien/.test(h)) { out.terms = rest; return; }
+        if (/^gam/.test(h)) {
+          const m = rest.match(/(\d+)\s*th[aá]ng/i), km = rest.replace(/[.,]/g, '').match(/(\d+)\s*km/i);
+          if (m) out.gam = { gamMonths: +m[1], gamKm: km ? +km[1] : null }; else out.bad.push(line);
+          return;
+        }
+        const m = rest.match(/(\d+)\s*th[aá]ng/i);
+        if (!m) { out.bad.push(line); return; }
+        const months = +m[1];
+        const rp = normText(rest).match(/doi moi\s*(\d+)\s*thang/);
+        const note = rest.replace(/^\s*\d+\s*th[aá]ng\s*[,.;:-]?\s*/i, '').trim();
+        head.split(',').map(x => x.trim()).filter(Boolean).forEach(name => {
+          const mt = nameMatcher(name);
+          if (!mt) return;
+          out.tiers.push({ label: name, months: months, repairFrom: rp ? +rp[1] : 0, note: note, toks: mt.toks.length, test: mt.test });
+        });
+      });
+      // Tên cụ thể hơn (nhiều chữ hơn) được xét trước, VD "Tokico Alpha" trước "Tokico"
+      out.tiers.sort((a, b) => b.toks - a.toks);
+      return out;
+    }
+    let warrantyPolicySource = 'default';
+    function applyWarrantyPolicyText(text) {
+      const P = parseWarrantyPolicy(text);
+      if (!P.tiers.length) {   // ô trống / sai toàn bộ -> giữ chính sách mặc định
+        SHOCK_WARRANTY_TIERS = DEFAULT_SHOCK_TIERS; SHOCK_TERMS = DEFAULT_SHOCK_TERMS; Object.assign(WARRANTY_POLICY, DEFAULT_GAM);
+        warrantyPolicySource = 'default'; return P;
+      }
+      const cap = t => t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
+      SHOCK_TERMS = P.terms ? cap(P.terms.replace(/\s*\.?\s*$/, '.')) : DEFAULT_SHOCK_TERMS;
+      SHOCK_WARRANTY_TIERS = P.tiers.map(t => ({ label: t.label, months: t.months, repairFrom: t.repairFrom || undefined, test: t.test,
+        terms: t.repairFrom ? cap(t.note.replace(/\s*\.?\s*$/, '.')) + ' Không bảo hành lực nặng nhẹ, áp lên nhanh chậm.' : undefined }));
+      Object.assign(WARRANTY_POLICY, DEFAULT_GAM, P.gam ? { gamMonths: P.gam.gamMonths, gamKm: P.gam.gamKm || DEFAULT_GAM.gamKm } : {});
+      warrantyPolicySource = 'profile';
+      return P;
+    }
+    // Bảng kiểm tra dưới ô chính sách: đọc được gì, dòng nào sai mẫu, mã phuộc nào trong kho chưa khớp
+    function renderWarrantyPolicyCheck() {
+      const box = document.getElementById('warranty-policy-check');
+      const ta = document.getElementById('prof-warranty');
+      if (!box || !ta) return;
+      const P = parseWarrantyPolicy(ta.value);
+      if (!P.tiers.length) { box.innerHTML = '<div class="text-red-400 font-semibold"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Chưa đọc được dòng chính sách phuộc nào — app sẽ dùng chính sách mặc định.</div>'; return; }
+      const byMonths = {};
+      P.tiers.forEach(t => { const k = t.months + ' tháng' + (t.repairFrom ? ' (đổi mới ' + t.repairFrom + ' tháng đầu)' : ''); (byMonths[k] = byMonths[k] || []).push(t.label); });
+      const test = n => P.tiers.find(t => t.test(n));
+      const shocks = inventoryList.filter(p => p.cat === 'PHUOC' || /phu[oộ]c/i.test(p.name || ''));
+      const miss = shocks.filter(p => !test(p.name || ''));
+      box.innerHTML = '<div class="bg-gray-800/60 border border-gray-700 rounded-lg p-2 space-y-0.5">' +
+        Object.keys(byMonths).map(k => '<div><b class="text-emerald-300">' + esc(k) + ':</b> <span class="text-gray-300">' + esc(byMonths[k].join(', ')) + '</span></div>').join('') +
+        '<div><b class="text-sky-300">Gầm & phụ tùng sửa chữa:</b> <span class="text-gray-300">' + (P.gam ? P.gam.gamMonths + ' tháng hoặc ' + (P.gam.gamKm || DEFAULT_GAM.gamKm).toLocaleString('vi-VN') + ' km' : 'mặc định ' + DEFAULT_GAM.gamMonths + ' tháng hoặc ' + DEFAULT_GAM.gamKm.toLocaleString('vi-VN') + ' km') + '</span></div>' +
+        '<div><b class="text-amber-300">Điều kiện phuộc:</b> <span class="text-gray-300">' + esc(P.terms || DEFAULT_SHOCK_TERMS) + '</span></div></div>' +
+        (P.bad.length ? '<div class="text-red-400"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Không đọc được dòng: ' + P.bad.map(b => '"' + esc(b) + '"').join('; ') + '</div>' : '') +
+        (shocks.length ? (miss.length
+          ? '<div class="text-amber-300"><i class="fa-solid fa-circle-info mr-1"></i>' + miss.length + '/' + shocks.length + ' mã phuộc trong kho chưa khớp chính sách nào (sẽ ghi "theo chính sách NSX"):</div><div class="text-gray-400 max-h-28 overflow-y-auto custom-scrollbar">' + miss.slice(0, 60).map(p => esc(p.id + ' · ' + p.name)).join('<br>') + '</div>'
+          : '<div class="text-emerald-400"><i class="fa-solid fa-circle-check mr-1"></i>Tất cả ' + shocks.length + ' mã phuộc trong kho đều khớp 1 chính sách.</div>') : '');
+    }
+
+    // Chính sách mặc định (dùng khi chưa có hồ sơ garage, VD trang tra cứu QR của khách)
+    applyWarrantyPolicyText('Tokico Alpha, Tokico, KYB Excel G, Mando: 6 tháng\nProfender PAG, DWD: 12 tháng\nTEIN Basic, XEX Plus, Roadfit: 15 tháng\nTEIN EnduraPro Plus, TEIN Street Advance Z: 18 tháng\nProfender Drift, Profender Fitz, Profender Queen, Profender Mono 2.0, Profender OEM 2.5: 24 tháng, đổi mới 12 tháng đầu (xì cây nào đổi mới cây đó), 12 tháng sau sửa chữa.\nGầm: 6 tháng hoặc 10.000 km\nĐiều kiện phuộc: Xì dầu cây nào đổi mới cây đó, không bảo hành lực nặng nhẹ, áp lên nhanh chậm.');
+
     function shockWarrantyTier(item) {
       const prod = inventoryList.find(p => p.id === item.id);
       const n = normText((prod && prod.name ? prod.name : '') + ' ' + (item.name || ''));
@@ -4640,7 +4730,7 @@
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.31-4';
+    const APP_VERSION = '2026.10.31-5';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -6390,14 +6480,11 @@
 
     function applyGarageProfile(p) {
       if (!p || typeof p !== 'object') return;
-      // Chính sách bảo hành mới (31/10/2026): thay câu cũ trong hồ sơ đã lưu bằng câu mới
-      if (typeof p.warranty === 'string' && p.warranty.indexOf('Phụ tùng gầm bảo hành 6 tháng.') >= 0)
-        p = Object.assign({}, p, { warranty: p.warranty.replace('Phụ tùng gầm bảo hành 6 tháng.', 'Gầm & phụ tùng sửa chữa bảo hành 6 tháng hoặc 10.000 km vận hành (tùy điều kiện nào đến trước).') });
-      if (typeof p.warranty === 'string' && p.warranty.indexOf('Phuộc bảo hành xì dầu: Tokico, KYB Excel-G, Mando 6 tháng; Profender PAG 4 nấc 12 tháng; TEIN Basic, XEX Plus, Roadfit 15 tháng; Profender Drift, Fitz, Queen, Mono 2.0, OEM 2.5 24 tháng (năm 2 sửa chữa).') >= 0)
-        p = Object.assign({}, p, { warranty: p.warranty.replace('Phuộc bảo hành xì dầu: Tokico, KYB Excel-G, Mando 6 tháng; Profender PAG 4 nấc 12 tháng; TEIN Basic, XEX Plus, Roadfit 15 tháng; Profender Drift, Fitz, Queen, Mono 2.0, OEM 2.5 24 tháng (năm 2 sửa chữa).', 'Phuộc bảo hành xì dầu: Tokico, KYB Excel-G, Mando 6 tháng; Profender PAG 4 nấc 12 tháng; TEIN Basic, XEX Plus, Roadfit 15 tháng; TEIN EnduraPro Plus, TEIN Street Advance Z 18 tháng; Profender Drift, Fitz, Queen, Mono 2.0, OEM 2.5 24 tháng (năm 2 sửa chữa).') });
-      if (typeof p.warranty === 'string' && p.warranty.indexOf('Bảo hành phuộc theo chính sách NSX.') >= 0)
-        p = Object.assign({}, p, { warranty: p.warranty.replace('Bảo hành phuộc theo chính sách NSX.', 'Phuộc bảo hành xì dầu: Tokico, KYB Excel-G, Mando 6 tháng; Profender PAG 4 nấc 12 tháng; TEIN Basic, XEX Plus, Roadfit 15 tháng; TEIN EnduraPro Plus, TEIN Street Advance Z 18 tháng; Profender Drift, Fitz, Queen, Mono 2.0, OEM 2.5 24 tháng (năm 2 sửa chữa). Xì dầu cây nào đổi mới cây đó, không bảo hành lực nặng nhẹ, áp lên nhanh chậm. Dòng khác theo chính sách NSX.') });
+      // Hồ sơ cũ còn ghi chính sách dạng câu văn (không theo mẫu từng dòng) -> thay bằng mẫu mới
+      if (typeof p.warranty === 'string' && !parseWarrantyPolicy(p.warranty).tiers.length) p = Object.assign({}, p, { warranty: 'Tokico Alpha, Tokico, KYB Excel G, Mando: 6 tháng\nProfender PAG, DWD: 12 tháng\nTEIN Basic, XEX Plus, Roadfit: 15 tháng\nTEIN EnduraPro Plus, TEIN Street Advance Z: 18 tháng\nProfender Drift, Profender Fitz, Profender Queen, Profender Mono 2.0, Profender OEM 2.5: 24 tháng, đổi mới 12 tháng đầu (xì cây nào đổi mới cây đó), 12 tháng sau sửa chữa.\nGầm: 6 tháng hoặc 10.000 km\nĐiều kiện phuộc: Xì dầu cây nào đổi mới cây đó, không bảo hành lực nặng nhẹ, áp lên nhanh chậm.' });
+      applyWarrantyPolicyText(p.warranty);
       Object.keys(PROFILE_FIELDS).forEach(k => { const el = document.getElementById(PROFILE_FIELDS[k]); if (el && p[k] != null) el.value = p[k]; });
+      renderWarrantyPolicyCheck();
       const set = (id, v) => { const el = document.getElementById(id); if (el && v != null && v !== '') el.textContent = v; };
       set('inv-print-address', p.address);
       set('inv-print-hotline', p.hotline);
