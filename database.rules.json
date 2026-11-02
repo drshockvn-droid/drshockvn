@@ -105,6 +105,14 @@
       "zaloTeach": {
         ".read": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'",
         ".write": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'"
+      },
+      "zaloOrders": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'",
+        ".write": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'",
+        ".indexOn": [
+          "status",
+          "createdAt"
+        ]
       }
     }
   }

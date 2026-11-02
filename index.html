@@ -1119,6 +1119,11 @@ Gầm: 6 tháng hoặc 10.000 km
             <p class="text-[10px] text-gray-500">Bot áp dụng ngay, không cần khởi động lại. Mẹo: ở mục "Bot trả lời đại lý gần đây", bấm ✏️ để sửa câu bot trả lời chưa hay thành mẫu chuẩn.</p>
           </div>
         </details>
+        <div id="zalo-orders-box">
+          <div class="text-[10px] font-bold uppercase tracking-wider text-amber-300 mt-2 mb-1">🧾 Đơn Zalo – đại lý chốt đơn trong nhóm</div>
+          <p class="text-[10px] text-gray-500 mb-1.5">Sửa số lượng / giá nếu cần → bấm <b>Duyệt &amp; gửi phiếu</b>, bot gửi ảnh phiếu đơn hàng vào nhóm. Sau khi giao, bấm <b>Lên hoá đơn</b> để điền sẵn phiếu ở tab 1 (lưu hoá đơn mới trừ kho).</p>
+          <div id="zalo-orders" class="space-y-2 text-xs"></div>
+        </div>
         <div>
           <div class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mt-2 mb-1">Tin đã gửi gần đây</div>
           <div id="zalo-history" class="space-y-1.5 text-xs"></div>
@@ -2267,6 +2272,7 @@ Gầm: 6 tháng hoặc 10.000 km
       setupDebtListener();
 
       // Dữ liệu tài chính chỉ Chủ Xưởng được đọc (quy tắc database cũng chặn các vai trò khác)
+      if (isAdminUser()) listenZaloOrders();
       if (isAdminUser()) firebaseDb.ref('garage/aiReport/latest').on('value', snap => renderAiReport(snap.val()), () => {});
       // Đã tắt mục "Gợi ý content Facebook" (28/10/2026): không tải garage/aiReport/content nữa
       if (isAdminUser()) firebaseDb.ref('garage/finance').on('value', snapshot => {
@@ -4759,7 +4765,7 @@ Gầm: 6 tháng hoặc 10.000 km
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.10.31-6';
+    const APP_VERSION = '2026.11.02-1';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -5000,6 +5006,96 @@ Gầm: 6 tháng hoặc 10.000 km
     let zaloRefs = [];
     let zaloStatusTimer = null;
     function zaloFmtTime(ts) { return ts ? new Date(ts).toLocaleString('vi-VN', { hour12: false, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''; }
+    // ===== ĐƠN ZALO: đại lý chốt đơn trong nhóm -> bot ghi garage/zaloOrders, Chủ xưởng duyệt -> bot gửi phiếu =====
+    let zaloOrders = {}, zoKnown = null; const zoDraft = {};
+    const ZO_LABEL = { pending: ['Chờ duyệt', 'text-amber-300'], approved: ['Đang chờ bot gửi', 'text-sky-300'], sending: ['Đang gửi...', 'text-sky-300'], sent: ['Đã gửi phiếu', 'text-emerald-400'], approved_error: ['Gửi lỗi', 'text-red-400'], done: ['Đã lên hoá đơn', 'text-gray-400'], cancelled: ['Đã huỷ', 'text-gray-500'] };
+    function listenZaloOrders() {
+      firebaseDb.ref('garage/zaloOrders').orderByChild('createdAt').limitToLast(40).on('value', s => {
+        zaloOrders = s.val() || {};
+        const pend = Object.values(zaloOrders).filter(o => o.status === 'pending');
+        if (zoKnown === null) zoKnown = new Set(Object.keys(zaloOrders));
+        else pend.filter(o => !zoKnown.has(o.code)).forEach(o => {
+          zoKnown.add(o.code);
+          playChime('order');
+          showNotification('🧾 Đại lý chốt đơn ' + o.code + ' – ' + (o.groupName || '') + ': ' + formatMoney(o.total || 0) + ' đ. Bấm chuông để duyệt.', 'success');
+          try { if ('Notification' in window && Notification.permission === 'granted') new Notification('🧾 Đơn Zalo mới', { body: (o.groupName || '') + ' · ' + formatMoney(o.total || 0) + ' đ', icon: 'avatar.jpg' }); } catch (e) {}
+        });
+        Object.keys(zaloOrders).forEach(k => zoKnown.add(k));
+        renderZaloOrders(); renderNotifBell();
+      }, () => {});
+    }
+    function zoPendingCount() { return isAdminUser() ? Object.values(zaloOrders).filter(o => o.status === 'pending' || o.status === 'approved_error').length : 0; }
+    function zoItems(o) { return (o.items || []).map((it, i) => { const d = (zoDraft[o.code] || {})[i] || {}; return Object.assign({}, it, d.qty != null ? { qty: d.qty } : {}, d.price != null ? { price: d.price } : {}); }); }
+    function zoSetDraft(code, i, field, el) {
+      const v = field === 'qty' ? Math.max(0, parseFloat(String(el.value).replace(',', '.')) || 0) : parseCurrencyNumber(el.value);
+      zoDraft[code] = zoDraft[code] || {}; zoDraft[code][i] = zoDraft[code][i] || {}; zoDraft[code][i][field] = v;
+      const o = zaloOrders[code]; if (!o) return;
+      const tot = zoItems(o).reduce((s, it) => s + (parseCurrencyNumber(it.price) || 0) * (parseFloat(it.qty) || 0), 0);
+      const t = document.getElementById('zo-total-' + code); if (t) t.textContent = formatMoney(tot) + ' đ';
+    }
+    function renderZaloOrders() {
+      const box = document.getElementById('zalo-orders');
+      if (!box) return;
+      const DAY = 86400000, now = Date.now();
+      const rows = Object.values(zaloOrders).filter(o => !((o.status === 'cancelled' || o.status === 'done') && now - (o.createdAt || 0) > 3 * DAY))
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      box.innerHTML = rows.length ? rows.map(o => {
+        const lb = ZO_LABEL[o.status] || [o.status || '', 'text-gray-400'];
+        const edit = o.status === 'pending';
+        const items = zoItems(o);
+        const tot = items.reduce((s, it) => s + (parseCurrencyNumber(it.price) || 0) * (parseFloat(it.qty) || 0), 0);
+        const inv = (o.items || []).map((it, i) => {
+          const cur = items[i]; const p = inventoryList.find(x => x.id === it.id);
+          const short = p && (parseFloat(p.stock) || 0) < (parseFloat(cur.qty) || 0);
+          return `<div class="grid grid-cols-[1fr_56px_100px] gap-1.5 items-center py-1 border-t border-gray-800/70">
+            <span class="min-w-0"><span class="block truncate text-gray-200">${esc(it.name)}</span><span class="text-[10px] ${short ? 'text-red-400' : 'text-gray-500'}">${esc(it.id)}${p ? ' · tồn ' + formatStockQty(p.stock) : ' · không thấy trong kho'}${short ? ' – không đủ' : ''}</span></span>
+            ${edit ? `<input type="text" inputmode="decimal" value="${esc(String(cur.qty))}" oninput="zoSetDraft('${esc(o.code)}',${i},'qty',this)" class="w-full bg-gray-800 border border-gray-700 rounded-md px-1.5 py-1 text-center text-white">` : `<span class="text-center text-gray-200">${esc(String(cur.qty))} ${esc(String(it.unit || '').toLowerCase())}</span>`}
+            ${edit ? `<input type="text" inputmode="numeric" value="${formatMoney(cur.price)}" onfocus="handleMoneyFocus(this)" oninput="zoSetDraft('${esc(o.code)}',${i},'price',this)" onblur="this.value=formatMoney(parseCurrencyNumber(this.value))" class="w-full bg-gray-800 border border-gray-700 rounded-md px-1.5 py-1 text-right font-mono text-emerald-300">` : `<span class="text-right font-mono text-gray-300">${formatMoney(cur.price)}</span>`}
+          </div>`;
+        }).join('');
+        const btns = edit
+          ? `<button onclick="zoApprove('${esc(o.code)}')" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold"><i class="fa-solid fa-paper-plane mr-1"></i>Duyệt &amp; gửi phiếu</button>
+             <button onclick="zoSetStatus('${esc(o.code)}','cancelled')" class="px-3 py-1.5 bg-gray-800 hover:bg-red-950/60 text-gray-300 hover:text-red-400 border border-gray-700 rounded-lg font-bold">Huỷ đơn</button>`
+          : o.status === 'approved_error' ? `<button onclick="zoSetStatus('${esc(o.code)}','approved')" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg font-bold">Gửi lại</button>`
+          : o.status === 'sent' ? `<button onclick="zoToInvoice('${esc(o.code)}')" class="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg font-bold"><i class="fa-solid fa-file-invoice mr-1"></i>Lên hoá đơn</button>
+             <button onclick="zoSetStatus('${esc(o.code)}','done')" class="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-400 border border-gray-700 rounded-lg">Đã xử lý</button>` : '';
+        return `<div class="p-2.5 rounded-xl ${edit ? 'bg-amber-950/20 border border-amber-700/40' : 'bg-gray-800/50 border border-gray-800'}">
+          <div class="flex items-start justify-between gap-2"><span class="min-w-0"><b class="font-mono text-amber-300">${esc(o.code)}</b> <span class="text-gray-200">${esc(o.groupName || '')}</span>${o.customer ? ` <span class="text-gray-400">(${esc(o.customer)})</span>` : ''}</span><b class="${lb[1]} shrink-0">${lb[0]}</b></div>
+          <div class="text-[10px] text-gray-500">${zaloFmtTime(o.createdAt)}${o.note ? ' · Ghi chú: ' + esc(o.note) : ''}${o.error ? ' · <span class="text-red-400">' + esc(o.error) + '</span>' : ''}</div>
+          <div class="mt-1">${inv}</div>
+          <div class="flex items-center justify-between gap-2 mt-1.5"><span class="text-gray-400">Tổng</span><b id="zo-total-${esc(o.code)}" class="font-mono text-red-400">${formatMoney(tot)} đ</b></div>
+          ${btns ? `<div class="flex flex-wrap gap-1.5 mt-2">${btns}</div>` : ''}
+        </div>`;
+      }).join('') : '<div class="text-gray-500">Chưa có đơn nào. Khi đại lý nhắn kiểu "chốt 2 bộ Roadfit Fortuner trước", bot sẽ ghi đơn vào đây.</div>';
+    }
+    async function zoApprove(code) {
+      const o = zaloOrders[code]; if (!o || !isAdminUser()) return;
+      const items = zoItems(o).map(it => ({ id: it.id, name: it.name, unit: it.unit || 'Cái', qty: parseFloat(it.qty) || 0, price: parseCurrencyNumber(it.price) || 0 })).filter(it => it.qty > 0);
+      if (!items.length) { showNotification('Đơn không còn món nào (số lượng = 0).', 'warning'); return; }
+      const total = items.reduce((s, it) => s + it.price * it.qty, 0);
+      try {
+        await firebaseDb.ref('garage/zaloOrders/' + code).update({ items, total, status: 'approved', approvedAt: Date.now(), approvedBy: (currentLoggedInUser && currentLoggedInUser.name) || '' });
+        delete zoDraft[code];
+        showNotification('Đã duyệt ' + code + ', bot sẽ gửi phiếu vào nhóm trong giây lát.', 'success');
+      } catch (e) { showNotification('Không lưu được (' + (e && e.code ? e.code : 'lỗi') + '). Kiểm tra đã dán Rules mới chưa.', 'error'); }
+    }
+    async function zoSetStatus(code, st) {
+      if (!isAdminUser()) return;
+      if (st === 'cancelled' && !window.confirm('Huỷ đơn ' + code + '? Bot sẽ không gửi phiếu.')) return;
+      try { await firebaseDb.ref('garage/zaloOrders/' + code).update({ status: st, ['at_' + st]: Date.now() }); }
+      catch (e) { showNotification('Không lưu được (' + (e && e.code ? e.code : 'lỗi') + ').', 'error'); }
+    }
+    function zoToInvoice(code) {
+      const o = zaloOrders[code]; if (!o) return;
+      if (currentQuoteItems.length && !window.confirm('Phiếu ở tab 1 đang có ' + currentQuoteItems.length + ' món. Thêm các món của đơn ' + code + ' vào phiếu đó?')) return;
+      const r = aiToolDraftOrder({ ten_khach: o.groupName || o.customer || '', loai_khach: 'garage', hinh_thuc: 'ship', ghi_chu: 'Đơn Zalo ' + code + (o.note ? ' – ' + o.note : ''),
+        hang_muc: (o.items || []).map(it => ({ ma: it.id, ten: it.name, so_luong: it.qty, don_gia: it.price })) });
+      firebaseDb.ref('garage/zaloOrders/' + code).update({ status: 'done', at_done: Date.now() }).catch(() => {});
+      closeZaloModal && closeZaloModal();
+      switchTab('tab-quote');
+      showNotification('Đã điền đơn ' + code + ' vào phiếu tab 1' + (r.khong_tim_thay && r.khong_tim_thay.length ? ' (không thấy: ' + r.khong_tim_thay.join(', ') + ')' : '') + '. Kiểm tra rồi bấm Xuất Hóa Đơn.', r.khong_tim_thay && r.khong_tim_thay.length ? 'warning' : 'success');
+    }
+
     function openZaloModal() {
       if (!isAdminUser()) { showNotification('Chỉ Chủ Xưởng được gửi tin vào nhóm đại lý!', 'warning'); return; }
       if (!firebaseDb) { showNotification('Chưa kết nối đám mây, không gửi được!', 'error'); return; }
@@ -5057,6 +5153,7 @@ Gầm: 6 tháng hoặc 10.000 km
         zaloRenderExamples(); zaloRenderOwners();
       });
       zaloRefs = [r1, r2, r3, r4, r5, r6, r7, r8];
+      renderZaloOrders();
     }
     let zaloAllGroups = {}, zaloEnabledGroups = {}, zaloPricing = {};
     function zaloNorm(t) { return String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase(); }
@@ -7968,7 +8065,7 @@ Gầm: 6 tháng hoặc 10.000 km
     function unreadNotifCount() { return notifList.filter(n => n.ts > notifReadTs && n.device !== DEVICE_ID).length; }
     function renderNotifBell() {
       const b = document.getElementById('notif-badge');
-      if (b) { const c = unreadNotifCount() + maintDueList.length + accDueCount(); b.textContent = c > 9 ? '9+' : c; b.style.display = c ? 'flex' : 'none'; }
+      if (b) { const c = unreadNotifCount() + maintDueList.length + accDueCount() + zoPendingCount(); b.textContent = c > 9 ? '9+' : c; b.style.display = c ? 'flex' : 'none'; }
       const p = document.getElementById('notif-panel');
       if (p && !p.classList.contains('hidden')) renderNotifPanel();
     }
@@ -7978,14 +8075,14 @@ Gầm: 6 tháng hoặc 10.000 km
       p.innerHTML = `<div class="flex items-center justify-between px-3 py-2 border-b border-gray-800 bg-gray-950/60"><span class="text-xs font-bold text-white"><i class="fa-solid fa-bell text-orange-400 mr-1.5"></i>Thông báo</span>
         <span class="flex items-center gap-1.5">${canAsk ? '<button onclick="askBrowserNotify()" class="text-[10px] px-2 py-1 rounded-lg bg-sky-600/20 text-sky-300 border border-sky-500/40 font-semibold">Bật thông báo máy này</button>' : ''}
         <button onclick="event.stopPropagation();toggleSound()" title="Âm báo đơn mới / nhắc việc trên máy này" class="text-[10px] px-2 py-1 rounded-lg border font-semibold ${soundOn ? 'bg-emerald-600/20 text-emerald-300 border-emerald-500/40' : 'bg-gray-800 text-gray-400 border-gray-700'}">${soundOn ? '🔊 Âm báo: Bật' : '🔇 Âm báo: Tắt'}</button></span></div>
-        <div class="max-h-[70vh] overflow-y-auto custom-scrollbar divide-y divide-gray-800">${accDueHtml()}${maintDueList.map(m => `
+        <div class="max-h-[70vh] overflow-y-auto custom-scrollbar divide-y divide-gray-800">${zoPendingCount() ? `<div class="p-2.5 bg-emerald-950/25 flex items-center justify-between gap-2"><span class="text-xs font-bold text-emerald-300"><i class="fa-solid fa-receipt mr-1"></i>${zoPendingCount()} đơn Zalo đại lý chờ duyệt</span><button onclick="event.stopPropagation();document.getElementById('notif-panel').classList.add('hidden');openZaloModal();setTimeout(()=>{const b=document.getElementById('zalo-orders-box');b&&b.scrollIntoView({block:'start'})},200)" class="text-[10px] px-2 py-0.5 rounded-lg border font-semibold bg-emerald-600/20 text-emerald-300 border-emerald-500/40">Mở duyệt</button></div>` : ''}${accDueHtml()}${maintDueList.map(m => `
           <div class="p-2.5 bg-amber-950/20">
             <div class="flex items-center justify-between gap-2"><span class="text-xs font-bold text-amber-400"><i class="fa-solid fa-wrench mr-1"></i>Khách đến hạn bảo dưỡng</span><span class="text-[10px] ${m.days < 0 ? 'text-red-400' : 'text-gray-500'}">${m.days < 0 ? 'Quá hạn ' + (-m.days) + ' ngày' : (m.days === 0 ? 'Hôm nay' : 'Còn ' + m.days + ' ngày')}</span></div>
             <p class="text-[11px] text-gray-300 mt-0.5">${esc(maintText(m))}</p>
             ${m.phone ? `<a href="tel:${esc(String(m.phone).replace(/[^0-9+]/g, ''))}" class="inline-block mt-1 text-[10px] px-2 py-0.5 rounded-lg bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 font-semibold"><i class="fa-solid fa-phone mr-1"></i>Gọi khách</a>` : ''}</div>`).join('')}${notifList.length ? notifList.map(n => `
           <div onclick="openNotif('${n.id}')" class="p-2.5 hover:bg-gray-800/80 cursor-pointer ${n.ts > notifReadTs && n.device !== DEVICE_ID ? 'bg-red-950/20' : ''}">
             <div class="flex items-center justify-between gap-2"><span class="text-xs font-bold text-orange-400"><i class="fa-solid fa-truck-ramp-box mr-1"></i>${highlightMatch(n.title, [])}</span><span class="text-[10px] text-gray-500">${n.time || ''}</span></div>
-            <p class="text-[11px] text-gray-300 mt-0.5">${highlightMatch(n.message, [])}</p></div>`).join('') : (maintDueList.length || accDueCount() ? '' : '<div class="p-4 text-center text-xs text-gray-500 italic">Chưa có thông báo nào.</div>')}</div>`;
+            <p class="text-[11px] text-gray-300 mt-0.5">${highlightMatch(n.message, [])}</p></div>`).join('') : (maintDueList.length || accDueCount() || zoPendingCount() ? '' : '<div class="p-4 text-center text-xs text-gray-500 italic">Chưa có thông báo nào.</div>')}</div>`;
     }
     function toggleNotifPanel() {
       const p = document.getElementById('notif-panel');
