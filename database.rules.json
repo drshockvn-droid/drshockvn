@@ -106,6 +106,14 @@
         ".read": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'",
         ".write": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'"
       },
+      "zaloLeads": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'",
+        ".write": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'",
+        ".indexOn": [
+          "status",
+          "createdAt"
+        ]
+      },
       "zaloOrders": {
         ".read": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'",
         ".write": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'",
