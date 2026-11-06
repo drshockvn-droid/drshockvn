@@ -6,7 +6,7 @@
       "$uid": {
         ".read": "auth != null && (auth.uid === $uid || root.child('roles').child(auth.uid).val() === 'admin')",
         ".write": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'",
-        ".validate": "newData.isString() && (newData.val() === 'admin' || newData.val() === 'stock' || newData.val() === 'tech')"
+        ".validate": "newData.isString() && (newData.val() === 'admin' || newData.val() === 'stock' || newData.val() === 'tech' || newData.val() === 'ketoan')"
       }
     },
     "warranty": {
@@ -121,6 +121,10 @@
           "status",
           "createdAt"
         ]
+      },
+      "debt": {
+        ".read": "auth != null && (root.child('roles').child(auth.uid).val() === 'admin' || root.child('roles').child(auth.uid).val() === 'ketoan')",
+        ".write": "auth != null && (root.child('roles').child(auth.uid).val() === 'admin' || root.child('roles').child(auth.uid).val() === 'ketoan')"
       }
     }
   }

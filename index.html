@@ -4770,7 +4770,7 @@ Gầm: 6 tháng hoặc 10.000 km
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.11.06-4';
+    const APP_VERSION = '2026.11.06-5';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -7001,6 +7001,7 @@ Gầm: 6 tháng hoặc 10.000 km
     // ==========================================
     let debtData = getStoredData('drshock_debt', { partners: {}, payments: {} }) || { partners: {}, payments: {} };
     let debtReady = false;
+    let debtErr = '';
     let _debtCache = null;
     function debtInvalidate() { _debtCache = null; }
 
@@ -7132,13 +7133,18 @@ Gầm: 6 tháng hoặc 10.000 km
       firebaseDb.ref('garage/debt').on('value', snap => {
         const v = snap.val() || {};
         debtData = { partners: v.partners || {}, payments: v.payments || {} };
-        debtReady = true;
+        debtReady = true; debtErr = '';
         setStoredData('drshock_debt', debtData);
         debtInvalidate();
         renderDebtTab();
         renderInvoiceList();
         renderReceiptList();
-      }, err => console.warn('Không đọc được công nợ:', err && err.code));
+      }, err => {
+        // Trước đây chỉ ghi log -> app báo "Đang tải dữ liệu công nợ" mãi, không lưu được phiếu
+        debtErr = (err && (err.code || err.message)) || 'không rõ';
+        console.error('Không đọc được công nợ:', err);
+        showNotification('Không đọc được dữ liệu công nợ trên đám mây (' + debtErr + '). Cần thêm quyền garage/debt trong Firebase Rules!', 'error');
+      });
     }
 
     // ----- Giao diện tab Công Nợ -----
@@ -7275,7 +7281,7 @@ Gầm: 6 tháng hoặc 10.000 km
     }
     async function saveDebtPayment() {
       if (!canAccessDebt()) return;
-      if (firebaseDb && !debtReady) { showNotification('Đang tải dữ liệu công nợ, vui lòng đợi vài giây!', 'warning'); return; }
+      if (firebaseDb && !debtReady) { showNotification(debtErr ? ('Không lưu được: máy chủ từ chối dữ liệu công nợ (' + debtErr + '). Cần thêm quyền garage/debt trong Firebase Rules!') : 'Đang tải dữ liệu công nợ, vui lòng đợi vài giây!', debtErr ? 'error' : 'warning'); return; }
       const pkey = document.getElementById('dp-pkey').value;
       const p = debtBook().partners[pkey];
       const amount = parseCurrencyNumber(document.getElementById('dp-amount').value);
@@ -7362,7 +7368,7 @@ Gầm: 6 tháng hoặc 10.000 km
     }
     async function saveDebtPartner() {
       if (!canAccessDebt()) return;
-      if (firebaseDb && !debtReady) { showNotification('Đang tải dữ liệu công nợ, vui lòng đợi vài giây!', 'warning'); return; }
+      if (firebaseDb && !debtReady) { showNotification(debtErr ? ('Không lưu được: máy chủ từ chối dữ liệu công nợ (' + debtErr + '). Cần thêm quyền garage/debt trong Firebase Rules!') : 'Đang tải dữ liệu công nợ, vui lòng đợi vài giây!', debtErr ? 'error' : 'warning'); return; }
       const fixedKey = document.getElementById('dpt-key').value;
       const type = document.getElementById('dpt-key').dataset.type === 'D' ? 'D' : 'S';
       const name = document.getElementById('dpt-name').value.trim();
