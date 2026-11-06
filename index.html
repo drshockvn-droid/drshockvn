@@ -4766,7 +4766,7 @@ Gầm: 6 tháng hoặc 10.000 km
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.11.02-3';
+    const APP_VERSION = '2026.11.06-1';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -10161,8 +10161,10 @@ Gầm: 6 tháng hoặc 10.000 km
 
     // ================= KPI NHÂN VIÊN XƯỞNG =================
     // Dữ liệu lưu ở garage/meta/staffKpi (mọi nhân viên đọc được, chỉ Chủ Xưởng sửa trên giao diện):
-    //   settings: { members:[{id,name,uid,coef,active}], showMoney, splitMode:'coef'|'contrib' }
-    //   months/{YYYY-MM}: { target, poolPct, overPct, laborPct, penNoLabor, penComeback }
+    //   settings: { members:[{id,name,uid,bonusType:'pct'|'fixed',bonusValue,active}], showMoney }
+    //   months/{YYYY-MM}: { target, laborPct, penNoLabor, penComeback }
+    // Cách tính: xưởng đạt KPI doanh thu (bill lắp tại xưởng) -> mỗi KTV nhận mức thưởng riêng do Chủ Xưởng đặt:
+    //   'pct'  = % doanh thu xưởng của tháng, 'fixed' = số tiền cố định. Cộng hoa hồng tiền công (nếu đặt) và trừ lỗi.
     //   closed/{YYYY-MM}: ảnh chụp kết quả khi Chủ Xưởng chốt thưởng
     // Hóa đơn: inv.techs = [memberId] (KTV thực hiện), inv.comeback = { at, by, note } (xe quay lại do lỗi lắp đặt)
     var skpiData = { settings: null, months: {}, closed: {} };
@@ -10171,7 +10173,7 @@ Gầm: 6 tháng hoặc 10.000 km
     var quoteTechs = [];
     var quoteTechConfirmed = false;
     var skpiDirty = false, skpiDraft = null;
-    const SKPI_DEFAULT = { target: 0, poolPct: 5, overPct: 10, laborPct: 25, penNoLabor: 50000, penComeback: 200000 };
+    const SKPI_DEFAULT = { target: 0, laborPct: 0, penNoLabor: 50000, penComeback: 200000 };
 
     function skpiNorm(s) { return String(s || '').trim().toLowerCase(); }
     function skpiRound(v) { return Math.round((v || 0) / 1000) * 1000; }
@@ -10181,9 +10183,14 @@ Gầm: 6 tháng hoặc 10.000 km
       const s = skpiData.settings || {};
       return {
         members: convertToArray(s.members, []).filter(m => m && m.id && m.name),
-        showMoney: !!s.showMoney,
-        splitMode: s.splitMode === 'contrib' ? 'contrib' : 'coef'
+        showMoney: !!s.showMoney
       };
+    }
+    function skpiBonusType(m) { return m && m.bonusType === 'pct' ? 'pct' : 'fixed'; }
+    function skpiBonusAt(m, rev) { const v = Math.max(0, +(m && m.bonusValue) || 0); return skpiBonusType(m) === 'pct' ? rev * v / 100 : v; }
+    function skpiBonusLabel(m) {
+      const v = +(m && m.bonusValue) || 0;
+      return skpiBonusType(m) === 'pct' ? String(Math.round(v * 100) / 100).replace('.', ',') + '% DT xưởng' : formatMoney(v) + ' đ';
     }
     function skpiActiveMembers() { return skpiSettings().members.filter(m => m.active !== false); }
     function skpiMonthCfg(M) {
@@ -10299,32 +10306,27 @@ Gầm: 6 tháng hoặc 10.000 km
       const daysLeft = isCur ? dim - now.getDate() + 1 : 0;
       const f = isCur && elapsed ? dim / elapsed : 1;
 
-      const poolOf = (rev, gross) => {
-        if (!C.target || rev < C.target || gross <= 0) return 0;
-        const gr = rev ? gross / rev : 0;
-        return Math.max(0, gross * C.poolPct / 100 + (rev - C.target) * gr * C.overPct / 100);
-      };
       T.pct = C.target ? T.rev * 100 / C.target : 0;
-      T.pool = poolOf(T.rev, T.gross);
+      T.reached = !!C.target && T.rev >= C.target;
       T.projRev = T.rev * f;
       T.projPct = C.target ? T.projRev * 100 / C.target : 0;
-      T.projPool = poolOf(T.projRev, T.gross * f);
+      T.projReached = !!C.target && T.projRev >= C.target;
       T.needPerDay = (isCur && C.target > T.rev && daysLeft) ? (C.target - T.rev) / daysLeft : 0;
 
-      const weight = id => S.splitMode === 'contrib' ? per[id].rev : Math.max(0, +per[id].m.coef || 0);
-      const wSum = members.reduce((s, m) => s + weight(m.id), 0);
       const rows = members.map(m => {
         const p = per[m.id];
-        const share = wSum ? weight(m.id) / wSum : 0;
         const laborComm = p.labor * C.laborPct / 100;
         const pen = p.noLabor.length * C.penNoLabor + p.comebacks.length * C.penComeback;
-        const poolShare = T.pool * share, projPoolShare = T.projPool * share;
+        // Thưởng KPI riêng từng người: chỉ có khi xưởng đạt KPI
+        const kpiBonus = T.reached ? skpiBonusAt(m, T.rev) : 0;
+        const projKpiBonus = T.projReached ? skpiBonusAt(m, T.projRev) : 0;
         return {
-          id: m.id, name: m.name, uid: m.uid || '', coef: +m.coef || 0, share: share,
+          id: m.id, name: m.name, uid: m.uid || '', bonusType: skpiBonusType(m), bonusValue: +m.bonusValue || 0,
+          bonusAtTarget: skpiRound(C.target ? skpiBonusAt(m, C.target) : 0),
           bills: p.bills, rev: p.rev, labor: p.labor, noLabor: p.noLabor.length, comebacks: p.comebacks.length,
-          poolShare: skpiRound(poolShare), laborComm: skpiRound(laborComm), pen: pen,
-          total: Math.max(0, skpiRound(poolShare + laborComm - pen)),
-          proj: Math.max(0, skpiRound(projPoolShare + laborComm * f - pen)),
+          kpiBonus: skpiRound(kpiBonus), laborComm: skpiRound(laborComm), pen: pen,
+          total: Math.max(0, skpiRound(kpiBonus + laborComm - pen)),
+          proj: Math.max(0, skpiRound(projKpiBonus + laborComm * f - pen)),
           list: p.list, noLaborList: p.noLabor, comebackList: p.comebacks
         };
       });
@@ -10383,7 +10385,7 @@ Gầm: 6 tháng hoặc 10.000 km
         <i class="fa-solid fa-user-gear text-2xl text-gray-600 mb-2 block"></i>Tài khoản của bạn chưa có trong danh sách KTV xưởng.<br>Liên hệ Chủ Xưởng để được thêm vào mục KPI.</div>`;
       const C = R.C, T = R.T, S = R.S;
       const closedRow = R.closed ? convertToArray(R.closed.rows, []).find(x => x.id === me.id) : null;
-      const row = R.rows.find(x => x.id === me.id) || { bills: 0, labor: 0, poolShare: 0, laborComm: 0, pen: 0, total: 0, proj: 0, list: [], noLaborList: [], comebackList: [], noLabor: 0, comebacks: 0 };
+      const row = R.rows.find(x => x.id === me.id) || { bills: 0, labor: 0, kpiBonus: 0, bonusAtTarget: 0, laborComm: 0, pen: 0, total: 0, proj: 0, list: [], noLaborList: [], comebackList: [], noLabor: 0, comebacks: 0 };
       const pace = R.isCur ? Math.round(R.elapsed * 100 / R.dim) : null;
       let kpiBox;
       if (!C.target) kpiBox = `<p class="text-xs text-gray-400 italic py-2">Chủ Xưởng chưa đặt KPI xưởng cho ${skpiMonthLabel(R.M).toLowerCase()}.</p>`;
@@ -10395,21 +10397,26 @@ Gầm: 6 tháng hoặc 10.000 km
               <p class="text-3xl font-black font-mono ${T.pct >= 100 ? 'text-emerald-400' : 'text-amber-400'}">${pctTxt}</p>
               ${S.showMoney ? `<p class="text-[11px] text-gray-400 font-mono">${formatMoney(Math.round(T.rev))} / ${formatMoney(C.target)} đ</p>` : ''}</div>
             <div class="text-right text-[11px] text-gray-400 leading-relaxed">
-              ${R.isCur ? `Còn <b class="text-white">${R.daysLeft}</b> ngày<br>` : ''}${T.pct >= 100 ? '<span class="text-emerald-400 font-bold"><i class="fa-solid fa-trophy mr-1"></i>Đã đạt KPI, có quỹ thưởng</span>' : (R.isCur ? `Dự báo cuối tháng <b class="text-white">${Math.round(T.projPct)}%</b>` : '<span class="text-red-400">Chưa đạt KPI</span>')}
+              ${R.isCur ? `Còn <b class="text-white">${R.daysLeft}</b> ngày<br>` : ''}${T.pct >= 100 ? '<span class="text-emerald-400 font-bold"><i class="fa-solid fa-trophy mr-1"></i>Đã đạt KPI, có thưởng KPI</span>' : (R.isCur ? `Dự báo cuối tháng <b class="text-white">${Math.round(T.projPct)}%</b>` : '<span class="text-red-400">Chưa đạt KPI</span>')}
             </div></div>
           ${skpiBar(T.pct, pace)}
-          ${need ? `<p class="text-[11px] text-gray-400 mt-2">${need}. Đạt 100% KPI xưởng thì cả đội mới có quỹ thưởng.</p>` : ''}`;
+          ${need ? `<p class="text-[11px] text-gray-400 mt-2">${need}. Xưởng đạt 100% KPI thì mỗi KTV mới nhận thưởng KPI.</p>` : ''}`;
       }
       const shown = closedRow || row;
+      const myKpiBonus = shown.kpiBonus != null ? shown.kpiBonus : (shown.poolShare || 0);
+      const rateTxt = esc(skpiBonusLabel(me));
+      const rateLine = C.target ? (T.reached
+          ? `<p class="text-[11px] text-emerald-300 mt-2"><i class="fa-solid fa-circle-check mr-1"></i>Xưởng đã đạt KPI · mức thưởng của bạn: <b>${rateTxt}</b></p>`
+          : `<p class="text-[11px] text-amber-200 mt-2"><i class="fa-solid fa-bullseye mr-1"></i>Mức thưởng của bạn: <b>${rateTxt}</b>. Khi xưởng đạt KPI, bạn nhận ít nhất <b class="text-emerald-300">${formatMoney(row.bonusAtTarget)} đ</b>.</p>`) : '';
+      const cells = [`<div class="bg-gray-900/70 rounded-xl p-2"><p class="text-[10px] text-gray-400">Thưởng KPI</p><p class="text-xs font-black font-mono text-white">${formatMoney(myKpiBonus)}</p></div>`];
+      if (C.laborPct || shown.laborComm) cells.push(`<div class="bg-gray-900/70 rounded-xl p-2"><p class="text-[10px] text-gray-400">Hoa hồng công ${C.laborPct}%</p><p class="text-xs font-black font-mono text-white">${formatMoney(shown.laborComm)}</p></div>`);
+      cells.push(`<div class="bg-gray-900/70 rounded-xl p-2"><p class="text-[10px] text-gray-400">Bị trừ</p><p class="text-xs font-black font-mono ${shown.pen ? 'text-red-400' : 'text-white'}">${shown.pen ? '−' : ''}${formatMoney(shown.pen)}</p></div>`);
       const bonusBox = `<div class="bg-gradient-to-br from-emerald-950/60 to-gray-900 border border-emerald-500/40 rounded-2xl p-3.5 sm:p-4">
           <p class="text-[10px] text-emerald-300 uppercase font-bold"><i class="fa-solid fa-sack-dollar mr-1"></i>${closedRow ? 'Thưởng đã chốt' : 'Thưởng của tôi (tính đến hôm nay)'}</p>
           <p class="text-3xl font-black font-mono text-emerald-400 mt-1">${formatMoney(shown.total)} đ</p>
           ${!closedRow && R.isCur ? `<p class="text-[11px] text-gray-300 mt-1">Nếu giữ nhịp này, cuối tháng bạn nhận khoảng <b class="text-emerald-300">${formatMoney(row.proj)} đ</b></p>` : ''}
-          <div class="grid grid-cols-3 gap-2 mt-3 text-center">
-            <div class="bg-gray-900/70 rounded-xl p-2"><p class="text-[10px] text-gray-400">Chia quỹ xưởng</p><p class="text-xs font-black font-mono text-white">${formatMoney(shown.poolShare)}</p></div>
-            <div class="bg-gray-900/70 rounded-xl p-2"><p class="text-[10px] text-gray-400">Hoa hồng công ${C.laborPct}%</p><p class="text-xs font-black font-mono text-white">${formatMoney(shown.laborComm)}</p></div>
-            <div class="bg-gray-900/70 rounded-xl p-2"><p class="text-[10px] text-gray-400">Bị trừ</p><p class="text-xs font-black font-mono ${shown.pen ? 'text-red-400' : 'text-white'}">${shown.pen ? '−' : ''}${formatMoney(shown.pen)}</p></div>
-          </div>
+          ${closedRow ? '' : rateLine}
+          <div class="grid grid-cols-${cells.length} gap-2 mt-3 text-center">${cells.join('')}</div>
           <p class="text-[10px] text-gray-500 mt-2">Số tạm tính, số chính thức là số Chủ Xưởng chốt cuối tháng.</p>
         </div>`;
 
@@ -10457,7 +10464,7 @@ Gầm: 6 tháng hoặc 10.000 km
       const members = S.members;
       if (!members.length) return `<div class="bg-amber-950/20 border border-amber-500/40 rounded-2xl p-4 text-xs text-amber-200">
         <p class="font-bold mb-1"><i class="fa-solid fa-circle-info mr-1"></i>Bắt đầu: thêm danh sách KTV xưởng</p>
-        Kéo xuống phần <b>Cài đặt KPI</b>, thêm từng KTV (gắn với tài khoản đăng nhập nếu có để họ xem được KPI của mình), đặt hệ số và KPI doanh thu xưởng của tháng.</div>`;
+        Kéo xuống phần <b>Cài đặt KPI</b>, thêm từng KTV (gắn với tài khoản đăng nhập nếu có để họ xem được KPI của mình), đặt mức thưởng riêng từng người (% doanh thu xưởng hoặc số tiền) và KPI doanh thu xưởng của tháng.</div>`;
       const pace = R.isCur ? Math.round(R.elapsed * 100 / R.dim) : null;
       const gPct = T.rev ? T.gross * 100 / T.rev : 0;
       const closed = R.closed;
@@ -10465,10 +10472,10 @@ Gầm: 6 tháng hoặc 10.000 km
         ${skpiCard('Doanh thu xưởng', formatMoney(Math.round(T.rev)) + ' đ', `${T.n} bill · KPI ${C.target ? shortMoney(C.target) : 'chưa đặt'}`, 'text-orange-400', 'fa-wrench')}
         ${skpiCard('Đạt KPI xưởng', C.target ? Math.round(T.pct) + '%' : '--', R.isCur && C.target ? `Dự báo cuối tháng ${Math.round(T.projPct)}%` : (C.saved ? '' : 'KPI lấy theo tháng trước, chưa lưu'), T.pct >= 100 ? 'text-emerald-400' : 'text-amber-400', 'fa-bullseye')}
         ${skpiCard('Lãi gộp xưởng', formatMoney(Math.round(T.gross)) + ' đ', 'Biên ' + skpiPctTxt(gPct) + (T.missingCost ? ` · ${T.missingCost} dòng chưa có giá nhập` : ''), 'text-amber-300', 'fa-coins')}
-        ${skpiCard('Tổng thưởng', formatMoney(closed ? closed.totalPay : R.rows.reduce((s, r) => s + r.total, 0)) + ' đ', closed ? 'Đã chốt ' + new Date(closed.at).toLocaleDateString('vi-VN') : (R.isCur ? 'Dự kiến cuối tháng ' + formatMoney(R.rows.reduce((s, r) => s + r.proj, 0)) + ' đ' : `Quỹ ${formatMoney(skpiRound(T.pool))} đ`), 'text-emerald-400', 'fa-sack-dollar')}
+        ${skpiCard('Tổng thưởng', formatMoney(closed ? closed.totalPay : R.rows.reduce((s, r) => s + r.total, 0)) + ' đ', closed ? 'Đã chốt ' + new Date(closed.at).toLocaleDateString('vi-VN') : (R.isCur ? 'Dự kiến cuối tháng ' + formatMoney(R.rows.reduce((s, r) => s + r.proj, 0)) + ' đ' : (T.reached ? 'Đã đạt KPI' : 'Chưa đạt KPI')), 'text-emerald-400', 'fa-sack-dollar')}
       </div>`;
-      const kpiBar = C.target ? `<div class="bg-gray-900 border border-gray-800 rounded-2xl p-3.5"><div class="flex justify-between text-xs"><span class="font-bold text-white">Tiến độ KPI xưởng</span><span class="font-mono text-gray-400">Quỹ thưởng ${C.poolPct}% lãi gộp + ${C.overPct}% lãi phần vượt · đến nay ${formatMoney(skpiRound(T.pool))} đ</span></div>${skpiBar(T.pct, pace)}
-        ${T.pct < 100 ? `<p class="text-[11px] text-gray-400 mt-1.5">Chưa đạt 100% KPI nên quỹ thưởng = 0; KTV vẫn nhận hoa hồng tiền công.${T.needPerDay ? ' Cần thêm ' + shortMoney(T.needPerDay) + '/ngày.' : ''}</p>` : ''}</div>` : '';
+      const kpiBar = C.target ? `<div class="bg-gray-900 border border-gray-800 rounded-2xl p-3.5"><div class="flex justify-between text-xs"><span class="font-bold text-white">Tiến độ KPI xưởng</span><span class="text-gray-400">Đạt KPI → mỗi KTV nhận mức thưởng riêng · nếu đạt đúng KPI tổng thưởng KPI ≈ <b class="font-mono text-white">${formatMoney(R.rows.reduce((s, r) => s + r.bonusAtTarget, 0))} đ</b></span></div>${skpiBar(T.pct, pace)}
+        ${T.pct < 100 ? `<p class="text-[11px] text-gray-400 mt-1.5">Chưa đạt 100% KPI nên chưa có thưởng KPI${C.laborPct ? '; KTV vẫn nhận hoa hồng tiền công' : ''}.${T.needPerDay ? ' Cần thêm ' + shortMoney(T.needPerDay) + '/ngày.' : ''}</p>` : ''}</div>` : '';
 
       const warn = [];
       if (T.unassigned) warn.push(`<b>${T.unassigned}</b> bill xưởng chưa gán KTV (không tính cho ai). Gán ở bảng "Gán KTV cho bill" bên dưới.`);
@@ -10484,11 +10491,11 @@ Gầm: 6 tháng hoặc 10.000 km
             : (R.isFuture ? '' : `<button onclick="skpiCloseMonth()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-xl text-[11px] font-bold shadow"><i class="fa-solid fa-lock mr-1"></i>Chốt thưởng tháng</button>`)}
         </div>
         <div class="overflow-x-auto"><table class="w-full text-xs min-w-[640px]">
-          <thead><tr class="text-[10px] text-gray-400 uppercase text-right"><th class="text-left py-1.5">KTV</th><th>${S.splitMode === 'contrib' ? 'Tỷ lệ chia' : 'Hệ số'}</th><th>Số xe</th><th>Tiền công</th><th>Chia quỹ</th><th>HH công</th><th>Bị trừ</th><th class="text-emerald-400">Tổng</th>${!closed && R.isCur ? '<th>Dự kiến</th>' : ''}</tr></thead>
+          <thead><tr class="text-[10px] text-gray-400 uppercase text-right"><th class="text-left py-1.5">KTV</th><th>Mức thưởng</th><th>Số xe</th><th>Tiền công</th><th>Thưởng KPI</th><th>HH công</th><th>Bị trừ</th><th class="text-emerald-400">Tổng</th>${!closed && R.isCur ? '<th>Dự kiến</th>' : ''}</tr></thead>
           <tbody>${src.map(r => `<tr class="border-t border-gray-800 text-right font-mono">
             <td class="text-left py-2 font-sans font-semibold text-white">${esc(r.name)}${r.uid ? '' : ' <i class="fa-solid fa-user-slash text-[9px] text-gray-500" title="Chưa gắn tài khoản, không tự xem được KPI"></i>'}</td>
-            <td>${S.splitMode === 'contrib' ? Math.round((r.share || 0) * 100) + '%' : String(r.coef).replace('.', ',')}</td>
-            <td>${r.bills}</td><td>${formatMoney(Math.round(r.labor))}</td><td>${formatMoney(r.poolShare)}</td><td>${formatMoney(r.laborComm)}</td>
+            <td>${r.bonusType ? esc(skpiBonusLabel(r)) + (r.bonusType === 'pct' && !closed && r.bonusAtTarget ? `<span class="block text-[10px] text-gray-500">≈ ${shortMoney(r.bonusAtTarget)} khi đạt KPI</span>` : '') : 'Hệ số ' + String(r.coef || 0).replace('.', ',')}</td>
+            <td>${r.bills}</td><td>${formatMoney(Math.round(r.labor))}</td><td>${formatMoney(r.kpiBonus != null ? r.kpiBonus : (r.poolShare || 0))}</td><td>${formatMoney(r.laborComm)}</td>
             <td class="${r.pen ? 'text-red-400' : ''}" title="${r.noLabor} bill thiếu công, ${r.comebacks} xe quay lại">${r.pen ? '−' + formatMoney(r.pen) : '0'}</td>
             <td class="text-emerald-400 font-black">${formatMoney(r.total)}</td>${!closed && R.isCur ? `<td class="text-gray-400">${formatMoney(r.proj)}</td>` : ''}</tr>`).join('')}</tbody>
         </table></div></div>`;
@@ -10517,8 +10524,8 @@ Gầm: 6 tháng hoặc 10.000 km
     // ----- Cài đặt (Chủ Xưởng) -----
     function skpiStartDraft() {
       const S = skpiSettings(), C = skpiMonthCfg(skpiMonth);
-      skpiDraft = { members: S.members.map(m => Object.assign({}, m)), showMoney: S.showMoney, splitMode: S.splitMode,
-        target: C.target, poolPct: C.poolPct, overPct: C.overPct, laborPct: C.laborPct, penNoLabor: C.penNoLabor, penComeback: C.penComeback };
+      skpiDraft = { members: S.members.map(m => Object.assign({}, m, { bonusType: skpiBonusType(m), bonusValue: +m.bonusValue || 0 })), showMoney: S.showMoney,
+        target: C.target, laborPct: C.laborPct, penNoLabor: C.penNoLabor, penComeback: C.penComeback };
     }
     function skpiMarkDirty() { skpiDirty = true; const b = document.getElementById('skpi-save-hint'); if (b) b.classList.remove('hidden'); }
     function skpiReadForm() {
@@ -10526,21 +10533,21 @@ Gầm: 6 tháng hoặc 10.000 km
       const num = id => { const el = document.getElementById(id); return el ? (parseFloat(String(el.value).replace(',', '.')) || 0) : 0; };
       const money = id => { const el = document.getElementById(id); return el ? (parseCurrencyNumber(el.value) || 0) : 0; };
       skpiDraft.target = money('skpi-target');
-      skpiDraft.poolPct = num('skpi-pool'); skpiDraft.overPct = num('skpi-over'); skpiDraft.laborPct = num('skpi-labor');
+      skpiDraft.laborPct = num('skpi-labor');
       skpiDraft.penNoLabor = money('skpi-pen-nolabor'); skpiDraft.penComeback = money('skpi-pen-comeback');
       const sm = document.getElementById('skpi-showmoney'); skpiDraft.showMoney = !!(sm && sm.checked);
-      const sp = document.querySelector('input[name="skpi-split"]:checked'); skpiDraft.splitMode = sp ? sp.value : 'coef';
       skpiDraft.members.forEach(m => {
-        const n = document.getElementById('skpi-m-name-' + m.id), u = document.getElementById('skpi-m-uid-' + m.id), c = document.getElementById('skpi-m-coef-' + m.id), a = document.getElementById('skpi-m-active-' + m.id);
+        const n = document.getElementById('skpi-m-name-' + m.id), u = document.getElementById('skpi-m-uid-' + m.id), ty = document.getElementById('skpi-m-type-' + m.id), v = document.getElementById('skpi-m-val-' + m.id), a = document.getElementById('skpi-m-active-' + m.id);
         if (n) m.name = n.value.trim();
         if (u) m.uid = u.value;
-        if (c) m.coef = parseFloat(String(c.value).replace(',', '.')) || 0;
+        if (v) m.bonusValue = m.bonusType === 'pct' ? (parseFloat(String(v.value).replace(',', '.')) || 0) : (parseCurrencyNumber(v.value) || 0);
+        if (ty && ty.value !== m.bonusType) { m.bonusType = ty.value === 'pct' ? 'pct' : 'fixed'; m.bonusValue = 0; }
         if (a) m.active = a.checked;
       });
     }
     function skpiAddMember() {
       skpiReadForm();
-      skpiDraft.members.push({ id: 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name: '', uid: '', coef: 1, active: true });
+      skpiDraft.members.push({ id: 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name: '', uid: '', bonusType: 'fixed', bonusValue: 0, active: true });
       skpiMarkDirty(); renderSkpiSettings(true);
     }
     function skpiRemoveMember(id) {
@@ -10575,39 +10582,39 @@ Gầm: 6 tháng hoặc 10.000 km
         </div>
         <div class="grid grid-cols-2 lg:grid-cols-3 gap-2.5">
           ${field('KPI doanh thu xưởng (đ)', 'skpi-target', D.target, finKpiHint, true)}
-          ${field('Quỹ thưởng: % lãi gộp xưởng', 'skpi-pool', D.poolPct, 'Chỉ có khi đạt ≥ 100% KPI')}
-          ${field('Thưởng vượt: % lãi phần vượt KPI', 'skpi-over', D.overPct, '')}
-          ${field('Hoa hồng tiền công cho KTV (%)', 'skpi-labor', D.laborPct, 'Tính trên tiền công ghi trên bill')}
+          ${field('Hoa hồng tiền công cho KTV (%)', 'skpi-labor', D.laborPct, 'Cộng thêm ngoài thưởng KPI · đặt 0 nếu không dùng')}
           ${field('Trừ mỗi bill thiếu tiền công (đ)', 'skpi-pen-nolabor', D.penNoLabor, 'Đặt 0 nếu chưa áp dụng tháng này', true)}
           ${field('Trừ mỗi xe quay lại do lỗi lắp (đ)', 'skpi-pen-comeback', D.penComeback, 'Đánh dấu ở tab Hóa Đơn', true)}
         </div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
-          <div class="bg-gray-800/50 border border-gray-700/60 rounded-xl p-2.5 space-y-1.5">
-            <p class="text-[11px] text-gray-400 font-semibold">Chia quỹ thưởng theo</p>
-            <label class="flex items-center gap-2 text-gray-200"><input type="radio" name="skpi-split" value="coef" ${D.splitMode !== 'contrib' ? 'checked' : ''} onchange="skpiMarkDirty()"> Hệ số từng người (Chủ Xưởng đặt)</label>
-            <label class="flex items-center gap-2 text-gray-200"><input type="radio" name="skpi-split" value="contrib" ${D.splitMode === 'contrib' ? 'checked' : ''} onchange="skpiMarkDirty()"> Đóng góp (doanh thu các xe mình làm)</label>
-          </div>
+        <div class="grid grid-cols-1 gap-2.5 text-xs">
           <div class="bg-gray-800/50 border border-gray-700/60 rounded-xl p-2.5 space-y-1.5">
             <p class="text-[11px] text-gray-400 font-semibold">KTV được xem</p>
             <label class="flex items-center gap-2 text-gray-200"><input type="checkbox" id="skpi-showmoney" ${D.showMoney ? 'checked' : ''} onchange="skpiMarkDirty()"> Hiện số tiền doanh thu xưởng (tắt = chỉ hiện %)</label>
-            <p class="text-[10px] text-gray-500">KTV không bao giờ thấy giá vốn, lãi, quỹ thưởng tổng hay thưởng của người khác.</p>
+            <p class="text-[10px] text-gray-500">KTV chỉ thấy mức thưởng và tiền thưởng của chính mình, không thấy giá vốn, lãi hay thưởng của người khác.</p>
           </div>
         </div>
         <div>
           <div class="flex items-center justify-between mb-1.5">
-            <p class="text-[11px] text-gray-400 font-semibold">Danh sách KTV xưởng (dùng chung mọi tháng)</p>
+            <p class="text-[11px] text-gray-400 font-semibold">KTV xưởng & mức thưởng khi đạt KPI (dùng chung mọi tháng)</p>
             <button onclick="skpiAddMember()" class="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-emerald-300 border border-emerald-500/40 rounded-lg text-[11px] font-bold"><i class="fa-solid fa-plus mr-1"></i>Thêm KTV</button>
           </div>
           <div class="space-y-1.5">
-            ${D.members.map(m => `<div class="grid grid-cols-12 gap-1.5 items-center bg-gray-800/40 rounded-xl p-1.5">
-              <input id="skpi-m-name-${m.id}" value="${escAttr(m.name)}" placeholder="Tên KTV" oninput="skpiMarkDirty()" class="col-span-4 sm:col-span-3 ${inp}">
-              <select id="skpi-m-uid-${m.id}" onchange="skpiPickAccount('${m.id}', this)" class="col-span-4 sm:col-span-5 ${inp}">${acctOpts(m.uid)}</select>
-              <input id="skpi-m-coef-${m.id}" value="${String(m.coef).replace('.', ',')}" inputmode="decimal" oninput="skpiMarkDirty()" title="Hệ số chia quỹ" class="col-span-2 sm:col-span-1 ${inp} text-center font-mono">
-              <label class="col-span-1 sm:col-span-2 flex items-center justify-center gap-1 text-[10px] text-gray-400"><input type="checkbox" id="skpi-m-active-${m.id}" ${m.active !== false ? 'checked' : ''} onchange="skpiMarkDirty()"><span class="hidden sm:inline">Đang làm</span></label>
+            ${D.members.map(m => { const isPct = m.bonusType === 'pct'; return `<div class="grid grid-cols-12 gap-1.5 items-center bg-gray-800/40 rounded-xl p-1.5">
+              <input id="skpi-m-name-${m.id}" value="${escAttr(m.name)}" placeholder="Tên KTV" oninput="skpiMarkDirty()" class="col-span-6 sm:col-span-3 ${inp}">
+              <select id="skpi-m-uid-${m.id}" onchange="skpiPickAccount('${m.id}', this)" class="col-span-6 sm:col-span-3 ${inp}">${acctOpts(m.uid)}</select>
+              <select id="skpi-m-type-${m.id}" onchange="skpiReadForm(); skpiMarkDirty(); renderSkpiSettings(true)" title="Kiểu thưởng" class="col-span-5 sm:col-span-2 ${inp}">
+                <option value="fixed" ${!isPct ? 'selected' : ''}>Tiền cố định</option>
+                <option value="pct" ${isPct ? 'selected' : ''}>% DT xưởng</option>
+              </select>
+              <div class="col-span-4 sm:col-span-2 relative">
+                <input id="skpi-m-val-${m.id}" value="${isPct ? String(m.bonusValue || 0).replace('.', ',') : formatMoney(m.bonusValue || 0)}" inputmode="${isPct ? 'decimal' : 'numeric'}" oninput="${isPct ? '' : 'formatLiveCurrency(this);'}skpiMarkDirty()" ${isPct ? '' : 'onfocus="handleMoneyFocus(this)" onblur="handleMoneyBlur(this)"'} title="${isPct ? '% doanh thu xưởng của tháng' : 'Số tiền thưởng khi đạt KPI'}" class="w-full ${inp} text-right font-mono pr-6">
+                <span class="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-500">${isPct ? '%' : 'đ'}</span>
+              </div>
+              <label class="col-span-2 sm:col-span-1 flex items-center justify-center gap-1 text-[10px] text-gray-400"><input type="checkbox" id="skpi-m-active-${m.id}" ${m.active !== false ? 'checked' : ''} onchange="skpiMarkDirty()"><span class="hidden sm:inline">Đang làm</span></label>
               <button onclick="skpiRemoveMember('${m.id}')" class="col-span-1 text-gray-500 hover:text-red-400"><i class="fa-solid fa-trash-can text-xs"></i></button>
-            </div>`).join('') || '<p class="text-xs text-gray-500 italic">Chưa có KTV nào.</p>'}
+            </div>`; }).join('') || '<p class="text-xs text-gray-500 italic">Chưa có KTV nào.</p>'}
           </div>
-          <p class="text-[10px] text-gray-500 mt-1">Cột giữa: gắn với tài khoản đăng nhập để KTV tự xem KPI của mình. Ô số: hệ số chia quỹ (VD thợ chính 1,5 · thợ phụ 1).</p>
+          <p class="text-[10px] text-gray-500 mt-1">Cột giữa: gắn với tài khoản đăng nhập để KTV tự xem KPI của mình. Mức thưởng: <b>Tiền cố định</b> (VD 2.000.000 đ) hoặc <b>% DT xưởng</b> (VD 0,5% doanh thu xưởng của tháng). Chỉ được nhận khi xưởng đạt KPI.</p>
         </div>
         <div class="flex justify-end gap-2">
           <button onclick="skpiDirty=false; renderSkpiSettings()" class="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 rounded-xl text-xs">Hủy thay đổi</button>
@@ -10625,8 +10632,8 @@ Gầm: 6 tháng hoặc 10.000 km
       const uids = D.members.map(m => m.uid).filter(Boolean);
       if (new Set(uids).size !== uids.length) { showNotification('Một tài khoản đang gắn cho 2 KTV, vui lòng kiểm tra lại!', 'warning'); return; }
       if (skpiData.closed[skpiMonth]) { showNotification('Tháng này đã chốt. Bấm "Mở lại" nếu muốn đổi cài đặt tháng này.', 'warning'); return; }
-      const settings = { members: D.members.map(m => ({ id: m.id, name: m.name, uid: m.uid || '', coef: +m.coef || 0, active: m.active !== false })), showMoney: !!D.showMoney, splitMode: D.splitMode === 'contrib' ? 'contrib' : 'coef', updatedAt: Date.now(), updatedBy: currentLoggedInUser.name };
-      const month = { target: D.target, poolPct: D.poolPct, overPct: D.overPct, laborPct: D.laborPct, penNoLabor: D.penNoLabor, penComeback: D.penComeback, updatedAt: Date.now() };
+      const settings = { members: D.members.map(m => ({ id: m.id, name: m.name, uid: m.uid || '', bonusType: m.bonusType === 'pct' ? 'pct' : 'fixed', bonusValue: Math.max(0, +m.bonusValue || 0), active: m.active !== false })), showMoney: !!D.showMoney, updatedAt: Date.now(), updatedBy: currentLoggedInUser.name };
+      const month = { target: D.target, laborPct: D.laborPct, penNoLabor: D.penNoLabor, penComeback: D.penComeback, updatedAt: Date.now() };
       if (!firebaseDb) { skpiData.settings = settings; skpiData.months[skpiMonth] = month; skpiDirty = false; renderStaffKpi(); renderSkpiSettings(); renderQuoteTechPicker(); return; }
       firebaseDb.ref('garage/meta/staffKpi').update({ settings: settings, ['months/' + skpiMonth]: month })
         .then(() => { skpiDirty = false; showNotification('Đã lưu cài đặt KPI nhân viên!', 'success'); renderSkpiSettings(); })
@@ -10686,10 +10693,10 @@ Gầm: 6 tháng hoặc 10.000 km
       if (!R.C.saved) { showNotification('Hãy kiểm tra và bấm "Lưu cài đặt" cho tháng này trước khi chốt.', 'warning'); return; }
       const totalPay = R.rows.reduce((s, r) => s + r.total, 0);
       const warn = R.T.unassigned ? ` Lưu ý: còn ${R.T.unassigned} bill chưa gán KTV.` : '';
-      const snap = { at: Date.now(), by: currentLoggedInUser.name, totalPay: totalPay, pool: skpiRound(R.T.pool),
+      const snap = { at: Date.now(), by: currentLoggedInUser.name, totalPay: totalPay, reached: !!R.T.reached,
         totals: { rev: Math.round(R.T.rev), gross: Math.round(R.T.gross), pct: Math.round(R.T.pct * 10) / 10, n: R.T.n },
-        cfg: { target: R.C.target, poolPct: R.C.poolPct, overPct: R.C.overPct, laborPct: R.C.laborPct, penNoLabor: R.C.penNoLabor, penComeback: R.C.penComeback, splitMode: R.S.splitMode },
-        rows: R.rows.map(r => ({ id: r.id, name: r.name, uid: r.uid, coef: r.coef, share: Math.round(r.share * 1000) / 1000, bills: r.bills, labor: Math.round(r.labor), noLabor: r.noLabor, comebacks: r.comebacks, poolShare: r.poolShare, laborComm: r.laborComm, pen: r.pen, total: r.total })) };
+        cfg: { target: R.C.target, laborPct: R.C.laborPct, penNoLabor: R.C.penNoLabor, penComeback: R.C.penComeback },
+        rows: R.rows.map(r => ({ id: r.id, name: r.name, uid: r.uid, bonusType: r.bonusType, bonusValue: r.bonusValue, bills: r.bills, labor: Math.round(r.labor), noLabor: r.noLabor, comebacks: r.comebacks, kpiBonus: r.kpiBonus, laborComm: r.laborComm, pen: r.pen, total: r.total })) };
       showConfirmModal('Chốt thưởng ' + skpiMonthLabel(skpiMonth).toLowerCase() + '?', `Tổng chi thưởng ${formatMoney(totalPay)} đ cho ${R.rows.length} KTV. Sau khi chốt, KTV thấy số chính thức và số liệu tháng này bị khóa (có thể mở lại).${warn}`, () => {
         if (!firebaseDb) { skpiData.closed[skpiMonth] = snap; renderStaffKpi(); return; }
         firebaseDb.ref('garage/meta/staffKpi/closed/' + skpiMonth).set(snap)
