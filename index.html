@@ -4770,7 +4770,7 @@ Gầm: 6 tháng hoặc 10.000 km
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.11.06-2';
+    const APP_VERSION = '2026.11.06-3';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -10444,7 +10444,7 @@ Gầm: 6 tháng hoặc 10.000 km
 
       const myBills = row.list.slice().sort((a, b) => b.t - a.t).map(b => `<div class="flex items-center justify-between gap-2 py-1.5 border-t border-gray-800 first:border-0 text-xs">
           <div class="min-w-0"><b class="text-amber-400">${esc(b.inv.plate)}</b> <span class="text-gray-300">${esc(b.inv.car || '')}</span><p class="text-[10px] text-gray-500">${esc(b.inv.date)}${b.k > 1 ? ` · làm chung ${b.k} người` : ''}</p></div>
-          <span class="font-mono font-bold shrink-0 ${b.labor > 0 ? 'text-emerald-400' : 'text-red-400'}">${b.labor > 0 ? 'Công ' + formatMoney(Math.round(b.labor / b.k)) : 'Chưa ghi công'}</span></div>`).join('')
+          <span class="font-mono font-bold shrink-0 ${b.labor > 0 ? 'text-emerald-400' : 'text-red-400'}">${b.labor > 0 ? '<i class="fa-solid fa-check mr-1"></i>Đã ghi công' : 'Chưa ghi công'}</span></div>`).join('')
         || '<p class="text-xs text-gray-500 italic text-center py-3">Chưa có xe nào được ghi tên bạn trong tháng này.</p>';
 
       return `<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
@@ -10454,7 +10454,7 @@ Gầm: 6 tháng hoặc 10.000 km
         ${fixBox}
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
           <div class="bg-gray-900 border border-gray-800 rounded-2xl p-3.5 sm:p-4">
-            <p class="text-xs font-bold text-white mb-2"><i class="fa-solid fa-car-side mr-1 text-orange-400"></i>Xe tôi đã làm (${row.bills}) · tiền công ${formatMoney(Math.round(row.labor))} đ</p>
+            <p class="text-xs font-bold text-white mb-2"><i class="fa-solid fa-car-side mr-1 text-orange-400"></i>Xe tôi đã làm (${row.bills})${row.noLabor ? ` · <span class="text-red-400">${row.noLabor} xe chưa ghi công</span>` : ''}</p>
             <div class="max-h-80 overflow-y-auto custom-scrollbar">${myBills}</div>
           </div>
           ${skpiRankHtml(R, me.id)}
@@ -10469,7 +10469,7 @@ Gầm: 6 tháng hoặc 10.000 km
         <p class="text-xs font-bold text-white mb-2"><i class="fa-solid fa-ranking-star mr-1 text-amber-400"></i>Bảng thi đua ${skpiMonthLabel(R.M).toLowerCase()}</p>
         ${rows.map((r, i) => `<div class="flex items-center justify-between gap-2 py-1.5 border-t border-gray-800 first:border-0 text-xs ${r.id === meId ? 'text-emerald-300 font-bold' : 'text-gray-300'}">
           <span>${medal(i)} ${esc(r.name)}${r.id === meId ? ' (bạn)' : ''}</span>
-          <span class="font-mono">${r.bills} xe · công ${shortMoney(r.labor)}</span></div>`).join('')}
+          <span class="font-mono">${r.bills} xe${meId ? '' : ' · công ' + shortMoney(r.labor)}</span></div>`).join('')}
       </div>`;
     }
 
