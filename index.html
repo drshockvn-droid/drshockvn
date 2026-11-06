@@ -2642,7 +2642,8 @@ Gầm: 6 tháng hoặc 10.000 km
         info: 'fa-circle-info'
       };
       toast.className = `pointer-events-auto flex items-center gap-2 px-3.5 py-2.5 rounded-xl border shadow-xl text-xs font-semibold transform transition-all duration-300 opacity-0 translate-y-2 ${colors[type] || colors.info}`;
-      toast.innerHTML = `<i class="fa-solid ${icons[type] || icons.info}"></i> <span>${msg}</span>`;
+      toast.innerHTML = `<i class="fa-solid ${icons[type] || icons.info}"></i> <span></span>`;
+      toast.querySelector('span').textContent = String(msg == null ? '' : msg);   // chữ thuần, không chạy mã HTML lạ
       container.appendChild(toast);
       
       requestAnimationFrame(() => toast.classList.remove('opacity-0', 'translate-y-2'));
@@ -3161,7 +3162,7 @@ Gầm: 6 tháng hoặc 10.000 km
         res.map((c, i) => `
           <div data-cidx="${i}" onmousedown="event.preventDefault(); pickCustomerSuggestion(${i})" class="p-2.5 hover:bg-gray-800/90 active:bg-gray-700 cursor-pointer">
             <div class="flex items-center gap-1.5 flex-wrap">
-              ${c.plate ? `<span class="text-xs font-black font-mono text-amber-400 uppercase">${c.plate}</span>` : ''}
+              ${c.plate ? `<span class="text-xs font-black font-mono text-amber-400 uppercase">${esc(c.plate)}</span>` : ''}
               <span class="text-xs font-bold text-white">${field === 'name' ? highlightMatch(c.name, tokens) : highlightMatch(c.name, [])}</span>
               <span class="text-[10px] px-1.5 rounded bg-red-950 text-red-400 border border-red-500/30 font-bold">${c.visits ? c.visits + ' lần' : 'Khách cũ'}</span>
               ${c.customerType.includes('Garage') ? '<span class="text-[10px] px-1.5 rounded bg-amber-950/80 text-amber-300 border border-amber-500/30 font-semibold">Garage / ĐL</span>' : ''}
@@ -3422,6 +3423,7 @@ Gầm: 6 tháng hoặc 10.000 km
       setCustomerType('Khách lẻ');
       document.getElementById('quote-deposit').value = '0';
       setPayStatus('paid');
+      pendingZaloOrder = null;
       currentQuoteItems = [];
       if (typeof skpiResetQuoteTechs === 'function') skpiResetQuoteTechs();
       renderQuoteItems();
@@ -3539,6 +3541,7 @@ Gầm: 6 tháng hoặc 10.000 km
         if (!String(serviceType).includes('Gửi') && typeof skpiQuoteTechPayload === 'function') Object.assign(base, skpiQuoteTechPayload());
         quoteTechConfirmed = false;
         if (payStatus === 'debt' && depositAmt) base.prepaid = depositAmt;
+        if (pendingZaloOrder) base.zaloOrder = pendingZaloOrder;
         // Mã bảo hành điện tử (chỉ khi đã kết nối đám mây để khách tra cứu được)
         const warrantyRecordCode = firebaseDb ? genWarrantyCode() : '';
         if (warrantyRecordCode) base.warrantyCode = warrantyRecordCode;
@@ -3584,6 +3587,7 @@ Gầm: 6 tháng hoặc 10.000 km
         showPrintModal(newInv);
         showNotification(`Đã xuất hóa đơn ${newInv.id}!`, 'success');
         invChimed.add(newInv.id); playChime('order');
+        if (pendingZaloOrder) markZaloOrderInvoiced(newInv.id);
       } finally {
         invoiceSaving = false;
       }
@@ -4087,7 +4091,7 @@ Gầm: 6 tháng hoặc 10.000 km
               <p class="text-xs font-semibold text-white truncate mt-0.5">${esc(inv.name)} <span class="text-gray-400 font-normal">(${esc(inv.car)} - ${esc(inv.phone || 'Không SĐT')})</span></p>
               ${inv.note ? `<p class="text-[11px] text-amber-300/90 truncate mt-0.5"><i class="fa-solid fa-note-sticky text-[10px] mr-1 text-amber-400"></i>${esc(inv.note)}</p>` : ''}
               <div class="flex items-center gap-2 text-[10px] text-gray-400 mt-0.5">
-                <span><i class="fa-solid fa-clock mr-1"></i>${inv.date}</span>
+                <span><i class="fa-solid fa-clock mr-1"></i>${esc(inv.date)}</span>
                 <span>•</span>
                 <span class="text-orange-400">${esc(inv.advisor)}</span>
                 ${typeof skpiInvoiceBadge === 'function' ? skpiInvoiceBadge(inv) : ''}
@@ -4766,7 +4770,7 @@ Gầm: 6 tháng hoặc 10.000 km
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.11.06-1';
+    const APP_VERSION = '2026.11.06-2';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -4924,7 +4928,7 @@ Gầm: 6 tháng hoặc 10.000 km
         document.body.appendChild(box);
       }
       box.innerHTML = `<img src="${src}" alt="" class="max-w-full max-h-[80vh] rounded-2xl shadow-2xl object-contain">
-        <div class="mt-3 text-sm font-bold text-white text-center">${p.name}</div>
+        <div class="mt-3 text-sm font-bold text-white text-center">${esc(p.name)}</div>
         <div class="mt-1 text-[11px] text-gray-400">Chạm để đóng</div>`;
       box.classList.remove('hidden');
     }
@@ -5096,12 +5100,22 @@ Gầm: 6 tháng hoặc 10.000 km
         </div>`;
       }).join('') : '<div class="text-gray-500">Chưa có đơn nào. Khi đại lý nhắn kiểu "chốt 2 bộ Roadfit Fortuner trước", bot sẽ ghi đơn vào đây.</div>';
     }
+    var pendingZaloOrder = null;   // đơn Zalo đang được điền vào phiếu tab 1, chờ lưu bill
+    function markZaloOrderInvoiced(invId) {
+      const code = pendingZaloOrder; pendingZaloOrder = null;
+      if (!code || !firebaseDb) return;
+      firebaseDb.ref('garage/zaloOrders/' + code).update({ status: 'done', at_done: Date.now(), invoiceId: invId }).catch(() => {});
+    }
     async function zoApprove(code) {
       const o = zaloOrders[code]; if (!o || !isAdminUser()) return;
       const items = zoItems(o).map(it => ({ id: it.id, name: it.name, unit: it.unit || 'Cái', qty: parseFloat(it.qty) || 0, price: parseCurrencyNumber(it.price) || 0 })).filter(it => it.qty > 0);
       if (!items.length) { showNotification('Đơn không còn món nào (số lượng = 0).', 'warning'); return; }
       const total = items.reduce((s, it) => s + it.price * it.qty, 0);
+      if (items.some(it => !(it.price > 0)) && !window.confirm('Có món đơn giá = 0. Vẫn duyệt đơn ' + code + '?')) return;
       try {
+        const cur = await firebaseDb.ref('garage/zaloOrders/' + code + '/status').once('value');
+        const st = cur.val();
+        if (st && st !== 'pending' && st !== 'approved_error') { showNotification('Đơn ' + code + ' đã ở trạng thái "' + st + '" (có thể người khác vừa xử lý). Không duyệt lại.', 'warning'); return; }
         await firebaseDb.ref('garage/zaloOrders/' + code).update({ items, total, status: 'approved', approvedAt: Date.now(), approvedBy: (currentLoggedInUser && currentLoggedInUser.name) || '' });
         delete zoDraft[code];
         showNotification('Đã duyệt ' + code + ', bot sẽ gửi phiếu vào nhóm trong giây lát.', 'success');
@@ -5118,8 +5132,9 @@ Gầm: 6 tháng hoặc 10.000 km
       if (currentQuoteItems.length && !window.confirm('Phiếu ở tab 1 đang có ' + currentQuoteItems.length + ' món. Thêm các món của đơn ' + code + ' vào phiếu đó?')) return;
       const r = aiToolDraftOrder({ ten_khach: o.groupName || o.customer || '', loai_khach: 'garage', hinh_thuc: 'ship', ghi_chu: 'Đơn Zalo ' + code + (o.note ? ' – ' + o.note : ''),
         hang_muc: (o.items || []).map(it => ({ ma: it.id, ten: it.name, so_luong: it.qty, don_gia: it.price })) });
-      firebaseDb.ref('garage/zaloOrders/' + code).update({ status: 'done', at_done: Date.now() }).catch(() => {});
-      closeZaloModal && closeZaloModal();
+      // Chỉ đánh dấu "Đã lên hoá đơn" khi bill thật sự được lưu (xem handleSaveInvoice) -> không mất đơn nếu bỏ dở
+      pendingZaloOrder = code;
+      if (typeof closeZaloModal === 'function') closeZaloModal();
       switchTab('tab-quote');
       showNotification('Đã điền đơn ' + code + ' vào phiếu tab 1' + (r.khong_tim_thay && r.khong_tim_thay.length ? ' (không thấy: ' + r.khong_tim_thay.join(', ') + ')' : '') + '. Kiểm tra rồi bấm Xuất Hóa Đơn.', r.khong_tim_thay && r.khong_tim_thay.length ? 'warning' : 'success');
     }
@@ -6200,13 +6215,13 @@ Gầm: 6 tháng hoặc 10.000 km
           <div class="flex items-center justify-between text-[11px] bg-gray-900/80 p-2 rounded-lg border border-gray-800">
             <div class="min-w-0 flex-1 pr-2">
               <div class="flex items-center gap-1.5 flex-wrap">
-                <span class="font-bold text-amber-400 font-mono">${inv.id}</span>
+                <span class="font-bold text-amber-400 font-mono">${esc(inv.id)}</span>
                 <span class="text-gray-400">•</span>
-                <span class="text-gray-300 font-semibold uppercase">${inv.plate || 'Xe ship'}</span>
+                <span class="text-gray-300 font-semibold uppercase">${esc(inv.plate || 'Xe ship')}</span>
                 <span class="text-gray-500">•</span>
-                <span class="text-gray-400 truncate">${inv.car || '---'}</span>
+                <span class="text-gray-400 truncate">${esc(inv.car || '---')}</span>
               </div>
-              <p class="text-[10px] text-gray-500 mt-0.5"><i class="fa-regular fa-clock mr-1"></i>${inv.date} | KTV: ${inv.advisor || '---'}</p>
+              <p class="text-[10px] text-gray-500 mt-0.5"><i class="fa-regular fa-clock mr-1"></i>${esc(inv.date)} | KTV: ${esc(inv.advisor || '---')}</p>
             </div>
             <div class="text-right shrink-0 flex items-center gap-2">
               <span class="font-bold text-red-400 font-mono">${formatMoney(inv.total)} đ</span>
@@ -6226,7 +6241,7 @@ Gầm: 6 tháng hoặc 10.000 km
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-1.5 flex-wrap">
                   <span class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-bold uppercase ${badgeColor}">
-                    <i class="fa-solid ${badgeIcon} text-[9px]"></i>${c.customerType}
+                    <i class="fa-solid ${badgeIcon} text-[9px]"></i>${esc(c.customerType)}
                   </span>
                   <span class="text-xs sm:text-sm font-bold text-white leading-tight">${esc(c.name)}</span>
                   <span class="text-[10px] px-2 py-0.5 rounded-full bg-red-950 text-red-400 font-black border border-red-500/30">
@@ -6243,7 +6258,7 @@ Gầm: 6 tháng hoặc 10.000 km
                 <div class="text-[11px] text-gray-400 mt-1 flex items-center gap-2 flex-wrap">
                   <span>Biển số xe: <strong class="text-gray-200 font-mono">${plateStr}</strong></span>
                   <span class="text-gray-600">•</span>
-                  <span>Giao dịch gần nhất: <strong class="text-gray-300 font-mono">${c.latestDate || 'Chưa có trên app mới'}</strong></span>
+                  <span>Giao dịch gần nhất: <strong class="text-gray-300 font-mono">${esc(c.latestDate || 'Chưa có trên app mới')}</strong></span>
                 </div>
                 ${c.dir ? `<div class="text-[11px] text-gray-400 mt-1 flex items-center gap-2 flex-wrap">
                   <span class="px-1.5 rounded bg-gray-700/70 text-gray-300 font-mono" title="Mã khách bên app cũ">${esc(c.dir.code || '')}</span>
@@ -6585,13 +6600,13 @@ Gầm: 6 tháng hoặc 10.000 km
                     <i class="fa-solid ${badgeIcon} text-[9px]"></i>${badgeText}
                   </span>
                   <span class="text-xs sm:text-sm font-bold text-white leading-tight">${esc(log.itemName)}</span>
-                  <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-gray-900 text-gray-400 border border-gray-800">${log.itemId}</span>
+                  <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-gray-900 text-gray-400 border border-gray-800">${esc(log.itemId)}</span>
                 </div>
                 <p class="text-xs text-gray-300 mt-1"><i class="fa-solid fa-note-sticky text-gray-500 text-[10px] mr-1"></i>${esc(log.note || 'Không có ghi chú')}</p>
               </div>
 
               <div class="text-right shrink-0">
-                <span class="text-[11px] sm:text-xs font-mono font-black ${diffColor}">${diffSign} ${log.unit || 'Cái'}</span>
+                <span class="text-[11px] sm:text-xs font-mono font-black ${diffColor}">${diffSign} ${esc(log.unit || 'Cái')}</span>
                 <div class="text-[10px] text-gray-400 font-mono mt-0.5">
                   Tồn: <span class="line-through text-gray-500">${log.beforeQty}</span> &rarr; <span class="font-bold text-white">${log.afterQty}</span>
                 </div>
@@ -6605,7 +6620,7 @@ Gầm: 6 tháng hoặc 10.000 km
               </div>
               <div class="text-gray-400 flex items-center gap-1 font-mono">
                 <i class="fa-regular fa-clock text-[9px]"></i>
-                <span>${log.time}</span>
+                <span>${esc(log.time)}</span>
               </div>
             </div>
           </div>
