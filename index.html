@@ -1190,6 +1190,7 @@ Gầm: 6 tháng hoặc 10.000 km
             <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Mã Hàng</label>
             <input type="text" id="inv-edit-code" placeholder="P01" 
               class="w-full bg-gray-800 border border-gray-700 rounded-xl px-2.5 py-2 text-xs font-bold text-amber-400 uppercase focus:outline-none focus:border-red-500">
+            <button type="button" id="inv-rename-code-btn" onclick="renameInventoryCode()" class="hidden mt-1 w-full text-[10px] font-bold text-amber-300 bg-amber-500/10 border border-amber-500/40 hover:bg-amber-500/20 rounded-lg px-2 py-1"><i class="fa-solid fa-right-left mr-1"></i>Đổi mã</button>
           </div>
           <div class="col-span-2">
             <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Nhóm Hàng</label>
@@ -1981,12 +1982,16 @@ Gầm: 6 tháng hoặc 10.000 km
     function applyStockDeltas(list, deltas, costs, trace) {
       if (trace) Object.keys(trace).forEach(k => delete trace[k]); // transaction có thể chạy lại nhiều lần
       list.forEach(p => {
-        if (deltas[p.id] != null) {
+        // Mã hàng đã đổi: bill / phiếu lập trên máy chưa kịp cập nhật vẫn dùng mã cũ -> vẫn trừ/hoàn đúng món
+        const keys = [p.id].concat(convertToArray(p.oldCodes, []).filter(c => c != null && c !== p.id));
+        let d = 0, has = false;
+        keys.forEach(k => { if (deltas[k] != null) { d += deltas[k]; has = true; } });
+        if (has) {
           const before = parseFloat(p.stock) || 0;
-          p.stock = Math.max(0, Math.round((before + deltas[p.id]) * 10) / 10);
+          p.stock = Math.max(0, Math.round((before + d) * 10) / 10);
           if (trace) trace[p.id] = { id: p.id, name: p.name, unit: p.unit || 'Cái', before: before, after: p.stock };
         }
-        if (costs && costs[p.id] > 0) p.costPrice = costs[p.id];
+        if (costs) { const ck = keys.find(k => costs[k] > 0); if (ck != null) p.costPrice = costs[ck]; }
       });
       return list;
     }
@@ -2315,9 +2320,9 @@ Gầm: 6 tháng hoặc 10.000 km
       listenGarageProfile();
       listenCustomerDirectory();
       listenStaffKpi();
-      bindList('garage/inventory', true, () => { renderInventoryTable(); populateInventorySelector('ALL'); migrateInlineImages(); fixDuplicateInventoryIds(); });
-      bindList('garage/invoices', true, () => { fixDuplicateInvoiceIds(); renderInvoiceList(); renderCustomerAndReports(); detectNewInvoices(); refreshMaintenanceDue(); refreshAccountingDue(); skpiRefresh(); });
-      bindList('garage/stockLogs', true, () => { renderStockLogs(); updateInventoryOverviewStats(); });
+      bindList('garage/inventory', true, () => { renderInventoryTable(); populateInventorySelector('ALL'); migrateInlineImages(); fixDuplicateInventoryIds(); remapLocalDraftCodes(); scheduleCodeHeal(); });
+      bindList('garage/invoices', true, () => { fixDuplicateInvoiceIds(); scheduleCodeHeal(); renderInvoiceList(); renderCustomerAndReports(); detectNewInvoices(); refreshMaintenanceDue(); refreshAccountingDue(); skpiRefresh(); });
+      bindList('garage/stockLogs', true, () => { scheduleCodeHeal(); renderStockLogs(); updateInventoryOverviewStats(); });
       bindList('garage/staff', false, () => { renderStaffCards(); populateAdvisorSelect(); syncCurrentUserFromRoster(); skpiRefresh(); });
     }
 
@@ -4770,7 +4775,7 @@ Gầm: 6 tháng hoặc 10.000 km
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.11.06-5';
+    const APP_VERSION = '2026.11.07-1';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -5535,6 +5540,7 @@ Gầm: 6 tháng hoặc 10.000 km
       document.getElementById('inv-edit-id').value = '';
       document.getElementById('inv-edit-code').value = 'P' + (inventoryList.length + 10);
       document.getElementById('inv-edit-code').disabled = false;
+      document.getElementById('inv-rename-code-btn').classList.add('hidden');
       document.getElementById('inv-edit-name').value = '';
       document.getElementById('inv-edit-cat').value = 'PHUOC';
       document.getElementById('inv-edit-unit').value = 'Bộ';
@@ -5558,6 +5564,7 @@ Gầm: 6 tháng hoặc 10.000 km
       document.getElementById('inv-edit-id').value = p.id;
       document.getElementById('inv-edit-code').value = p.id;
       document.getElementById('inv-edit-code').disabled = true;
+      document.getElementById('inv-rename-code-btn').classList.toggle('hidden', !isAdminUser());
       document.getElementById('inv-edit-name').value = p.name;
       document.getElementById('inv-edit-cat').value = p.cat || 'PHUOC';
       document.getElementById('inv-edit-unit').value = p.unit || 'Cái';
@@ -5570,6 +5577,219 @@ Gầm: 6 tháng hoặc 10.000 km
       currentInvImageChanged = false;
       setInvImagePreview(currentInvImageData);
       document.getElementById('inventory-modal').classList.remove('hidden');
+    }
+
+
+    // ===== ĐỔI MÃ HÀNG (chỉ Chủ Xưởng) =====
+    // Mã hàng là "chìa khóa" nối món hàng với bill, phiếu nhập, nhật ký kho, ảnh và đơn Zalo.
+    // Đổi mã = (1) đổi trong kho bằng transaction (kiểm tra trùng trên bản mới nhất), giữ mã cũ ở oldCodes;
+    // (2) cập nhật mọi liên kết sang mã mới. Máy khác chưa kịp cập nhật vẫn trừ/hoàn kho đúng nhờ oldCodes,
+    // và máy Chủ Xưởng tự quét sửa các liên kết còn sót trong 30 ngày sau khi đổi.
+    const CODE_HEAL_DAYS = 30;
+    let renamingCode = false, codeHealBusy = false, codeHealTimer = null;
+    function normInvCode(s) { return String(s == null ? '' : s).trim().toUpperCase(); }
+    function invCodeTaken(code, exceptId) {
+      const k = normInvCode(code);
+      return inventoryList.some(p => p && p.id !== exceptId && (normInvCode(p.id) === k || convertToArray(p.oldCodes, []).some(c => normInvCode(c) === k)));
+    }
+    function invHasCodes(inv, map) {
+      if (!inv) return false;
+      return convertToArray(inv.items, []).some(it => it && it.id != null && map[it.id] != null) ||
+             convertToArray(inv.stockOut, []).some(x => x && x.id != null && map[x.id] != null);
+    }
+    function receiptHasCodes(r, map) { return !!r && convertToArray(r.items, []).some(it => it && it.id != null && map[it.id] != null); }
+    // Đổi mã trong 1 hóa đơn (trả về true nếu có thay đổi). stockOut gộp nếu cùng lúc có cả mã cũ và mã mới.
+    function remapInvoiceCodes(inv, map) {
+      let ch = false;
+      const items = convertToArray(inv.items, []);
+      items.forEach(it => { if (it && it.id != null && map[it.id] != null) { it.id = map[it.id]; ch = true; } });
+      if (ch) inv.items = items;
+      if (inv.stockOut != null) {
+        const so = convertToArray(inv.stockOut, []);
+        if (so.some(x => x && x.id != null && map[x.id] != null)) {
+          const m = {};
+          so.forEach(x => { if (!x || x.id == null) return; const k = map[x.id] != null ? map[x.id] : x.id; m[k] = Math.round(((m[k] || 0) + (parseFloat(x.qty) || 0)) * 10) / 10; });
+          inv.stockOut = stockOutToList(m);
+          ch = true;
+        }
+      }
+      return ch;
+    }
+    // Cập nhật mọi liên kết theo bảng {mã cũ: mã mới}. Chạy lại nhiều lần vẫn an toàn.
+    async function migrateCodeRefs(map) {
+      const rep = { bills: 0, receipts: 0, logs: 0, images: 0, orders: 0, failed: [] };
+      if (!Object.keys(map).length) return rep;
+      // Hóa đơn
+      if (invoiceList.some(inv => invHasCodes(inv, map))) {
+        const r = await cloudUpdateList('garage/invoices', list => {
+          rep.bills = 0;
+          list.forEach(inv => { if (inv && remapInvoiceCodes(inv, map)) rep.bills++; });
+          return list;
+        });
+        if (r === false) rep.failed.push('hóa đơn');
+      }
+      // Nhật ký kho
+      if (stockLogList.some(l => l && map[l.itemId] != null)) {
+        const r = await cloudUpdateList('garage/stockLogs', list => {
+          rep.logs = 0;
+          list.forEach(l => { if (l && l.itemId != null && map[l.itemId] != null) { l.itemId = map[l.itemId]; rep.logs++; } });
+          return list;
+        });
+        if (r === false) rep.failed.push('nhật ký kho');
+      }
+      // Phiếu nhập (mỗi phiếu là 1 nút riêng)
+      if (firebaseDb) {
+        for (const rc of receiptList.filter(x => receiptHasCodes(x, map))) {
+          const r = await cloudTxNode('garage/receipts/' + rc.id, cur => {
+            if (!cur) return cur;
+            const items = convertToArray(cur.items, []);
+            items.forEach(it => { if (it && it.id != null && map[it.id] != null) it.id = map[it.id]; });
+            cur.items = items;
+            return cur;
+          });
+          if (r === false) rep.failed.push('phiếu ' + rc.id); else rep.receipts++;
+        }
+      }
+      // Ảnh sản phẩm (nhánh riêng): chuyển sang khóa mới, chỉ khi mã mới chưa có ảnh
+      if (imgBranchUsable()) {
+        for (const oldId of Object.keys(map)) {
+          const ko = imgKey(oldId), kn = imgKey(map[oldId]);
+          if (ko === kn) continue;
+          try {
+            const snap = await firebaseDb.ref('garage/productImages/' + ko).once('value');
+            const v = snap.val();
+            if (!v) continue;
+            const upd = {};
+            if (!productImageMap[kn]) upd[kn] = v;
+            upd[ko] = null;
+            await firebaseDb.ref('garage/productImages').update(upd);
+            if (upd[kn]) productImageMap[kn] = v;
+            delete productImageMap[ko];
+            rep.images++;
+          } catch (e) { rep.failed.push('ảnh'); }
+        }
+      }
+      // Đơn Zalo chưa xong
+      if (firebaseDb) {
+        for (const o of Object.values(zaloOrders || {})) {
+          if (!o || !o.code || o.status === 'done' || o.status === 'cancelled') continue;
+          if (!convertToArray(o.items, []).some(it => it && map[it.id] != null)) continue;
+          const r = await cloudTxNode('garage/zaloOrders/' + o.code, cur => {
+            if (!cur) return cur;
+            const items = convertToArray(cur.items, []);
+            items.forEach(it => { if (it && it.id != null && map[it.id] != null) it.id = map[it.id]; });
+            cur.items = items;
+            return cur;
+          });
+          if (r !== false) rep.orders++;
+        }
+      }
+      remapLocalDraftCodes(map);
+      return rep;
+    }
+    // Phiếu đang soạn trên máy này (tab 1, phiếu nhập) dùng mã cũ -> đổi sang mã mới
+    function remapLocalDraftCodes(map) {
+      if (!map) {
+        map = {};
+        inventoryList.forEach(p => { if (p) convertToArray(p.oldCodes, []).forEach(c => { if (c != null && c !== p.id && !inventoryList.some(q => q && q.id === c)) map[c] = p.id; }); });
+      }
+      if (!Object.keys(map).length) return;
+      let ch = false;
+      try {
+      (currentQuoteItems || []).forEach(it => { if (it && it.id != null && map[it.id] != null) { it.id = map[it.id]; ch = true; } });
+      if (receiptDraft && Array.isArray(receiptDraft.items)) receiptDraft.items.forEach(it => { if (it && it.id != null && map[it.id] != null) { it.id = map[it.id]; ch = true; } });
+      } catch (e) { /* app đang khởi động */ }
+      if (ch) {
+        try { if (typeof renderQuoteItems === 'function') renderQuoteItems(); } catch (e) {}
+        try { if (typeof renderReceiptItems === 'function') renderReceiptItems(); } catch (e) {}
+      }
+    }
+    // Máy Chủ Xưởng: tự quét và sửa liên kết còn dùng mã cũ (VD bill lập trên máy chưa cập nhật, hoặc lần đổi trước bị rớt mạng)
+    function recentCodeMap() {
+      const cut = Date.now() - CODE_HEAL_DAYS * 86400000, map = {};
+      inventoryList.forEach(p => {
+        if (!p || !(p.codeChangedAt > cut)) return;
+        convertToArray(p.oldCodes, []).forEach(c => { if (c != null && c !== p.id && !inventoryList.some(q => q && q.id === c)) map[c] = p.id; });
+      });
+      return map;
+    }
+    function scheduleCodeHeal() {
+      if (!firebaseDb || typeof isAdminUser !== 'function' || !isAdminUser()) return;
+      clearTimeout(codeHealTimer);
+      codeHealTimer = setTimeout(runCodeHeal, 4000);
+    }
+    async function runCodeHeal() {
+      if (codeHealBusy || renamingCode || !isAdminUser()) return;
+      if (!['garage/inventory', 'garage/invoices', 'garage/stockLogs'].every(k => cloudReady[k])) return;
+      const map = recentCodeMap();
+      if (!Object.keys(map).length) return;
+      const need = invoiceList.some(inv => invHasCodes(inv, map)) || stockLogList.some(l => l && map[l.itemId] != null) ||
+        receiptList.some(r => receiptHasCodes(r, map)) || Object.keys(map).some(c => productImageMap[imgKey(c)]);
+      if (!need) return;
+      codeHealBusy = true;
+      try { await migrateCodeRefs(map); } catch (e) { console.warn('Sửa liên kết mã hàng:', e); }
+      finally { codeHealBusy = false; }
+    }
+
+    async function renameInventoryCode() {
+      if (!isAdminUser()) { showNotification('Chỉ Chủ Xưởng được đổi mã hàng!', 'warning'); return; }
+      if (renamingCode) return;
+      const oldId = document.getElementById('inv-edit-id').value.trim();
+      const p = inventoryList.find(i => i.id === oldId);
+      if (!oldId || !p) { showNotification('Không tìm thấy món hàng này trong kho!', 'error'); return; }
+      if (!firebaseDb || !['garage/inventory', 'garage/invoices', 'garage/stockLogs'].every(k => cloudReady[k])) {
+        showNotification('Chưa kết nối xong đám mây. Đợi vài giây rồi đổi mã lại!', 'warning'); return;
+      }
+      const ans = window.prompt('ĐỔI MÃ HÀNG\n' + (p.name || '') + '\n\nMã hiện tại: ' + oldId + '\nNhập mã mới:', oldId);
+      if (ans == null) return;
+      const newId = normInvCode(ans);
+      if (!newId || newId === '-' ) { showNotification('Mã mới không được để trống!', 'warning'); return; }
+      if (newId === oldId) { showNotification('Mã mới giống mã cũ, không có gì thay đổi.', 'info'); return; }
+      if (newId.length > 40) { showNotification('Mã hàng quá dài (tối đa 40 ký tự)!', 'warning'); return; }
+      if (/['"`\\<>\s]/.test(newId)) { showNotification('Mã hàng không được chứa dấu cách hoặc ký tự \' " ` \\ < >', 'warning'); return; }
+      if (invCodeTaken(newId, oldId)) { showNotification('Mã "' + newId + '" đang được món khác dùng (hoặc là mã cũ của món khác)!', 'error'); return; }
+      const map = { [oldId]: newId };
+      const nBill = invoiceList.filter(inv => invHasCodes(inv, map)).length;
+      const nRc = receiptList.filter(r => receiptHasCodes(r, map)).length;
+      const nLog = stockLogList.filter(l => l && l.itemId === oldId).length;
+      if (!window.confirm('Đổi mã "' + oldId + '" → "' + newId + '"?\n\nSẽ cập nhật theo mã mới:\n• ' + nBill + ' hóa đơn\n• ' + nRc + ' phiếu nhập\n• ' + nLog + ' dòng nhật ký kho\n• ảnh sản phẩm, đơn Zalo chưa xong\n\nKHÔNG tắt app trong lúc đổi.')) return;
+
+      renamingCode = true;
+      const btn = document.getElementById('inv-rename-code-btn'); if (btn) btn.disabled = true;
+      try {
+        // B1: đổi trong kho (transaction trên bản mới nhất -> 2 máy không thể cùng lấy 1 mã)
+        let gone = false, clash = '';
+        const r1 = await cloudUpdateList('garage/inventory', list => {
+          gone = false; clash = '';
+          const t = list.find(i => i && i.id === oldId);
+          if (!t) { gone = true; return list; }
+          const c = list.find(i => i && i !== t && (normInvCode(i.id) === newId || convertToArray(i.oldCodes, []).some(x => normInvCode(x) === newId)));
+          if (c) { clash = c.name || c.id; return list; }
+          t.id = newId;
+          t.oldCodes = Array.from(new Set(convertToArray(t.oldCodes, []).concat([oldId]))).filter(x => x != null && x !== newId);
+          t.codeChangedAt = Date.now();
+          return list;
+        });
+        if (r1 === false) return;
+        if (gone) { showNotification('Món hàng này đã bị xóa / đổi mã từ máy khác!', 'error'); closeInventoryModal(); return; }
+        if (clash) { showNotification('Mã "' + newId + '" vừa được món "' + clash + '" dùng trên máy khác. Chọn mã khác!', 'error'); return; }
+        if (r1 === null) {
+          showNotification('Mạng chậm: mã mới đang chờ gửi lên đám mây. Bill / phiếu sẽ tự cập nhật khi gửi xong. Đừng tắt app!', 'warning');
+          closeInventoryModal(); return;
+        }
+        document.getElementById('inv-edit-id').value = newId;
+        document.getElementById('inv-edit-code').value = newId;
+        // B2: cập nhật liên kết
+        const rep = await migrateCodeRefs(map);
+        logStockEvent('DIEUCHINH', newId, p.name, p.unit || 'Cái', parseFloat(p.stock) || 0, parseFloat(p.stock) || 0,
+          'Đổi mã hàng "' + oldId + '" → "' + newId + '" (cập nhật ' + rep.bills + ' hóa đơn, ' + rep.receipts + ' phiếu nhập, ' + rep.logs + ' dòng nhật ký' + (rep.images ? ', ảnh' : '') + (rep.orders ? ', ' + rep.orders + ' đơn Zalo' : '') + ')');
+        renderInventoryTable(); populateInventorySelector('ALL'); renderInvoiceList(); renderStockLogs(); renderReceiptList();
+        if (rep.failed.length) showNotification('Đã đổi mã thành "' + newId + '", nhưng chưa cập nhật được: ' + rep.failed.join(', ') + '. App sẽ tự thử lại khi mạng ổn định.', 'warning');
+        else showNotification('Đã đổi mã "' + oldId + '" → "' + newId + '" và cập nhật ' + rep.bills + ' hóa đơn, ' + rep.receipts + ' phiếu nhập, ' + rep.logs + ' dòng nhật ký.', 'success');
+      } finally {
+        renamingCode = false;
+        if (btn) btn.disabled = false;
+      }
     }
 
     // ===== CHỦ XƯỞNG ĐIỀU CHỈNH TỒN KHO TRỰC TIẾP =====
@@ -5789,12 +6009,13 @@ Gầm: 6 tháng hoặc 10.000 km
         const item = { id: newCode, name: name, cat: cat, unit: unit, costPrice: costPrice, price: price, stock: openingStock };
         if (dealerPrice > 0) item.dealerPrice = dealerPrice;
         if (photoLinks) item.photoLinks = photoLinks;
+        if (invCodeTaken(newCode, null)) { showNotification(`Mã hàng "${newCode}" đã tồn tại (hoặc là mã cũ của món khác), vui lòng dùng mã khác!`, 'error'); return; }
         if (newImg && inventoryList.some(i => i.id === newCode)) { showNotification(`Mã hàng "${newCode}" đã tồn tại, vui lòng dùng mã khác!`, 'error'); return; }
         // Lưu ảnh vào nhánh riêng trước; không được thì lưu kiểu cũ trong danh sách kho
         if (newImg && !(await saveProductImage(newCode, newImg))) item.image = newImg;
         let dup = false;
         const res = await cloudUpdateList('garage/inventory', list => {
-          dup = list.some(i => i.id === newCode);
+          dup = list.some(i => i.id === newCode || convertToArray(i.oldCodes, []).includes(newCode));
           if (!dup) list.unshift(item);
           return list;
         });
@@ -7001,7 +7222,6 @@ Gầm: 6 tháng hoặc 10.000 km
     // ==========================================
     let debtData = getStoredData('drshock_debt', { partners: {}, payments: {} }) || { partners: {}, payments: {} };
     let debtReady = false;
-    let debtErr = '';
     let _debtCache = null;
     function debtInvalidate() { _debtCache = null; }
 
@@ -7133,18 +7353,13 @@ Gầm: 6 tháng hoặc 10.000 km
       firebaseDb.ref('garage/debt').on('value', snap => {
         const v = snap.val() || {};
         debtData = { partners: v.partners || {}, payments: v.payments || {} };
-        debtReady = true; debtErr = '';
+        debtReady = true;
         setStoredData('drshock_debt', debtData);
         debtInvalidate();
         renderDebtTab();
         renderInvoiceList();
         renderReceiptList();
-      }, err => {
-        // Trước đây chỉ ghi log -> app báo "Đang tải dữ liệu công nợ" mãi, không lưu được phiếu
-        debtErr = (err && (err.code || err.message)) || 'không rõ';
-        console.error('Không đọc được công nợ:', err);
-        showNotification('Không đọc được dữ liệu công nợ trên đám mây (' + debtErr + '). Cần thêm quyền garage/debt trong Firebase Rules!', 'error');
-      });
+      }, err => console.warn('Không đọc được công nợ:', err && err.code));
     }
 
     // ----- Giao diện tab Công Nợ -----
@@ -7281,7 +7496,7 @@ Gầm: 6 tháng hoặc 10.000 km
     }
     async function saveDebtPayment() {
       if (!canAccessDebt()) return;
-      if (firebaseDb && !debtReady) { showNotification(debtErr ? ('Không lưu được: máy chủ từ chối dữ liệu công nợ (' + debtErr + '). Cần thêm quyền garage/debt trong Firebase Rules!') : 'Đang tải dữ liệu công nợ, vui lòng đợi vài giây!', debtErr ? 'error' : 'warning'); return; }
+      if (firebaseDb && !debtReady) { showNotification('Đang tải dữ liệu công nợ, vui lòng đợi vài giây!', 'warning'); return; }
       const pkey = document.getElementById('dp-pkey').value;
       const p = debtBook().partners[pkey];
       const amount = parseCurrencyNumber(document.getElementById('dp-amount').value);
@@ -7368,7 +7583,7 @@ Gầm: 6 tháng hoặc 10.000 km
     }
     async function saveDebtPartner() {
       if (!canAccessDebt()) return;
-      if (firebaseDb && !debtReady) { showNotification(debtErr ? ('Không lưu được: máy chủ từ chối dữ liệu công nợ (' + debtErr + '). Cần thêm quyền garage/debt trong Firebase Rules!') : 'Đang tải dữ liệu công nợ, vui lòng đợi vài giây!', debtErr ? 'error' : 'warning'); return; }
+      if (firebaseDb && !debtReady) { showNotification('Đang tải dữ liệu công nợ, vui lòng đợi vài giây!', 'warning'); return; }
       const fixedKey = document.getElementById('dpt-key').value;
       const type = document.getElementById('dpt-key').dataset.type === 'D' ? 'D' : 'S';
       const name = document.getElementById('dpt-name').value.trim();
@@ -7920,6 +8135,7 @@ Gầm: 6 tháng hoặc 10.000 km
         receiptList = convertToArray(snap.val(), []).sort((a, b) => (b.ts || 0) - (a.ts || 0));
         setStoredData('drshock_receipts', receiptList);
         renderReceiptList();
+        scheduleCodeHeal();
       });
       // Chỉ tải 30 thông báo mới nhất (khóa 'N'+thời gian nên sắp theo khóa = theo thời gian)
       firebaseDb.ref('garage/notifications').orderByKey().limitToLast(30).on('value', snap => {
@@ -10431,7 +10647,7 @@ Gầm: 6 tháng hoặc 10.000 km
           : `<p class="text-[11px] text-amber-200 mt-2"><i class="fa-solid fa-bullseye mr-1"></i>Mức thưởng của bạn: <b>${rateTxt}</b>. Khi xưởng đạt KPI, bạn nhận ít nhất <b class="text-emerald-300">${formatMoney(row.bonusAtTarget)} đ</b>.</p>`) : '';
       const cells = [`<div class="bg-gray-900/70 rounded-xl p-2"><p class="text-[10px] text-gray-400">Thưởng KPI</p><p class="text-xs font-black font-mono text-white">${formatMoney(myKpiBonus)}</p></div>`];
       if (C.laborPct || shown.laborComm) cells.push(`<div class="bg-gray-900/70 rounded-xl p-2"><p class="text-[10px] text-gray-400">Hoa hồng công ${C.laborPct}%</p><p class="text-xs font-black font-mono text-white">${formatMoney(shown.laborComm)}</p></div>`);
-      if (shown.pen) cells.push(`<div class="bg-gray-900/70 rounded-xl p-2"><p class="text-[10px] text-gray-400">Bị trừ</p><p class="text-xs font-black font-mono ${shown.pen ? 'text-red-400' : 'text-white'}">${shown.pen ? '−' : ''}${formatMoney(shown.pen)}</p></div>`);
+      cells.push(`<div class="bg-gray-900/70 rounded-xl p-2"><p class="text-[10px] text-gray-400">Bị trừ</p><p class="text-xs font-black font-mono ${shown.pen ? 'text-red-400' : 'text-white'}">${shown.pen ? '−' : ''}${formatMoney(shown.pen)}</p></div>`);
       const bonusBox = `<div class="bg-gradient-to-br from-emerald-950/60 to-gray-900 border border-emerald-500/40 rounded-2xl p-3.5 sm:p-4">
           <p class="text-[10px] text-emerald-300 uppercase font-bold"><i class="fa-solid fa-sack-dollar mr-1"></i>${closedRow ? 'Thưởng đã chốt' : 'Thưởng của tôi (tính đến hôm nay)'}</p>
           <p class="text-3xl font-black font-mono text-emerald-400 mt-1">${formatMoney(shown.total)} đ</p>
@@ -10441,18 +10657,26 @@ Gầm: 6 tháng hoặc 10.000 km
           <p class="text-[10px] text-gray-500 mt-2">Số tạm tính, số chính thức là số Chủ Xưởng chốt cuối tháng.</p>
         </div>`;
 
+      const fixes = [];
+      row.noLaborList.forEach(inv => fixes.push(`<div class="flex items-center justify-between gap-2 text-xs py-1.5 border-t border-gray-800 first:border-0"><span><b class="text-amber-400">${esc(inv.plate)}</b> <span class="text-gray-500">${esc(inv.id)} · ${esc(inv.date)}</span></span><span class="text-red-400 font-semibold shrink-0">Thiếu tiền công${C.penNoLabor ? ' · −' + shortMoney(C.penNoLabor) : ''}</span></div>`));
+      row.comebackList.forEach(inv => fixes.push(`<div class="flex items-center justify-between gap-2 text-xs py-1.5 border-t border-gray-800 first:border-0"><span><b class="text-amber-400">${esc(inv.plate)}</b> <span class="text-gray-500">${esc(inv.id)}</span></span><span class="text-red-400 font-semibold shrink-0">Quay lại bảo hành${C.penComeback ? ' · −' + shortMoney(C.penComeback) : ''}</span></div>`));
+      const fixBox = fixes.length ? `<div class="bg-red-950/20 border border-red-500/40 rounded-2xl p-3.5">
+          <p class="text-xs font-bold text-red-300 mb-1"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Cần khắc phục (${fixes.length})</p>
+          <p class="text-[11px] text-gray-400 mb-2">Bill thiếu tiền công: báo Chủ Xưởng / Quản lý kho bổ sung dòng công vào bill để không bị trừ.</p>${fixes.join('')}</div>` : '';
+
       const myBills = row.list.slice().sort((a, b) => b.t - a.t).map(b => `<div class="flex items-center justify-between gap-2 py-1.5 border-t border-gray-800 first:border-0 text-xs">
           <div class="min-w-0"><b class="text-amber-400">${esc(b.inv.plate)}</b> <span class="text-gray-300">${esc(b.inv.car || '')}</span><p class="text-[10px] text-gray-500">${esc(b.inv.date)}${b.k > 1 ? ` · làm chung ${b.k} người` : ''}</p></div>
-          </div>`).join('')
+          <span class="font-mono font-bold shrink-0 ${b.labor > 0 ? 'text-emerald-400' : 'text-red-400'}">${b.labor > 0 ? 'Công ' + formatMoney(Math.round(b.labor / b.k)) : 'Chưa ghi công'}</span></div>`).join('')
         || '<p class="text-xs text-gray-500 italic text-center py-3">Chưa có xe nào được ghi tên bạn trong tháng này.</p>';
 
       return `<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
           <div class="bg-gray-900 border border-gray-800 rounded-2xl p-3.5 sm:p-4">${kpiBox}</div>
           ${bonusBox}
         </div>
+        ${fixBox}
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
           <div class="bg-gray-900 border border-gray-800 rounded-2xl p-3.5 sm:p-4">
-            <p class="text-xs font-bold text-white mb-2"><i class="fa-solid fa-car-side mr-1 text-orange-400"></i>Xe tôi đã làm (${row.bills})</p>
+            <p class="text-xs font-bold text-white mb-2"><i class="fa-solid fa-car-side mr-1 text-orange-400"></i>Xe tôi đã làm (${row.bills}) · tiền công ${formatMoney(Math.round(row.labor))} đ</p>
             <div class="max-h-80 overflow-y-auto custom-scrollbar">${myBills}</div>
           </div>
           ${skpiRankHtml(R, me.id)}
@@ -10467,7 +10691,7 @@ Gầm: 6 tháng hoặc 10.000 km
         <p class="text-xs font-bold text-white mb-2"><i class="fa-solid fa-ranking-star mr-1 text-amber-400"></i>Bảng thi đua ${skpiMonthLabel(R.M).toLowerCase()}</p>
         ${rows.map((r, i) => `<div class="flex items-center justify-between gap-2 py-1.5 border-t border-gray-800 first:border-0 text-xs ${r.id === meId ? 'text-emerald-300 font-bold' : 'text-gray-300'}">
           <span>${medal(i)} ${esc(r.name)}${r.id === meId ? ' (bạn)' : ''}</span>
-          <span class="font-mono">${r.bills} xe${meId ? '' : ' · công ' + shortMoney(r.labor)}</span></div>`).join('')}
+          <span class="font-mono">${r.bills} xe · công ${shortMoney(r.labor)}</span></div>`).join('')}
       </div>`;
     }
 
