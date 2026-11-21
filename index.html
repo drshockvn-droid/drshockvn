@@ -63,19 +63,41 @@
     .custom-scrollbar::-webkit-scrollbar-track { background: #111827; }
     .custom-scrollbar::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
     
+    /* ===== HÓA ĐƠN KHỔ A4 (dùng chung cho In / Lưu PDF và Tải ảnh) ===== */
+    .a4-doc { color: #111827; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .a4-doc .text-\[9px\] { font-size: 11px !important; }
+    .a4-doc .text-\[10px\] { font-size: 12px !important; line-height: 1.5 !important; }
+    .a4-doc .text-\[11px\] { font-size: 13px !important; line-height: 1.5 !important; }
+    .a4-doc .text-xs { font-size: 14px !important; line-height: 1.5 !important; }
+    .a4-doc .text-sm, .a4-doc .sm\:text-base { font-size: 17px !important; line-height: 1.5 !important; }
+    .a4-doc .text-base { font-size: 18px !important; }
+    .a4-doc .text-lg, .a4-doc .sm\:text-xl { font-size: 24px !important; line-height: 1.3 !important; }
+    .a4-doc table th, .a4-doc table td { padding: 7px 9px !important; vertical-align: top; }
+    .a4-doc table th.w-14 { width: 80px !important; }
+    .a4-doc table th.w-20 { width: 115px !important; }
+    .a4-doc table th.w-24 { width: 130px !important; }
+    .a4-doc #inv-print-warranty-qr { width: 92px !important; height: 92px !important; }
+    .a4-doc tr, .a4-doc #inv-print-warranty-box, .a4-doc #inv-print-warranty-text, .a4-doc .a4-keep { break-inside: avoid; page-break-inside: avoid; }
+    .a4-doc thead { display: table-header-group; }
+    .a4-doc .a4-keep { margin-top: 26px !important; padding-bottom: 80px; } /* chừa chỗ ký tên */
+    .a4-doc * { overflow-wrap: anywhere; }
+    /* Bản dựng ẩn để chụp ảnh: đúng khổ A4 (794 x 1123 px), lề ~12 mm */
+    .a4-sheet { position: fixed; left: -10000px; top: 0; width: 794px; min-height: 1123px; padding: 42px 46px; box-sizing: border-box; background: #ffffff; }
+
+    @page { size: A4 portrait; margin: 12mm 12mm 14mm 12mm; }
     @media print {
-      body * { visibility: hidden; }
-      #invoice-modal, #invoice-modal * { visibility: visible; }
+      html, body { background: #ffffff !important; margin: 0 !important; padding: 0 !important; height: auto !important; overflow: visible !important; }
+      body > *:not(#invoice-modal) { display: none !important; }
       #invoice-modal {
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 100%;
-        background: #ffffff !important;
-        color: #000000 !important;
-        margin: 0;
-        padding: 0;
+        display: block !important; position: static !important; inset: auto !important;
+        background: #ffffff !important; padding: 0 !important; margin: 0 !important; overflow: visible !important;
       }
+      #invoice-modal > div {
+        max-width: none !important; width: 100% !important; margin: 0 !important; padding: 0 !important;
+        border-radius: 0 !important; box-shadow: none !important; background: #ffffff !important;
+      }
+      #invoice-modal.hidden { display: none !important; }
+      #printable-invoice { width: 100% !important; }
       .no-print { display: none !important; }
     }
   </style>
@@ -1021,7 +1043,7 @@ Gầm: 6 tháng hoặc 10.000 km
           <p id="inv-print-warranty-text">* Cam kết: Phuộc bảo hành xì dầu: Tokico, KYB Excel-G, Mando 6 tháng; Profender PAG 4 nấc 12 tháng; TEIN Basic, XEX Plus, Roadfit 15 tháng; TEIN EnduraPro Plus, TEIN Street Advance Z 18 tháng; Profender Drift, Fitz, Queen, Mono 2.0, OEM 2.5 24 tháng (năm 2 sửa chữa). Xì dầu cây nào đổi mới cây đó, không bảo hành lực nặng nhẹ, áp lên nhanh chậm. Dòng khác theo chính sách NSX. Gầm & phụ tùng sửa chữa bảo hành 6 tháng hoặc 10.000 km vận hành (tùy điều kiện nào đến trước). Miễn phí kiểm tra siết lại gầm sau 1.000km đầu tiên.</p>
         </div>
 
-        <div class="grid grid-cols-2 text-center text-[11px] mt-4 pt-2 font-bold text-gray-700">
+        <div class="a4-keep grid grid-cols-2 text-center text-[11px] mt-4 pt-2 font-bold text-gray-700">
           <div>
             <p>KHÁCH HÀNG</p>
             <p class="text-[9px] font-normal text-gray-400 mt-0.5">(Ký & ghi rõ họ tên)</p>
@@ -1035,10 +1057,10 @@ Gầm: 6 tháng hoặc 10.000 km
 
       <div class="no-print mt-4 flex flex-wrap items-center justify-end gap-2">
         <button id="btn-download-inv-img" onclick="downloadInvoiceImage()" class="flex-1 sm:flex-none px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow flex items-center justify-center gap-1.5 transition">
-          <i class="fa-solid fa-image"></i><span id="btn-download-inv-text">Tải Ảnh Hóa Đơn</span>
+          <i class="fa-solid fa-image"></i><span id="btn-download-inv-text">Tải Ảnh A4</span>
         </button>
-        <button onclick="window.print()" class="flex-1 sm:flex-none px-4 py-2.5 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow flex items-center justify-center gap-1.5 transition">
-          <i class="fa-solid fa-print"></i><span>In Phiếu</span>
+        <button onclick="printInvoiceA4()" class="flex-1 sm:flex-none px-4 py-2.5 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow flex items-center justify-center gap-1.5 transition">
+          <i class="fa-solid fa-print"></i><span>In / Lưu PDF (A4)</span>
         </button>
         <button onclick="closeInvoiceModal()" class="px-4 py-2.5 bg-gray-200 hover:bg-gray-300 active:scale-95 text-gray-700 font-semibold text-xs rounded-xl transition">
           Đóng
@@ -4003,6 +4025,7 @@ Gầm: 6 tháng hoặc 10.000 km
     }
 
     function closeInvoiceModal() {
+      { const pe = document.getElementById('printable-invoice'); if (pe) pe.classList.remove('a4-doc'); }
       document.getElementById('invoice-modal').classList.add('hidden');
     }
 
@@ -4786,7 +4809,7 @@ Gầm: 6 tháng hoặc 10.000 km
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.11.19-2';
+    const APP_VERSION = '2026.11.21-1';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -6080,12 +6103,27 @@ Gầm: 6 tháng hoặc 10.000 km
       if (btn) btn.disabled = true;
       if (btnText) btnText.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i>Đang xuất ảnh...`;
 
+      // Dựng bản sao đúng khổ A4 ở ngoài màn hình -> ảnh luôn đủ chữ, không phụ thuộc màn hình điện thoại hay vị trí cuộn
+      const sheet = document.createElement('div');
+      sheet.className = 'a4-sheet';
+      const clone = invElem.cloneNode(true);
+      clone.removeAttribute('id');
+      clone.querySelectorAll('[id]').forEach(el => { if (el.id !== 'inv-print-warranty-qr' && el.id !== 'inv-print-warranty-box' && el.id !== 'inv-print-warranty-text') el.removeAttribute('id'); });
+      clone.classList.add('a4-doc');
+      sheet.appendChild(clone);
+      document.body.appendChild(sheet);
       try {
-        const canvas = await html2canvas(invElem, {
+        if (document.fonts && document.fonts.ready) await document.fonts.ready;
+        const canvas = await html2canvas(sheet, {
           scale: 2,
           useCORS: true,
           backgroundColor: '#ffffff',
-          logging: false
+          logging: false,
+          width: 794,
+          height: Math.max(1123, Math.ceil(sheet.scrollHeight)),
+          windowWidth: 1200,
+          scrollX: 0,
+          scrollY: 0
         });
 
         const invoiceId = (currentViewingInvoice && currentViewingInvoice.id) ? currentViewingInvoice.id : 'HOA-DON';
@@ -6103,9 +6141,20 @@ Gầm: 6 tháng hoặc 10.000 km
       } catch (err) {
         showNotification('Lỗi khi tạo ảnh hóa đơn, vui lòng thử lại!', 'error');
       } finally {
+        if (sheet.parentNode) sheet.parentNode.removeChild(sheet);
         if (btn) btn.disabled = false;
         if (btnText) btnText.textContent = origText;
       }
+    }
+
+    // In / Lưu PDF khổ A4: bật kiểu chữ A4 trong lúc in, tắt sau khi in xong
+    function printInvoiceA4() {
+      const el = document.getElementById('printable-invoice');
+      if (!el) return;
+      const off = () => { el.classList.remove('a4-doc'); window.removeEventListener('afterprint', off); };
+      el.classList.add('a4-doc');
+      window.addEventListener('afterprint', off);
+      setTimeout(() => window.print(), 60);
     }
 
     // ==========================================
