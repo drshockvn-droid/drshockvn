@@ -4809,7 +4809,7 @@ Gầm: 6 tháng hoặc 10.000 km
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.11.23-1';
+    const APP_VERSION = '2026.11.25-1';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -8212,12 +8212,22 @@ Gầm: 6 tháng hoặc 10.000 km
       }
     }
 
+    // Số phiếu nhập đang hiện (mặc định 10, bấm "Xem thêm" để hiện thêm)
+    const RECEIPT_PAGE = 10;
+    let receiptShowCount = RECEIPT_PAGE;
+    function showMoreReceipts() { receiptShowCount += 20; renderReceiptList(); }
+    function collapseReceipts() {
+      receiptShowCount = RECEIPT_PAGE; renderReceiptList();
+      const c = document.getElementById('receipt-list-container');
+      if (c && c.scrollIntoView) c.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
     function renderReceiptList() {
       const c = document.getElementById('receipt-list-container');
       if (!c) return;
       updateReceiptHeader();
       if (!receiptList.length) { c.innerHTML = '<div class="p-3 text-center text-xs text-gray-500 italic">Chưa có phiếu nhập hàng nào.</div>'; return; }
-      c.innerHTML = receiptList.slice(0, 10).map(r => `
+      const shown = Math.min(receiptShowCount, receiptList.length);
+      c.innerHTML = receiptList.slice(0, shown).map(r => `
         <div class="flex items-center justify-between gap-2 bg-gray-800/60 border border-gray-700/60 rounded-xl p-2.5">
           <div class="min-w-0">
             <div class="flex items-center gap-1.5 flex-wrap"><span class="text-xs font-bold text-amber-400 font-mono">${r.id}</span><span class="text-[10px] text-gray-400">${r.date}</span>${r.editedBy ? '<span class="text-[10px] px-1.5 rounded bg-amber-950/70 text-amber-300 border border-amber-500/30 font-semibold">Đã sửa</span>' : ''}</div>
@@ -8228,7 +8238,13 @@ Gầm: 6 tháng hoặc 10.000 km
             ${receiptDebtBadge(r)}
             <button onclick="openReceiptDetail('${r.id}')" class="mt-1 px-2.5 py-1 bg-gray-700 hover:bg-gray-600 text-amber-300 rounded-lg text-[10px] font-semibold"><i class="fa-solid fa-image mr-1"></i>Xem phiếu</button>
           </div>
-        </div>`).join('') + (receiptList.length > 10 ? `<p class="text-center text-[10px] text-gray-500">Hiển thị 10/${receiptList.length} phiếu gần nhất</p>` : '');
+        </div>`).join('') + (receiptList.length > RECEIPT_PAGE ? `<div class="flex flex-col items-center gap-1.5 pt-1">
+          <p class="text-center text-[10px] text-gray-500">Hiển thị ${shown}/${receiptList.length} phiếu gần nhất</p>
+          <div class="flex gap-2">
+            ${shown < receiptList.length ? `<button type="button" onclick="showMoreReceipts()" class="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 text-amber-300 text-[11px] font-bold"><i class="fa-solid fa-chevron-down mr-1"></i>Xem thêm ${Math.min(20, receiptList.length - shown)} phiếu</button>` : ''}
+            ${shown > RECEIPT_PAGE ? `<button type="button" onclick="collapseReceipts()" class="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-[11px] font-semibold"><i class="fa-solid fa-chevron-up mr-1"></i>Thu gọn</button>` : ''}
+          </div>
+        </div>` : '');
       renderDebtTab();
     }
 
