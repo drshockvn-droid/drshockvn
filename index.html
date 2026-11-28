@@ -916,6 +916,7 @@ Gầm: 6 tháng hoặc 10.000 km
               <button onclick="filterStockLogs('NHAP')" class="stock-log-filter-btn px-2.5 py-1 bg-gray-800 text-gray-300 hover:bg-gray-700 rounded-lg font-medium shrink-0">Nhập Hàng</button>
               <button onclick="filterStockLogs('XUAT')" class="stock-log-filter-btn px-2.5 py-1 bg-gray-800 text-gray-300 hover:bg-gray-700 rounded-lg font-medium shrink-0">Xuất Bán Bill</button>
               <button onclick="filterStockLogs('DIEUCHINH')" class="stock-log-filter-btn px-2.5 py-1 bg-gray-800 text-gray-300 hover:bg-gray-700 rounded-lg font-medium shrink-0">Sửa & Điều Chỉnh</button>
+              <button id="stock-log-archive-btn" onclick="loadStockLogArchive()" title="Nhật ký cũ hơn 600 dòng gần nhất được lưu trữ riêng" class="px-2.5 py-1 bg-gray-800 text-amber-300 hover:bg-gray-700 border border-amber-500/30 rounded-lg font-medium shrink-0"><i class="fa-solid fa-box-archive mr-1"></i>Xem nhật ký cũ</button>
             </div>
             <div class="relative">
               <input type="text" id="stock-log-search" oninput="renderStockLogs()" placeholder="Tìm phụ tùng, biển số xe, người sửa..." 
@@ -2001,25 +2002,103 @@ Gầm: 6 tháng hoặc 10.000 km
 
     // trace (không bắt buộc): ghi lại tồn TRƯỚC/SAU tính trên bản mới nhất ở đám mây,
     // để nhật ký kho đúng kể cả khi máy khác vừa thay đổi tồn kho (trước đây lấy từ bản trên máy, có thể đã cũ)
-    function applyStockDeltas(list, deltas, costs, trace) {
+    // Mã thao tác kho: "O" + thời điểm (base36) + "-" + ngẫu nhiên. Món hàng ghi lại mã đã áp dụng (p.ops) trong CÙNG
+    // transaction trừ kho -> chạy lại lần 2 (mất mạng, máy khác bù) cũng không bị trừ trùng.
+    const STOCK_OP_KEEP_MS = 3 * 86400000;
+    function genStockOpId() { return 'O' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6); }
+    function stockOpTime(id) { const m = /^O([0-9a-z]+)-/.exec(String(id || '')); return m ? parseInt(m[1], 36) : 0; }
+    function pruneStockOps(ops) {
+      const out = {}, cut = Date.now() - STOCK_OP_KEEP_MS;
+      Object.keys(ops || {}).forEach(k => { if (stockOpTime(k) > cut) out[k] = ops[k]; });
+      return out;
+    }
+    function applyStockDeltas(list, deltas, costs, trace, opId) {
       if (trace) Object.keys(trace).forEach(k => delete trace[k]); // transaction có thể chạy lại nhiều lần
       list.forEach(p => {
         // Mã hàng đã đổi: bill / phiếu lập trên máy chưa kịp cập nhật vẫn dùng mã cũ -> vẫn trừ/hoàn đúng món
         const keys = [p.id].concat(convertToArray(p.oldCodes, []).filter(c => c != null && c !== p.id));
         let d = 0, has = false;
         keys.forEach(k => { if (deltas[k] != null) { d += deltas[k]; has = true; } });
+        if (has && opId && p.ops && p.ops[opId] != null) {
+          // Thao tác này đã áp dụng cho món này rồi -> không trừ lại, chỉ báo lại số đã trừ
+          const applied = parseFloat(p.ops[opId]) || 0, now = parseFloat(p.stock) || 0;
+          if (trace) trace[p.id] = { id: p.id, name: p.name, unit: p.unit || 'Cái', before: Math.round((now - applied) * 10) / 10, after: now, replay: true };
+          has = false;
+        }
         if (has) {
           const before = parseFloat(p.stock) || 0;
           p.stock = Math.max(0, Math.round((before + d) * 10) / 10);
           if (trace) trace[p.id] = { id: p.id, name: p.name, unit: p.unit || 'Cái', before: before, after: p.stock };
+          if (opId) { const ops = pruneStockOps(p.ops); ops[opId] = Math.round((p.stock - before) * 10) / 10; p.ops = ops; }
         }
         if (costs) { const ck = keys.find(k => costs[k] > 0); if (ck != null) p.costPrice = costs[ck]; }
       });
       return list;
     }
 
+
+    // ===== TỰ TRỪ KHO BÙ CHO BILL BỊ GIÁN ĐOẠN =====
+    // Bill được lưu trước, trừ kho sau. Nếu mạng rớt / tắt app đúng lúc giữa 2 bước, bill có stockOp nhưng món hàng chưa có
+    // dấu thao tác (p.ops). Máy Chủ Xưởng / Kho tự kiểm tra các bill 2 phút – 2 ngày gần đây và trừ bù (không trừ trùng).
+    let stockHealTimer = null, stockHealBusy = false;
+    function scheduleStockHeal() {
+      if (!firebaseDb || !currentLoggedInUser || !['admin', 'stock'].includes(currentLoggedInUser.role)) return;
+      clearTimeout(stockHealTimer);
+      stockHealTimer = setTimeout(runStockHeal, 20000);
+    }
+    function stockHealPlan(inv) {
+      const op = inv && inv.stockOp;
+      if (!op || !op.id || op.done) return null;
+      const t = stockOpTime(op.id), now = Date.now();
+      if (!t || t > now - 120000 || t < now - 2 * 86400000) return null;
+      const req = {};
+      convertToArray(op.req, []).forEach(x => { if (x && x.id != null) req[x.id] = (req[x.id] || 0) + (parseFloat(x.qty) || 0); });
+      const missing = Object.keys(req).filter(k => { const p = findInvoiceProduct({ id: k }); return p && !(p.ops && p.ops[op.id] != null); });
+      const short = Object.keys(req).some(k => { const p = findInvoiceProduct({ id: k }); return p && p.ops && p.ops[op.id] != null && -(parseFloat(p.ops[op.id]) || 0) < req[k] - 0.001; });
+      return (missing.length || short) ? { op: op.id, req: req, missing: missing } : null;
+    }
+    async function runStockHeal() {
+      if (stockHealBusy || pendingCloudWrites > 0) return;
+      if (!['garage/inventory', 'garage/invoices', 'garage/stockLogs'].every(k => cloudReady[k])) return;
+      const todo = invoiceList.map(inv => ({ inv: inv, plan: stockHealPlan(inv) })).filter(x => x.plan);
+      if (!todo.length) return;
+      stockHealBusy = true;
+      try {
+        for (const { inv, plan } of todo) {
+          const deltas = {};
+          Object.keys(plan.req).forEach(k => { deltas[k] = -plan.req[k]; });
+          const trace = {};
+          const r1 = await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas, null, trace, plan.op));
+          if (r1 === false || r1 === null) break;
+          // Số thực trừ theo từng món (kể cả phần đã trừ từ trước)
+          const applied = {};
+          Object.values(trace).forEach(t => { applied[t.id] = Math.round((t.before - t.after) * 10) / 10; });
+          const shortBy = {};
+          Object.keys(plan.req).forEach(k => {
+            const p = findInvoiceProduct({ id: k }); if (!p) return;
+            const d = Math.round((plan.req[k] - (applied[p.id] || 0)) * 10) / 10;
+            if (d > 0) shortBy[p.id] = (shortBy[p.id] || 0) + d;
+          });
+          if (Object.keys(shortBy).length) {
+            await cloudUpdateList('garage/invoices', list => {
+              const t = list.find(i => i && i.id === inv.id);
+              if (!t || !t.stockOp || t.stockOp.done) return list;
+              const cur = getInvoiceStockOut(t);
+              Object.keys(shortBy).forEach(k => { cur[k] = Math.max(0, Math.round(((cur[k] || 0) - shortBy[k]) * 10) / 10); });
+              t.stockOut = stockOutToList(cur); t.stockTracked = true; t.stockOp.done = true;
+              return list;
+            });
+          }
+          const logs = traceToLogs(trace, 'XUAT', `Trừ kho bù cho hóa đơn ${inv.id} (xe ${inv.plate || ''}) – lần lưu trước bị gián đoạn mạng`);
+          if (logs.length) { await logStockEvents(logs); showNotification(`Đã tự trừ kho bù cho hóa đơn ${inv.id} (lần lưu trước bị gián đoạn).`, 'info'); }
+        }
+        renderInventoryTable(); populateInventorySelector('ALL');
+      } catch (e) { console.warn('Trừ kho bù:', e); }
+      finally { stockHealBusy = false; }
+    }
+
     function traceToLogs(trace, type, note) {
-      return Object.values(trace).map(t => [typeof type === 'function' ? type(t) : type, t.id, t.name, t.unit, t.before, t.after, typeof note === 'function' ? note(t) : note]);
+      return Object.values(trace).filter(t => !t.replay).map(t => [typeof type === 'function' ? type(t) : type, t.id, t.name, t.unit, t.before, t.after, typeof note === 'function' ? note(t) : note]);
     }
 
     // ===== SỐ LƯỢNG THỰC TRỪ KHO CỦA TỪNG HÓA ĐƠN =====
@@ -2342,8 +2421,8 @@ Gầm: 6 tháng hoặc 10.000 km
       listenGarageProfile();
       listenCustomerDirectory();
       listenStaffKpi();
-      bindList('garage/inventory', true, () => { renderInventoryTable(); populateInventorySelector('ALL'); migrateInlineImages(); fixDuplicateInventoryIds(); remapLocalDraftCodes(); scheduleCodeHeal(); scheduleZaloBrandRefresh(); });
-      bindList('garage/invoices', true, () => { fixDuplicateInvoiceIds(); scheduleCodeHeal(); renderInvoiceList(); renderCustomerAndReports(); detectNewInvoices(); refreshMaintenanceDue(); refreshAccountingDue(); skpiRefresh(); });
+      bindList('garage/inventory', true, () => { renderInventoryTable(); populateInventorySelector('ALL'); migrateInlineImages(); fixDuplicateInventoryIds(); remapLocalDraftCodes(); scheduleCodeHeal(); scheduleZaloBrandRefresh(); scheduleStockHeal(); });
+      bindList('garage/invoices', true, () => { fixDuplicateInvoiceIds(); scheduleCodeHeal(); scheduleStockHeal(); renderInvoiceList(); renderCustomerAndReports(); detectNewInvoices(); refreshMaintenanceDue(); refreshAccountingDue(); skpiRefresh(); });
       bindList('garage/stockLogs', true, () => { scheduleCodeHeal(); renderStockLogs(); updateInventoryOverviewStats(); });
       bindList('garage/staff', false, () => { renderStaffCards(); populateAdvisorSelect(); syncCurrentUserFromRoster(); skpiRefresh(); });
     }
@@ -2898,14 +2977,55 @@ Gầm: 6 tháng hoặc 10.000 km
 
     // Ghi NHIỀU dòng nhật ký trong 1 lần (trước đây mỗi món hàng tạo 1 transaction riêng gửi cả
     // danh sách 1000 dòng -> nhiều máy/nhiều món cùng lúc bị tranh chấp, chậm và dễ thất bại)
+    // Danh sách nhật ký đang dùng chỉ giữ STOCK_LOG_LIVE dòng mới nhất (mỗi lần ghi nhẹ hơn, đỡ tốn băng thông).
+    // Dòng cũ hơn được chuyển sang garage/stockLogsArchive/{năm-tháng}/{mã} – không mất, xem lại ở tab Lịch sử kho.
+    const STOCK_LOG_LIVE = 600;
+    function stockLogArchiveKey(l) {
+      const t = parseViDateTime(l && l.time); const d = t ? new Date(t) : new Date();
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    }
+    function stockLogSafeId(id) { return String(id || ('LOG-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6))).replace(/[.#$\[\]\/]/g, '_'); }
+    function archiveStockLogs(old) {
+      if (!firebaseDb || !old || !old.length) return Promise.resolve();
+      const upd = {};
+      old.forEach(l => { if (l) upd[stockLogArchiveKey(l) + '/' + stockLogSafeId(l.id)] = cleanJson(l); });
+      return firebaseDb.ref('garage/stockLogsArchive').update(upd).catch(e => console.warn('Chưa lưu trữ được nhật ký kho cũ (kiểm tra Rules garage/stockLogsArchive):', e && e.code));
+    }
     function logStockEvents(entries) {
       const logs = (entries || []).map(e => makeStockLog.apply(null, e));
       if (!logs.length) return Promise.resolve();
+      let dropped = [];
       return cloudUpdateList('garage/stockLogs', list => {
         list.unshift.apply(list, logs.slice().reverse());
-        if (list.length > 1000) list.length = 1000;
+        dropped = list.length > STOCK_LOG_LIVE ? list.slice(STOCK_LOG_LIVE) : [];
+        if (list.length > STOCK_LOG_LIVE) list.length = STOCK_LOG_LIVE;
         return list;
-      }).then(() => renderStockLogs());
+      }).then(res => { if (res && dropped.length) return archiveStockLogs(dropped); })
+        .then(() => renderStockLogs());
+    }
+    // Xem nhật ký đã lưu trữ (tải khi bấm, không tải sẵn)
+    let stockLogArchive = null, stockLogArchiveLoading = false;
+    async function loadStockLogArchive() {
+      if (!firebaseDb) { showNotification('Chưa kết nối đám mây!', 'warning'); return; }
+      if (stockLogArchiveLoading) return;
+      stockLogArchiveLoading = true;
+      const btn = document.getElementById('stock-log-archive-btn');
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Đang tải...'; }
+      try {
+        const v = (await firebaseDb.ref('garage/stockLogsArchive').once('value')).val() || {};
+        const arr = [];
+        Object.keys(v).forEach(m => Object.values(v[m] || {}).forEach(l => { if (l) arr.push(l); }));
+        arr.sort((a, b) => parseViDateTime(b.time) - parseViDateTime(a.time));
+        const live = new Set(stockLogList.map(l => l.id));
+        stockLogArchive = arr.filter(l => !live.has(l.id));
+        showNotification(stockLogArchive.length ? 'Đã tải ' + stockLogArchive.length + ' dòng nhật ký cũ.' : 'Chưa có nhật ký cũ nào được lưu trữ.', 'info');
+      } catch (e) {
+        showNotification('Không tải được nhật ký cũ (' + ((e && e.code) || 'lỗi mạng') + ').', 'error');
+      } finally {
+        stockLogArchiveLoading = false;
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-box-archive mr-1"></i>' + (stockLogArchive ? 'Đã hiện cả nhật ký cũ' : 'Xem nhật ký cũ'); }
+        renderStockLogs();
+      }
     }
 
     function logStockEvent(type, itemId, itemName, unit, beforeQty, afterQty, note) {
@@ -3589,6 +3709,8 @@ Gầm: 6 tháng hoặc 10.000 km
         // Ghi tạm số trừ = số trên bill; sau khi trừ kho xong sẽ sửa lại nếu kho không đủ
         base.stockTracked = true;
         base.stockOut = stockOutToList(requestedOut);
+        const stockOpId = Object.keys(deltas).length ? genStockOpId() : '';
+        if (stockOpId) base.stockOp = { id: stockOpId, req: stockOutToList(requestedOut) };
 
         // Mã hóa đơn được cấp ngay trên bản mới nhất ở đám mây -> 2 máy lập bill cùng lúc không bao giờ trùng mã / đè bill của nhau
         let newInv = null;
@@ -3603,11 +3725,18 @@ Gầm: 6 tháng hoặc 10.000 km
 
         if (Object.keys(deltas).length) {
           const trace = {};
-          const stRes = await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas, null, trace));
+          const stRes = await cloudUpdateList('garage/inventory', list => applyStockDeltas(list, deltas, null, trace, stockOpId));
           const actualOut = {};
-          if (stRes !== false) Object.values(trace).forEach(t => { actualOut[t.id] = Math.round((t.before - t.after) * 10) / 10; });
-          if (!sameStockOut(actualOut, requestedOut)) {
-            await saveInvoiceStockOut(newInv.id, actualOut);
+          if (stRes !== false && stRes !== null) Object.values(trace).forEach(t => { actualOut[t.id] = Math.round((t.before - t.after) * 10) / 10; });
+          if (stRes === null || stRes === false) {
+            // Chưa trừ được kho (mạng chậm / bị từ chối): giữ nguyên số trên bill, máy Chủ Xưởng / Kho sẽ tự trừ bù sau vài phút (không trừ trùng).
+            showNotification(stRes === null ? 'Mạng chậm: kho đang chờ trừ. Nếu bị gián đoạn, app sẽ tự trừ bù sau vài phút.' : 'Chưa trừ được kho cho bill này. Máy Chủ Xưởng / Kho sẽ tự trừ bù sau vài phút.', 'warning');
+          } else if (!sameStockOut(actualOut, requestedOut)) {
+            await cloudUpdateList('garage/invoices', list => {
+              const t = list.find(i => i.id === newInv.id);
+              if (t) { t.stockTracked = true; t.stockOut = stockOutToList(actualOut); if (t.stockOp) t.stockOp.done = true; }
+              return list;
+            });
             newInv.stockOut = stockOutToList(actualOut);
           }
           if (stRes !== false) logStockEvents(traceToLogs(trace, 'XUAT', t => `Xuất theo hóa đơn ${newInv.id} cho xe ${newInv.plate} (${newInv.serviceType} - ${newInv.customerType})` +
@@ -4809,7 +4938,7 @@ Gầm: 6 tháng hoặc 10.000 km
     // ===== PHIÊN BẢN APP & TỰ CẬP NHẬT =====
     // Mỗi lần sửa code, TĂNG số này. Máy mở bản mới sẽ ghi số phiên bản lên đám mây; máy nào đang chạy
     // bản cũ hơn sẽ tự tải lại bản mới (tránh tình trạng điện thoại giữ bản cũ trong bộ nhớ đệm, ghi dữ liệu kiểu cũ).
-    const APP_VERSION = '2026.11.25-1';
+    const APP_VERSION = '2026.11.28-2';
     let cloudAppVersion = null;
     function isAppVersionCurrent() { return !cloudAppVersion || cloudAppVersion <= APP_VERSION; }
     function anyModalOpen() {
@@ -6908,7 +7037,7 @@ Gầm: 6 tháng hoặc 10.000 km
 
       const q = (document.getElementById('stock-log-search') ? document.getElementById('stock-log-search').value.toLowerCase().trim() : '');
       
-      let filtered = stockLogList;
+      let filtered = stockLogArchive ? stockLogList.concat(stockLogArchive) : stockLogList;
       if (currentStockLogFilter !== 'ALL') {
         filtered = filtered.filter(l => l.type === currentStockLogFilter);
       }
