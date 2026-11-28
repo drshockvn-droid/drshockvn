@@ -42,9 +42,21 @@
         ".read": "auth != null && root.child('roles').child(auth.uid).exists()",
         ".write": "auth != null && root.child('roles').child(auth.uid).exists()"
       },
-      "meta": {
+      "stockLogsArchive": {
         ".read": "auth != null && root.child('roles').child(auth.uid).exists()",
         ".write": "auth != null && root.child('roles').child(auth.uid).exists()"
+      },
+      "meta": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).exists()",
+        "appVersion": {
+          ".write": "auth != null && root.child('roles').child(auth.uid).exists()"
+        },
+        "staffKpi": {
+          ".write": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'"
+        },
+        "$other": {
+          ".write": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'"
+        }
       },
       "staff": {
         ".read": "auth != null && root.child('roles').child(auth.uid).exists()",
@@ -124,7 +136,17 @@
       },
       "debt": {
         ".read": "auth != null && (root.child('roles').child(auth.uid).val() === 'admin' || root.child('roles').child(auth.uid).val() === 'ketoan')",
-        ".write": "auth != null && (root.child('roles').child(auth.uid).val() === 'admin' || root.child('roles').child(auth.uid).val() === 'ketoan')"
+        ".write": "auth != null && root.child('roles').child(auth.uid).val() === 'admin'",
+        "partners": {
+          "$key": {
+            ".write": "auth != null && root.child('roles').child(auth.uid).val() === 'ketoan' && !data.exists() && newData.exists()"
+          }
+        },
+        "payments": {
+          "$id": {
+            ".write": "auth != null && root.child('roles').child(auth.uid).val() === 'ketoan' && !data.exists() && newData.exists()"
+          }
+        }
       }
     }
   }
